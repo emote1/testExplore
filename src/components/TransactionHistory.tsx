@@ -1,6 +1,4 @@
 import React, { useState } from 'react';
-// Возвращаем импорт утилит из @polkadot/util-crypto
-import { isEthereumAddress, evmToAddress } from '@polkadot/util-crypto';
 
 // Типизация для extrinsics из Subsquid (расширенная)
 interface Transaction {
@@ -27,6 +25,11 @@ interface RawExtrinsicData {
   // Другие возможные поля из GraphQL...
 }
 
+// Вспомогательная функция для проверки формата EVM-адреса с помощью Regex
+const isValidEvmAddressFormat = (address: string): boolean => {
+  return /^0x[a-fA-F0-9]{40}$/.test(address);
+};
+
 const TransactionHistory: React.FC = () => {
   const [address, setAddress] = useState<string>('');
   const [tab, setTab] = useState<number>(0); // 0 - Transactions, 1 - Tokens, 2 - NFTs
@@ -38,106 +41,143 @@ const TransactionHistory: React.FC = () => {
   const fetchTransactions = async () => {
     setLoading(true);
     setError('');
+    setTransactions([]); // Очищаем предыдущие результаты
+
     try {
-      let queryAddress = address;
-      // Проверяем и конвертируем EVM адрес в нативный Reef адрес
-      if (address && isEthereumAddress(address)) {
-        try {
-          queryAddress = evmToAddress(address, 42);
-          console.log(`Converted EVM address ${address} to Reef address ${queryAddress}`);
-        } catch (convertError) {
-          console.error('Error converting EVM address:', convertError);
-          setError('Invalid EVM address or conversion failed.');
+      let targetAddress = address; // Адрес для запроса extrinsics
+
+      // Шаг 1: Если введен EVM адрес, получить нативный ID
+      if (address && isValidEvmAddressFormat(address)) {
+        console.log(`Input is EVM address: ${address}. Fetching native ID...`);
+        const accountQuery = `
+          query GetAccountByEvm($evmAddress: String!) {
+            accounts(where: { evmAddress_eq: $evmAddress }, limit: 1) {
+              id # Нативный адрес
+            }
+          }
+        `;
+        const accountResponse = await fetch('https://squid.subsquid.io/reef-explorer/graphql', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            query: accountQuery,
+            variables: { evmAddress: address }
+          })
+        });
+        const accountResult = await accountResponse.json();
+
+        if (accountResult.errors) {
+          console.error('GraphQL Errors fetching account:', accountResult.errors);
+          throw new Error(`GraphQL error fetching account: ${accountResult.errors.map((e: any) => e.message).join(', ')}`);
+        }
+
+        if (accountResult.data?.accounts && accountResult.data.accounts.length > 0) {
+          targetAddress = accountResult.data.accounts[0].id;
+          console.log(`Native address found: ${targetAddress}`);
+        } else {
+          console.log(`No native account found linked to EVM address: ${address}`);
+          // Если аккаунт не найден, транзакций по этому EVM быть не может
           setLoading(false);
-          return; // Прерываем выполнение, если адрес EVM невалидный
+          return; // Выходим, транзакций нет
         }
-      } 
-
-      // Формируем GraphQL-запрос с фильтром по адресу, если он введён
-      const query: string = queryAddress
-        ? `
-      query {
-        extrinsics(
-          limit: 10
-          orderBy: id_DESC
-          where: { signer_eq: "${queryAddress}" }
-        ) {
-          id
-          hash
-          signer
-          status
-          section
-          method
-          args
-        }
-      }
-      `
-        : `
-      query {
-        extrinsics(
-          limit: 10
-          orderBy: id_DESC
-        ) {
-          id
-          hash
-          signer
-          status
-          section
-          method
-          args
-        }
-      }
-      `;
-      const response = await fetch('https://squid.subsquid.io/reef-explorer/graphql', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ query }),
-      });
-      const result = await response.json();
-      console.log('Subsquid extrinsics response:', result);
-
-      if (result.errors) {
-        console.error('GraphQL Errors:', result.errors);
-        setError('Error fetching data from Subsquid.');
-        setLoading(false);
-        return;
+      } else if (address) {
+        console.log(`Input is assumed to be native address: ${address}`);
+        targetAddress = address;
       }
 
-      // Применяем тип к сырым данным
-      const allExtrinsicsRaw: RawExtrinsicData[] = Array.isArray(result.data?.extrinsics) ? result.data.extrinsics : [];
+      // Шаг 2: Если есть адрес (нативный или полученный из EVM), запросить extrinsics
+      if (targetAddress) {
+          const extrinsicsQuery = `
+            query GetExtrinsics($signerAddress: String!) {
+              extrinsics(
+                limit: 10
+                orderBy: id_DESC
+                where: { signer_eq: $signerAddress }
+              ) {
+                id
+                hash
+                signer
+                status
+                section
+                method
+                args
+              }
+            }
+          `;
 
-      // Обработка extrinsics для извлечения amount, recipient
-      const processedExtrinsics: Transaction[] = allExtrinsicsRaw.map((extrinsic: RawExtrinsicData) => {
-        let recipient: string | undefined;
-        let amount: number | undefined;
+          const extrinsicsResponse = await fetch('https://squid.subsquid.io/reef-explorer/graphql', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                  query: extrinsicsQuery,
+                  variables: { signerAddress: targetAddress }
+              })
+          });
 
-        // Логика для balances.transfer
-        if (extrinsic.section === 'Balances' && extrinsic.method === 'transfer' && Array.isArray(extrinsic.args) && extrinsic.args.length >= 2) {
-           try {
-              recipient = extrinsic.args[0]?.value; 
-              amount = parseFloat(extrinsic.args[1]) / 1e18; 
-              if (isNaN(amount)) amount = undefined; 
-           } catch(e) {
-              console.error("Error parsing args for transfer:", extrinsic.hash, extrinsic.args, e);
-              recipient = undefined;
-              amount = undefined;
-           }
-        }
-        
-        return {
-          ...extrinsic,
-          amount: amount,       
-          recipient: recipient, 
-        };
-      });
+          const extrinsicsResult = await extrinsicsResponse.json();
+          console.log('Subsquid extrinsics response:', extrinsicsResult);
 
-      console.log('Processed extrinsics:', processedExtrinsics);
+          if (extrinsicsResult.errors) {
+              console.error('GraphQL Errors fetching extrinsics:', extrinsicsResult.errors);
+              throw new Error(`GraphQL error fetching extrinsics: ${extrinsicsResult.errors.map((e: any) => e.message).join(', ')}`);
+          }
 
-      // Убираем placeholder extrinsics с id = "-1"
-      const validExtrinsics = processedExtrinsics.filter((tx: Transaction) => tx.id !== "-1");
-      setTransactions(validExtrinsics);
+          if (!extrinsicsResult.data || !extrinsicsResult.data.extrinsics) {
+              console.log('No extrinsics data found in response for address:', targetAddress);
+              // Оставляем transactions пустым
+          } else {
+              // Обработка полученных extrinsics 
+              const processedTransactions: Transaction[] = extrinsicsResult.data.extrinsics.map((extrinsic: RawExtrinsicData) => {
+                  let amount: string | number | undefined = undefined;
+                  let recipient: string | undefined = undefined;
+
+                  // Проверяем регистронезависимо и учитываем возможные варианты названий
+                  const sectionLower = extrinsic.section.toLowerCase();
+                  const methodLower = extrinsic.method.toLowerCase();
+
+                  if (sectionLower === 'balances' && (methodLower === 'transferkeepalive' || methodLower === 'transfer')) {
+                      // Структура args: [ { value: recipient_address, __kind: 'Id' }, amount_string ]
+                       if (Array.isArray(extrinsic.args) && extrinsic.args.length >= 2) {
+                           recipient = extrinsic.args[0]?.value; 
+                           const amountRaw = extrinsic.args[1]; // Правильно: берем второй элемент напрямую
+
+                           if (amountRaw && typeof amountRaw === 'string') {
+                               try {
+                                  // Используем BigInt для точности
+                                  const amountBigInt = BigInt(amountRaw);
+                                  const divisor = 10n**18n; // 10^18 для REEF
+                                  // Делим и форматируем. Преобразуем BigInt в Number для toFixed, 
+                                  // но это может потерять точность для ОЧЕНЬ больших чисел, 
+                                  // для REEF должно быть нормально.
+                                  amount = (Number(amountBigInt * 10000n / divisor) / 10000).toFixed(4); // Форматируем до 4 знаков
+                                  // Альтернативно, можно оставить как строку или использовать библиотеку для Decimal
+                              } catch (e) {
+                                  console.error(`Error formatting amount ${amountRaw}:`, e);
+                                  amount = 'Error'; // Или оставить undefined
+                              }
+                          } 
+                      } 
+                  }
+
+                   return {
+                       id: extrinsic.id,
+                       hash: extrinsic.hash,
+                       signer: extrinsic.signer,
+                       status: extrinsic.status,
+                       section: extrinsic.section,
+                       method: extrinsic.method,
+                       args: extrinsic.args,
+                       recipient: recipient,
+                       amount: amount,
+                   };
+              });
+              console.log('Processed extrinsics:', processedTransactions);
+              setTransactions(processedTransactions);
+          }
+      } else {
+          // Случай, когда адрес не был введен изначально
+          console.log('No address provided.');
+      }
     } catch (err: any) {
       console.error('Error fetching transactions:', err);
       setError('Failed to fetch transactions. ' + (err.message || '') + (err.response?.errors ? JSON.stringify(err.response.errors) : ''));
@@ -145,9 +185,6 @@ const TransactionHistory: React.FC = () => {
       setLoading(false);
     }
   };
-
-
-
 
   // Копировать в буфер
   const copyToClipboard = (text: string) => {

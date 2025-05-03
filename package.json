@@ -11,7 +11,6 @@
   },
   "dependencies": {
     "@apollo/client": "^3.13.8",
-    "@polkadot/util-crypto": "^13.4.4",
     "@reef-defi/api": "^1.1.0",
     "axios": "^1.9.0",
     "graphql": "^16.11.0",
@@ -30,5 +29,8 @@
     "typescript": "~5.7.2",
     "typescript-eslint": "^8.26.1",
     "vite": "^6.3.1"
+  },
+  "overrides": {
+    "@polkadot/util-crypto": "13.2.1"
   }
 }
