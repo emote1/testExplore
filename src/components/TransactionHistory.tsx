@@ -10,38 +10,57 @@ const isValidEvmAddressFormat = (address: string): boolean => {
 // Пример интерфейса для транзакции (адаптируйте под ваши реальные данные)
 interface Transaction {
     id: string;
-    hash?: string; 
-    signer?: string; 
+    from: string;
+    to: string;
+    timestamp: string; 
+    type: string; 
+    extrinsicHash?: string; 
+    signer: string; 
     section: string;
     method: string;
-    timestamp: string; 
+    recipient: string;
+    amount: string | number;
     status?: string; 
-    recipient?: string;
-    amount?: string | number;
     displayType?: string;
 }
 
 // Вспомогательные функции
-const getDisplayType = (transfer: any, viewingAddress: string): string => {
-  if (transfer.from?.id?.toLowerCase() === viewingAddress.toLowerCase() && transfer.to?.id?.toLowerCase() === viewingAddress.toLowerCase()) {
-    return 'На себя'; 
-  } else if (transfer.from?.id?.toLowerCase() === viewingAddress.toLowerCase()) {
-    return 'Исходящая';
-  } else if (transfer.to?.id?.toLowerCase() === viewingAddress.toLowerCase()) {
+const getDisplayType = (type: string, from: string, to: string, currentAddress: string): string => {
+  const lowerCurrentAddress = currentAddress.toLowerCase();
+  // Сначала проверяем на строгое равенство для входящих и исходящих
+  if (to.toLowerCase() === lowerCurrentAddress && from.toLowerCase() !== lowerCurrentAddress) {
     return 'Входящая';
-  } 
-  return 'Неизвестно';
+  }
+  if (from.toLowerCase() === lowerCurrentAddress && to.toLowerCase() !== lowerCurrentAddress) {
+    return 'Исходящая';
+  }
+  // Если перевод самому себе
+  if (from.toLowerCase() === lowerCurrentAddress && to.toLowerCase() === lowerCurrentAddress) {
+    return 'Самому себе'; // или 'Исходящая', или 'Входящая' - на ваше усмотрение
+  }
+
+  // Если не строго входящая/исходящая, используем маппинг или исходный тип
+  const typeMapping: { [key: string]: string } = {
+    'NATIVE_TRANSFER': 'Перевод REEF',
+    'REEF20_TRANSFER': 'Перевод токена',
+    'CONTRACT_CALL': 'Вызов контракта',
+    'EVM_EXECUTE': 'EVM Выполнение',
+    // Добавьте другие типы по мере необходимости
+  };
+  return typeMapping[type] || type;
 };
 
-const getRecipient = (transfer: any, viewingAddress: string, displayType: string ): string => {
-  if (displayType === 'Исходящая') {
-    return transfer.to?.id || 'N/A';
-  } else if (displayType === 'Входящая') {
-    return transfer.from?.id || 'N/A';
-  } else if (displayType === 'На себя') {
-    return viewingAddress; 
+const getRecipient = (/* type: string, */ from: string, to: string, currentAddress: string): string => {
+  const lowerFrom = from.toLowerCase();
+  const lowerCurrentAddress = currentAddress.toLowerCase();
+
+  if (lowerFrom === lowerCurrentAddress) {
+    // Если это исходящая транзакция (или самому себе из этого адреса)
+    return to; // Показываем фактического получателя
   }
-  return 'N/A';
+  // Для входящих или транзакций, где currentAddress является получателем
+  return to; // В большинстве других случаев 'to' является релевантным получателем
+  // Для входящей транзакции (from != currentAddress, to == currentAddress), 'to' будет currentAddress - это корректно
 };
 
 const TransactionHistory: React.FC = () => {
@@ -56,7 +75,9 @@ const TransactionHistory: React.FC = () => {
 
     // Состояния для пагинации
     const [totalTransactions, setTotalTransactions] = useState<number>(0);
-    const TRANSACTIONS_PER_PAGE = 10;
+    const TRANSACTIONS_PER_PAGE = 12;
+    const [apiCursors, setApiCursors] = useState<string[]>([]);
+    const [hasNextPageApi, setHasNextPageApi] = useState<boolean>(false);
 
     const fetchTransactions = useCallback(async (pageToFetch: number = 1) => {
       if (!address) {
@@ -76,7 +97,6 @@ const TransactionHistory: React.FC = () => {
       try {
         // Шаг 1: Если введен EVM адрес, получить нативный ID
         if (isValidEvmAddressFormat(address)) {
-          console.log(`Input is EVM address: ${address}. Fetching native ID...`);
           const accountQuery = `
             query GetAccountByEvm($evmAddress: String!) {
               accounts(where: { evmAddress_eq: $evmAddress }, limit: 1) {
@@ -95,15 +115,12 @@ const TransactionHistory: React.FC = () => {
           const accountResult = accountResponse.data;
 
           if (accountResult.errors) {
-            console.error('GraphQL Errors fetching account:', accountResult.errors);
             throw new Error(`GraphQL error fetching account: ${accountResult.errors.map((e: any) => e.message).join(', ')}`);
           }
 
           if (accountResult.data?.accounts && accountResult.data.accounts.length > 0) {
             targetAddress = accountResult.data.accounts[0].id;
-            console.log(`Native address found: ${targetAddress}`);
           } else {
-            console.log(`No native account found linked to EVM address: ${address}`);
             setLoading(false);
             setError("Не найден нативный аккаунт для указанного EVM адреса.");
             setTransactions([]);
@@ -113,44 +130,49 @@ const TransactionHistory: React.FC = () => {
           }
         }
 
-        // Шаг 2: Запросить данные по транзакциям (входящие и исходящие раздельно)
+        // Шаг 2: Запросить все транзакции (входящие и исходящие) одним запросом
         const gqlQuery = `
-          query GetTransactionsData($targetAddress: String!, $limit: Int!, $offset: Int!) {
-            fromCount: transfersConnection(
+          query GetTransactionsData(
+            $targetAddress: String!, 
+            $first: Int!, 
+            $after: String
+          ) {
+            allTransactionsData: transfersConnection(
               orderBy: timestamp_DESC,
-              where: { from: { id_eq: $targetAddress }, success_eq: true }
+              where: {
+                AND: [
+                  { success_eq: true },
+                  { OR: [
+                      { from: { id_eq: $targetAddress } }, 
+                      { to: { id_eq: $targetAddress } } 
+                    ]
+                  }
+                ]
+              },
+              first: $first,
+              after: $after
             ) {
+              edges {
+                node {
+                  id timestamp denom amount success extrinsicHash type 
+                  token { id name }
+                  from { id evmAddress }
+                  to { id evmAddress }
+                }
+              }
+              pageInfo {
+                hasNextPage
+                endCursor
+              }
               totalCount
-            }
-            toCount: transfersConnection(
-              orderBy: timestamp_DESC,
-              where: { to: { id_eq: $targetAddress }, success_eq: true }
-            ) {
-              totalCount
-            }
-            outgoingTransfers: transfers(
-              orderBy: timestamp_DESC,
-              where: { from: { id_eq: $targetAddress }, success_eq: true },
-              limit: $limit,
-              offset: $offset
-            ) {
-              id timestamp denom amount success extrinsicHash token { id name } from { id evmAddress } to { id evmAddress }
-            }
-            incomingTransfers: transfers(
-              orderBy: timestamp_DESC,
-              where: { to: { id_eq: $targetAddress }, success_eq: true },
-              limit: $limit,
-              offset: $offset
-            ) {
-              id timestamp denom amount success extrinsicHash token { id name } from { id evmAddress } to { id evmAddress }
             }
           }
         `;
 
         const variables = {
-          targetAddress: targetAddress, // Используем нативный адрес
-          limit: TRANSACTIONS_PER_PAGE, 
-          offset: (pageToFetch - 1) * TRANSACTIONS_PER_PAGE
+          targetAddress: targetAddress, 
+          first: TRANSACTIONS_PER_PAGE, // Используем 'first' для connections
+          after: apiCursors[pageToFetch - 1] || null, 
         };
 
         const response = await axios.post(API_URL, {
@@ -158,84 +180,92 @@ const TransactionHistory: React.FC = () => {
           variables: variables
         });
 
-        const result = response.data;
+        const result = response.data.data; 
 
-        if (result.errors) {
-          console.error('GraphQL Errors:', result.errors);
-          throw new Error(`GraphQL error: ${result.errors.map((e: any) => e.message).join(', ')}`);
-        }
-
-        if (!result.data) {
-          console.log('No data found in response for address:', targetAddress);
+        if (!result || !result.allTransactionsData) {
           setError("Данные не найдены для этого адреса.");
           setTransactions([]);
           setTotalTransactions(0);
+          setHasNextPageApi(false); // Сбрасываем hasNextPageApi
+          setLoading(false);
           return;
         }
 
-        const fromTotal = result.data.fromCount?.totalCount || 0;
-        const toTotal = result.data.toCount?.totalCount || 0;
-        setTotalTransactions(fromTotal + toTotal); // Это может быть больше реального из-за дубликатов, но для пагинации сойдет
+        // Устанавливаем общее количество транзакций из нового запроса
+        setTotalTransactions(result.allTransactionsData?.totalCount || 0);
 
-        const outgoing = result.data.outgoingTransfers || [];
-        const incoming = result.data.incomingTransfers || [];
+        const pageInfo = result.allTransactionsData?.pageInfo;
+        setHasNextPageApi(pageInfo?.hasNextPage || false);
 
-        // Объединяем, удаляем дубликаты и сортируем
-        const combinedTransfers: any[] = [];
-        const seenIds = new Set();
+        // Транзакции теперь напрямую в result.allTransactionsData.edges
+        // и они уже должны быть отсортированы по timestamp из-за orderBy в запросе
+        const fetchedTransactions = result.allTransactionsData?.edges?.map((edge: any) => {
+          // Определяем направление транзакции
+          const direction = edge.node.from.id.toLowerCase() === targetAddress.toLowerCase() ? 'out' : 'in';
+          return { ...edge.node, direction };
+        }) || [];
 
-        [...outgoing, ...incoming].forEach(transfer => {
-          if (!seenIds.has(transfer.id)) {
-            combinedTransfers.push(transfer);
-            seenIds.add(transfer.id);
-          }
-        });
-
-        combinedTransfers.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        // Так как API уже сортирует и пагинирует единый список,
+        // дополнительная сортировка на клиенте по дате не нужна.
+        // Логика удаления дубликатов также не нужна, если API корректно обрабатывает OR.
         
-        // Обрабатываем транзакции для отображения
-        const processedTransactions: Transaction[] = combinedTransfers.map((transfer: any) => {
-          console.log('Denom:', transfer.denom, 'Token Obj:', transfer.token, 'Amount:', transfer.amount);
-          const displayType = getDisplayType(transfer, targetAddress.toLowerCase());
-          const recipient = getRecipient(transfer, targetAddress.toLowerCase(), displayType);
-          let amountReef: string | number = '-';
+        const processedTransactions: Transaction[] = fetchedTransactions.map((transfer: any) => {
+          const displayType = getDisplayType(transfer.type, transfer.from.id, transfer.to.id, targetAddress.toLowerCase());
+          const recipient = getRecipient(transfer.from.id, transfer.to.id, targetAddress.toLowerCase());
+          let amountDisplay = "N/A";
 
-          const tokenSymbol = transfer.denom ? transfer.denom.toUpperCase() : '';
+          if (transfer.amount != null) { // Проверяем, что сумма не null и не undefined
+            const rawAmount = BigInt(transfer.amount);
 
-          const knownDecimals: { [key: string]: number } = {
-            'REEF': 18,
-            'MRD': 18
-          };
+            if (transfer.type === 'NATIVE_TRANSFER' || (transfer.denom && transfer.denom.toUpperCase() === 'REEF')) {
+              // REEF: форматируем с 18 знаками
+              const reefValue = Number(rawAmount) / 1e18;
+              amountDisplay = `${reefValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })} REEF`;
+            } else if (transfer.denom) {
+              // Другие токенны с известным denom: предполагаем 18 знаков
+              const tokenValue = Number(rawAmount) / 1e18;
+              amountDisplay = `${tokenValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })} ${transfer.denom.toUpperCase()}`;
+            } else {
+              // Denom отсутствует: отображаем сумму как есть (предполагается, что она уже в человекочитаемом виде)
+              amountDisplay = String(transfer.amount); 
+            }
+          }
 
-          if (tokenSymbol && transfer.amount && knownDecimals[tokenSymbol] !== undefined) {
-             try {
-               const rawAmount = BigInt(transfer.amount);
-               const decimals = knownDecimals[tokenSymbol];
-               const divisor = BigInt(10**decimals);
-               const value = Number(rawAmount / divisor) + Number(rawAmount % divisor) / (10**decimals); // Более точное деление для UI
-               amountReef = value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: (decimals > 0 ? Math.min(decimals, 6) : 2) }) + ' ' + tokenSymbol; // Показываем до 6 знаков или сколько есть, если меньше
-             } catch (e) {
-                console.warn(`Could not parse ${tokenSymbol} amount: ${transfer.amount}`, e);
-                amountReef = 'Ошибка суммы';
-             }
-          } else if (tokenSymbol && transfer.amount) { // Токен есть в denom, но decimals неизвестны
-            amountReef = `${transfer.amount} ${tokenSymbol} (сырое значение - неизв. децимал)`;
-           } else if (transfer.amount) {
-             // Общий случай, если не REEF и нет информации о токене, но есть сумма
-             amountReef = `${transfer.amount} (неизв. единицы)`;
-           }
+          let formattedTimestamp = "Неверная дата";
+          if (transfer.timestamp) {
+            const tsString = String(transfer.timestamp).trim();
+            const dateObj = new Date(tsString);
+            const timeValue = dateObj.getTime();
+            const isValidDate = !isNaN(timeValue);
 
+            if (isValidDate) {
+              try {
+                formattedTimestamp = dateObj.toLocaleString('ru-RU', {
+                  year: 'numeric', month: '2-digit', day: '2-digit',
+                  hour: '2-digit', minute: '2-digit', second: '2-digit'
+                });
+              } catch (e: any) {
+                formattedTimestamp = "Ошибка форматирования";
+              }
+            } else {
+              formattedTimestamp = "Неверная дата";
+            }
+          }
           return {
             id: transfer.id,
-            hash: transfer.extrinsicHash,
-            timestamp: transfer.timestamp,
-            status: transfer.success ? 'Успешно' : 'Ошибка',
+            from: transfer.from.id, // Используем from.id
+            to: transfer.to.id,     // Используем to.id
+            timestamp: formattedTimestamp, // Используем отформатированную строку
+            extrinsicHash: transfer.extrinsicHash,
+            status: transfer.success ? 'Успешно' : 'Не удалось', // Добавлено поле status
+            section: 'N/A', // Как и раньше
             method: 'Перевод', // Общий метод для transfer, displayType уточнит
-            section: 'balances', // Предполагаем, что это всегда balances для transfers
-            amount: amountReef,
-            displayType: displayType,
             recipient: recipient,
-            signer: transfer.from?.id // Добавляем отправителя
+            amount: amountDisplay,
+            // Восстанавливаем недостающие поля
+            type: displayType, 
+            signer: transfer.from.id,
+            displayType: displayType, // displayType также может быть полезен отдельно, если интерфейс Transaction его содержит
           };
         });
 
@@ -247,65 +277,106 @@ const TransactionHistory: React.FC = () => {
           // setCurrentPage(pageToFetch); // Устанавливаем текущую страницу
         }
 
+        // Сохраняем курсор для следующей страницы
+        if (pageInfo?.hasNextPage && pageInfo.endCursor) {
+          setApiCursors(prevCursors => {
+            // Обновляем только если значение курсора для этой страницы действительно изменилось
+            if (prevCursors[pageToFetch] !== pageInfo.endCursor) {
+              const newCursors = [...prevCursors];
+              newCursors[pageToFetch] = pageInfo.endCursor;
+              return newCursors;
+            }
+            return prevCursors; // Если курсор не изменился, возвращаем старый массив
+          });
+        }
+
       } catch (err: any) {
         console.error('Error fetching transactions:', err);
-        // Улучшаем сообщение об ошибке
         const errorMessage = err.response?.data?.errors?.[0]?.message || err.message || 'Неизвестная ошибка';
         setError(`Ошибка при получении транзакций: ${errorMessage}`);
         setTransactions([]); 
+        setHasNextPageApi(false); // Сбрасываем hasNextPageApi при ошибке
       } finally {
         setLoading(false);
       }
-    }, [address]);
+    }, [address, apiCursors]); 
+
+    const handleNextPage = () => {
+      if (hasNextPageApi) { 
+        setCurrentPage(prevPage => prevPage + 1);
+      }
+    };
+
+    const handlePreviousPage = () => {
+      setCurrentPage(prevPage => Math.max(1, prevPage - 1));
+    };
 
     useEffect(() => {
       if (address) {
         // При изменении адреса всегда запрашиваем первую страницу
+        setApiCursors([]); // Сбрасываем курсоры для нового адреса
+        setHasNextPageApi(false); // Сбрасываем hasNextPageApi
         fetchTransactions(1);
       } else {
         // Если адрес очищен, сбрасываем транзакции и пагинацию
         setTransactions([]);
         setTotalTransactions(0);
         setCurrentPage(1);
+        setApiCursors([]); // Сбрасываем курсоры
+        setHasNextPageApi(false); // Сбрасываем hasNextPageApi
         setError(null); 
       }
-    }, [address, fetchTransactions]); 
+    }, [address]); 
 
-    // Вычисляемое значение для общего количества страниц
-    const totalPages = Math.ceil(totalTransactions / TRANSACTIONS_PER_PAGE);
+    useEffect(() => {
+      // console.log('[PAGINATION] useEffect triggered for currentPage change. Current page:', currentPage, 'Total transactions:', totalTransactions);
+      if (address) { // Убедимся что адрес есть
+        fetchTransactions(currentPage);
+      }
+    }, [currentPage, address]); 
 
     // Обработчики для кнопок пагинации
-    const handlePreviousPage = () => {
-      if (currentPage > 1) {
-        fetchTransactions(currentPage - 1);
-      }
-    };
-
-    const handleNextPage = () => {
-      if (currentPage < totalPages) {
-        fetchTransactions(currentPage + 1);
-      }
-    };
 
     const sortedTransactions = useMemo(() => {
       let sortableItems = [...transactions];
       if (sortConfig.key !== null) {
         sortableItems.sort((a, b) => {
+          if (sortConfig.key === 'amount') {
+            const extractNumber = (item: Transaction): number => {
+              const amountVal = item.amount;
+              if (typeof amountVal === 'number') return amountVal;
+              if (typeof amountVal === 'string') {
+                const numStrPart = amountVal.split(' ')[0];
+                const cleanedNumStr = numStrPart.replace(/[^0-9.-]+/g, ""); // Оставляем цифры, точку, минус
+                const parsed = parseFloat(cleanedNumStr);
+                return isNaN(parsed) ? 0 : parsed;
+              }
+              return 0;
+            };
+            const numA = extractNumber(a);
+            const numB = extractNumber(b);
+
+            if (numA < numB) {
+              return sortConfig.direction === 'asc' ? -1 : 1;
+            }
+            if (numA > numB) {
+              return sortConfig.direction === 'asc' ? 1 : -1;
+            }
+            return 0;
+          }
+
           const aValue = a[sortConfig.key!];
           const bValue = b[sortConfig.key!];
 
-          // Обработка null/undefined или других типов данных при сортировке
           if (aValue == null && bValue == null) return 0;
           if (aValue == null) return sortConfig.direction === 'asc' ? -1 : 1;
           if (bValue == null) return sortConfig.direction === 'asc' ? 1 : -1;
 
-          // Сравнение строк (case-insensitive)
           if (typeof aValue === 'string' && typeof bValue === 'string') {
             const comparison = aValue.toLowerCase().localeCompare(bValue.toLowerCase());
             return sortConfig.direction === 'asc' ? comparison : -comparison;
           }
 
-          // Сравнение чисел или дат (если timestamp - Date)
           if (aValue < bValue) {
             return sortConfig.direction === 'asc' ? -1 : 1;
           }
@@ -320,36 +391,16 @@ const TransactionHistory: React.FC = () => {
 
     // Функция для обработки клика по заголовку и обновления сортировки
     const handleSort = useCallback((key: keyof Transaction) => {
+      if (key !== 'timestamp' && key !== 'amount') {
+        return; // Ничего не делаем для других столбцов
+      }
+
       let direction: 'asc' | 'desc' = 'asc';
-      // Если кликнули по той же колонке, меняем направление
       if (sortConfig.key === key && sortConfig.direction === 'asc') {
         direction = 'desc';
       }
       setSortConfig({ key, direction });
     }, [sortConfig]); 
-
-    // Функция форматирования времени (можно улучшить)
-    const formatTimestamp = (timestamp: string): string => {
-      try {
-        const date = new Date(timestamp);
-        // Проверка на валидность даты
-        if (isNaN(date.getTime())) {
-          console.error("Invalid date from timestamp in formatTimestamp:", timestamp); 
-          return 'Неверная дата';
-        }
-        // Можно использовать библиотеки типа date-fns или moment для лучшего форматирования
-        return date.toLocaleString('ru-RU', {
-          day: '2-digit',
-          month: '2-digit',
-          year: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit'
-        });
-      } catch (e) {
-        console.error("Error formatting date:", e, timestamp);
-        return timestamp; 
-      }
-    };
 
     return (
       // Внешний div: теперь без собственного фона (будет виден фон страницы), полноэкранный, вертикально центрирует
@@ -436,26 +487,29 @@ const TransactionHistory: React.FC = () => {
               <table className="min-w-full divide-y divide-gray-200 table-fixed">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer" style={{ width: '30%' }} onClick={() => handleSort('hash')}>
-                      Хеш {sortConfig.key === 'hash' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
+                    <th
+                      onClick={() => handleSort('timestamp')}
+                      className="py-3 px-6 text-left cursor-pointer whitespace-nowrap"
+                    >
+                      Дата {sortConfig.key === 'timestamp' && (sortConfig.direction === 'asc' ? '🔼' : '🔽')}
                     </th>
-                    <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer" style={{ width: '20%' }} onClick={() => handleSort('method')}>
-                      Тип {sortConfig.key === 'method' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
+                    <th className="py-3 px-6 text-left whitespace-nowrap">
+                      Тип
                     </th>
-                    <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer" style={{ width: '15%' }} onClick={() => handleSort('amount')}>
-                      Сумма {sortConfig.key === 'amount' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
+                    <th className="py-3 px-6 text-left whitespace-nowrap">
+                      Хеш
                     </th>
-                    <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer" style={{ width: '25%' }} onClick={() => handleSort('timestamp')}>
-                      Время {sortConfig.key === 'timestamp' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
+                    <th className="py-3 px-6 text-left whitespace-nowrap">
+                      От кого
                     </th>
-                    <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer" style={{ width: '10%' }} onClick={() => handleSort('status')}>
-                      Статус {sortConfig.key === 'status' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
+                    <th className="py-3 px-6 text-left whitespace-nowrap">
+                      Кому
                     </th>
-                    <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer" style={{ width: '10%' }} onClick={() => handleSort('displayType')}>
-                      Тип операции {sortConfig.key === 'displayType' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
-                    </th>
-                    <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer" style={{ width: '15%' }} onClick={() => handleSort('recipient')}>
-                      Кому/От кого {sortConfig.key === 'recipient' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : ''}
+                    <th
+                      onClick={() => handleSort('amount')}
+                      className="py-3 px-6 text-right cursor-pointer whitespace-nowrap"
+                    >
+                      Сумма {sortConfig.key === 'amount' && (sortConfig.direction === 'asc' ? '🔼' : '🔽')}
                     </th>
                   </tr>
                 </thead>
@@ -470,41 +524,45 @@ const TransactionHistory: React.FC = () => {
                   >
                     {loading && (
                       <tr>
-                        <td colSpan={7} className="px-4 py-10 text-center text-sm text-gray-500">
+                        <td colSpan={6} className="px-4 py-10 text-center text-sm text-gray-500">
                           Загрузка транзакций...
                         </td>
                       </tr>
                     )}
                     {!loading && transactions.length === 0 && !error && (
                       <tr>
-                        <td colSpan={7} className="px-4 py-10 text-center text-sm text-gray-500">
+                        <td colSpan={6} className="px-4 py-10 text-center text-sm text-gray-500">
                           Транзакции не найдены для этого адреса на текущей странице.
+                        </td>
+                      </tr>
+                    )}
+                    {!loading && error && (
+                      <tr>
+                        <td colSpan={6} className="px-4 py-10 text-center text-sm text-red-500">
+                          {error}
                         </td>
                       </tr>
                     )}
                     {!loading && sortedTransactions.length > 0 && !error && sortedTransactions.map((tx) => (
                       <tr key={tx.id} className="hover:bg-gray-50 transition-colors duration-150">
                         <td className="px-4 py-4 whitespace-nowrap text-sm">
-                          <div className="text-gray-900 truncate w-32" title={tx.hash}>
-                            {(typeof tx.hash === 'string' && tx.hash.length > 0) ? `${tx.hash.substring(0, 6)}...${tx.hash.substring(tx.hash.length - 4)}` : '-'}
-                          </div>
+                          {tx.timestamp} {/* Отображаем уже отформатированную дату */}
                         </td>
-                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700">{tx.method}</td>
-                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700">
+                          {tx.type} {/* Отображаем тип транзакции как есть */}
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700" title={tx.extrinsicHash || ''}>
+                          {tx.extrinsicHash ? `${tx.extrinsicHash.substring(0, 6)}...${tx.extrinsicHash.substring(tx.extrinsicHash.length - 4)}` : 'N/A'}
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700" title={tx.signer}>
+                          {tx.signer ? `${tx.signer.substring(0, 6)}...${tx.signer.substring(tx.signer.length - 4)}` : 'N/A'}
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700" title={tx.recipient}>
+                          {tx.recipient ? `${tx.recipient.substring(0, 6)}...${tx.recipient.substring(tx.recipient.length - 4)}` : 'N/A'}
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 font-medium text-right">
                           {tx.amount != null ? String(tx.amount) : '-'}
                         </td>
-                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {formatTimestamp(tx.timestamp)}
-                        </td>
-                        <td className="px-4 py-4 whitespace-nowrap text-sm">
-                          <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                            tx.status === 'Успешно' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                          }`}>
-                            {tx.status}
-                          </span>
-                        </td>
-                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700">{tx.displayType}</td>
-                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700">{tx.recipient || '-'}</td>
                       </tr>
                     ))}
                   </motion.tbody>
@@ -514,7 +572,7 @@ const TransactionHistory: React.FC = () => {
           )}
 
           {/* Элементы управления пагинацией */}
-          {totalTransactions > 0 && totalPages > 1 && (
+          {totalTransactions > 0 && (
             <div className="mt-6 flex items-center justify-between">
               <button
                 onClick={handlePreviousPage}
@@ -524,11 +582,14 @@ const TransactionHistory: React.FC = () => {
                 Назад
               </button>
               <span className="text-sm text-gray-700">
-                Страница {currentPage} из {totalPages}
+                Страница {currentPage} из {Math.ceil(totalTransactions / TRANSACTIONS_PER_PAGE)}
               </span>
               <button
                 onClick={handleNextPage}
-                disabled={currentPage === totalPages || loading}
+                disabled={
+                  loading ||
+                  (totalTransactions > 0 && currentPage * TRANSACTIONS_PER_PAGE >= totalTransactions)
+                }
                 className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Вперед

@@ -76,3 +76,29 @@ button:focus-visible {
     background-color: #f9f9f9;
   }
 }
+
+/* Стили для TransactionHistory компонента */
+.table-container {
+  /* scrollbar-gutter: stable; */
+  /* Если вы хотите, чтобы полоса прокрутки была всегда, даже если контента мало (альтернатива scrollbar-gutter) */
+  overflow-y: scroll; 
+}
+
+/* Стили для кастомной полосы прокрутки (опционально) */
+::-webkit-scrollbar {
+  width: auto; /* Добавлено для устранения lint ошибки empty ruleset */
+  /* Здесь могли бы быть стили для кастомного скроллбара, например: */
+  /* width: 8px; */
+}
+
+/* ::-webkit-scrollbar-track { */
+  /* background: #f1f1f1;  */
+/* } */
+ 
+/* ::-webkit-scrollbar-thumb { */
+  /* background: #888;  */
+/* } */
+
+/* ::-webkit-scrollbar-thumb:hover { */
+  /* background: #555;  */
+/* } */
