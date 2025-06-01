@@ -15,6 +15,7 @@ interface Transaction {
     timestamp: string; 
     type: string; 
     extrinsicHash?: string; 
+    extrinsicId?: string; 
     signer: string; 
     section: string;
     method: string;
@@ -22,8 +23,19 @@ interface Transaction {
     amount: string | number;
     status?: string; 
     displayType?: string;
+    tokenSymbol?: string; 
+    tokenDecimals?: number; 
+    signedData?: SignedData; // Добавлено для комиссии
 }
 
+// Интерфейсы для signedData
+interface SignedDataFee {
+  partialFee: string;
+}
+
+interface SignedData {
+  fee: SignedDataFee;
+}
 // Вспомогательные функции
 const getDisplayType = (type: string, from: string, to: string, currentAddress: string): string => {
   const lowerCurrentAddress = currentAddress.toLowerCase();
@@ -48,19 +60,6 @@ const getDisplayType = (type: string, from: string, to: string, currentAddress: 
     // Добавьте другие типы по мере необходимости
   };
   return typeMapping[type] || type;
-};
-
-const getRecipient = (/* type: string, */ from: string, to: string, currentAddress: string): string => {
-  const lowerFrom = from.toLowerCase();
-  const lowerCurrentAddress = currentAddress.toLowerCase();
-
-  if (lowerFrom === lowerCurrentAddress) {
-    // Если это исходящая транзакция (или самому себе из этого адреса)
-    return to; // Показываем фактического получателя
-  }
-  // Для входящих или транзакций, где currentAddress является получателем
-  return to; // В большинстве других случаев 'to' является релевантным получателем
-  // Для входящей транзакции (from != currentAddress, to == currentAddress), 'to' будет currentAddress - это корректно
 };
 
 const TransactionHistory: React.FC = () => {
@@ -110,7 +109,12 @@ const TransactionHistory: React.FC = () => {
               query: accountQuery,
               variables: { evmAddress: address.toLowerCase() } 
             },
-            { headers: { 'Content-Type': 'application/json' } }
+            {
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              timeout: 10000, // 10 секунд таймаут для API запросов
+            }
           );
           const accountResult = accountResponse.data;
 
@@ -154,19 +158,20 @@ const TransactionHistory: React.FC = () => {
             ) {
               edges {
                 node {
-                  id timestamp denom amount success extrinsicHash type 
+                  id timestamp denom amount success extrinsicHash extrinsicId type
                   token { id name }
                   from { id evmAddress }
                   to { id evmAddress }
-                }
-              }
+                  signedData
+                } # closes node
+              } # closes edges
               pageInfo {
                 hasNextPage
                 endCursor
               }
               totalCount
-            }
-          }
+            } # closes transfersConnection (allTransactionsData)
+          } # closes query ReefHistory
         `;
 
         const variables = {
@@ -178,6 +183,11 @@ const TransactionHistory: React.FC = () => {
         const response = await axios.post(API_URL, {
           query: gqlQuery,
           variables: variables
+        }, {
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          timeout: 10000, // 10 секунд таймаут для API запросов
         });
 
         const result = response.data.data; 
@@ -209,35 +219,40 @@ const TransactionHistory: React.FC = () => {
         // дополнительная сортировка на клиенте по дате не нужна.
         // Логика удаления дубликатов также не нужна, если API корректно обрабатывает OR.
         
-        const processedTransactions: Transaction[] = fetchedTransactions.map((transfer: any) => {
-          const displayType = getDisplayType(transfer.type, transfer.from.id, transfer.to.id, targetAddress.toLowerCase());
-          const recipient = getRecipient(transfer.from.id, transfer.to.id, targetAddress.toLowerCase());
-          let amountDisplay = "N/A";
+        const processedTransactions: Transaction[] = fetchedTransactions.map((transferNode: any) => {
+          const displayType = getDisplayType(transferNode.type, transferNode.from.id, transferNode.to.id, targetAddress.toLowerCase());
 
-          if (transfer.amount != null) { // Проверяем, что сумма не null и не undefined
-            const rawAmount = BigInt(transfer.amount);
+          const knownDecimals: { [key: string]: number } = {
+            REEF: 18,
+            MRD: 18,
+          };
 
-            if (transfer.type === 'NATIVE_TRANSFER' || (transfer.denom && transfer.denom.toUpperCase() === 'REEF')) {
-              // REEF: форматируем с 18 знаками
-              const reefValue = Number(rawAmount) / 1e18;
-              amountDisplay = `${reefValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })} REEF`;
-            } else if (transfer.denom) {
-              // Другие токенны с известным denom: предполагаем 18 знаков
-              const tokenValue = Number(rawAmount) / 1e18;
-              amountDisplay = `${tokenValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })} ${transfer.denom.toUpperCase()}`;
+          let amountDisplay: string;
+          let tokenSymbolDisplay: string = transferNode.denom || transferNode.token?.name || 'Unknown Token';
+          let tokenDecimalsValue: number | undefined = knownDecimals[tokenSymbolDisplay.toUpperCase()];
+
+          if (transferNode.amount != null) {
+            const rawAmount = BigInt(transferNode.amount);
+            if (tokenDecimalsValue !== undefined) {
+              const divisor = BigInt(10) ** BigInt(tokenDecimalsValue);
+              const integerPart = rawAmount / divisor;
+              const fractionalPart = rawAmount % divisor;
+              const fractionalString = fractionalPart.toString().padStart(tokenDecimalsValue, '0').substring(0, Math.min(tokenDecimalsValue, 4));
+              amountDisplay = `${integerPart}.${fractionalString} ${tokenSymbolDisplay}`;
             } else {
-              // Denom отсутствует: отображаем сумму как есть (предполагается, что она уже в человекочитаемом виде)
-              amountDisplay = String(transfer.amount); 
+              amountDisplay = `${rawAmount.toString()} ${tokenSymbolDisplay} (raw)`;
+              tokenSymbolDisplay = `${tokenSymbolDisplay} (raw)`;
             }
+          } else {
+            amountDisplay = "N/A";
           }
 
           let formattedTimestamp = "Неверная дата";
-          if (transfer.timestamp) {
-            const tsString = String(transfer.timestamp).trim();
+          if (transferNode.timestamp) {
+            const tsString = String(transferNode.timestamp).trim();
             const dateObj = new Date(tsString);
             const timeValue = dateObj.getTime();
             const isValidDate = !isNaN(timeValue);
-
             if (isValidDate) {
               try {
                 formattedTimestamp = dateObj.toLocaleString('ru-RU', {
@@ -251,21 +266,48 @@ const TransactionHistory: React.FC = () => {
               formattedTimestamp = "Неверная дата";
             }
           }
+
+          let parsedSignedDataForTx: SignedData | undefined = undefined;
+          if (transferNode.signedData) {
+            try {
+              const rawSignedData = typeof transferNode.signedData === 'string'
+                ? JSON.parse(transferNode.signedData)
+                : transferNode.signedData;
+
+              if (rawSignedData && rawSignedData.fee && typeof rawSignedData.fee.partialFee === 'string') {
+                parsedSignedDataForTx = { 
+                  fee: { 
+                    partialFee: rawSignedData.fee.partialFee 
+                  } 
+                };
+              } else if (rawSignedData && typeof rawSignedData.partialFee === 'string') {
+                 parsedSignedDataForTx = { fee: { partialFee: rawSignedData.partialFee } };
+              } else {
+                // console.warn("signedData does not have the expected fee structure:", rawSignedData);
+              }
+            } catch (e) {
+              console.error("Error processing signedData:", e, transferNode.signedData);
+            }
+          }
+
           return {
-            id: transfer.id,
-            from: transfer.from.id, // Используем from.id
-            to: transfer.to.id,     // Используем to.id
-            timestamp: formattedTimestamp, // Используем отформатированную строку
-            extrinsicHash: transfer.extrinsicHash,
-            status: transfer.success ? 'Успешно' : 'Не удалось', // Добавлено поле status
-            section: 'N/A', // Как и раньше
-            method: 'Перевод', // Общий метод для transfer, displayType уточнит
-            recipient: recipient,
+            id: transferNode.id,
+            from: transferNode.from.id,
+            to: transferNode.to.id,
+            timestamp: formattedTimestamp,
+            type: transferNode.type,
+            extrinsicHash: transferNode.extrinsicHash,
+            extrinsicId: transferNode.extrinsicId,
+            signer: transferNode.from.id,
+            section: 'balances',
+            method: 'transfer',
+            recipient: transferNode.to.id,
             amount: amountDisplay,
-            // Восстанавливаем недостающие поля
-            type: displayType, 
-            signer: transfer.from.id,
-            displayType: displayType, // displayType также может быть полезен отдельно, если интерфейс Transaction его содержит
+            status: transferNode.success ? 'Успешно' : 'Не удалось',
+            displayType: displayType,
+            tokenSymbol: tokenSymbolDisplay,
+            tokenDecimals: tokenDecimalsValue,
+            signedData: parsedSignedDataForTx
           };
         });
 
@@ -511,6 +553,9 @@ const TransactionHistory: React.FC = () => {
                     >
                       Сумма {sortConfig.key === 'amount' && (sortConfig.direction === 'asc' ? '🔼' : '🔽')}
                     </th>
+                    <th className="py-3 px-6 text-right whitespace-nowrap">
+                      Комиссия
+                    </th>
                   </tr>
                 </thead>
                 <AnimatePresence mode="wait">
@@ -524,21 +569,21 @@ const TransactionHistory: React.FC = () => {
                   >
                     {loading && (
                       <tr>
-                        <td colSpan={6} className="px-4 py-10 text-center text-sm text-gray-500">
+                        <td colSpan={7} className="px-4 py-10 text-center text-sm text-gray-500">
                           Загрузка транзакций...
                         </td>
                       </tr>
                     )}
                     {!loading && transactions.length === 0 && !error && (
                       <tr>
-                        <td colSpan={6} className="px-4 py-10 text-center text-sm text-gray-500">
+                        <td colSpan={7} className="px-4 py-10 text-center text-sm text-gray-500">
                           Транзакции не найдены для этого адреса на текущей странице.
                         </td>
                       </tr>
                     )}
                     {!loading && error && (
                       <tr>
-                        <td colSpan={6} className="px-4 py-10 text-center text-sm text-red-500">
+                        <td colSpan={7} className="px-4 py-10 text-center text-sm text-red-500">
                           {error}
                         </td>
                       </tr>
@@ -551,8 +596,75 @@ const TransactionHistory: React.FC = () => {
                         <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700">
                           {tx.type} {/* Отображаем тип транзакции как есть */}
                         </td>
-                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700" title={tx.extrinsicHash || ''}>
-                          {tx.extrinsicHash ? `${tx.extrinsicHash.substring(0, 6)}...${tx.extrinsicHash.substring(tx.extrinsicHash.length - 4)}` : 'N/A'}
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700">
+                          {tx.extrinsicHash ? (
+                            (() => {
+                              let reefscanUrl = '';
+                              if (tx.extrinsicId) {
+                                const rawParts = tx.extrinsicId.split('-');
+                                const cleanedParts = rawParts.map(p => p.replace(/,/g, ''));
+
+                                if (cleanedParts.length === 3) {
+                                  const p0 = cleanedParts[0];
+                                  const p1 = cleanedParts[1];
+                                  const p2 = cleanedParts[2];
+
+                                  const isP0Decimal = /^\d+$/.test(p0);
+                                  const isP2Decimal = /^\d+$/.test(p2);
+                                  const isP1Hex = /^[0-9a-fA-F]+$/.test(p1); // Check if middle part is hex
+                                  const isP1Decimal = /^\d+$/.test(p1);    // Check if middle part is decimal
+
+                                  if (isP0Decimal && isP1Hex && isP2Decimal) {
+                                    // Format: BLOCK-HEX-EVENT_IDX (e.g., 0012580519-cf30d-000001)
+                                    // Assumed to map to URL: /transfer/BLOCK/1/EVENT_IDX
+                                    reefscanUrl = `https://reefscan.com/transfer/${parseInt(p0, 10)}/1/${parseInt(p2, 10)}`;
+                                  } else if (isP0Decimal && isP1Decimal && isP2Decimal) {
+                                    // Format: BLOCK-DECIMAL_EXT_IDX-EVENT_IDX
+                                    reefscanUrl = `https://reefscan.com/transfer/${parseInt(p0, 10)}/${parseInt(p1, 10)}/${parseInt(p2, 10)}`;
+                                  }
+                                } else if (cleanedParts.length === 2) {
+                                  const p0 = cleanedParts[0];
+                                  const p1 = cleanedParts[1];
+                                  if (/^\d+$/.test(p0) && /^\d+$/.test(p1)) {
+                                    // Format: BLOCK-DECIMAL_EXT_IDX
+                                    // Assumed to map to URL: /transfer/BLOCK/DECIMAL_EXT_IDX/1
+                                    reefscanUrl = `https://reefscan.com/transfer/${parseInt(p0, 10)}/${parseInt(p1, 10)}/1`;
+                                  }
+                                }
+                              }
+                              
+                              if (!reefscanUrl && tx.extrinsicHash) { // Fallback to extrinsicHash
+                                let cleanHash = tx.extrinsicHash;
+                                // Проверяем и очищаем хеш, если он длиннее стандартного или содержит лишнее
+                                if (cleanHash.startsWith('0x') && cleanHash.length > 66) {
+                                  const potentialHashPart = cleanHash.substring(0, 66);
+                                  if (/^0x[0-9a-fA-F]{64}$/.test(potentialHashPart)) {
+                                    cleanHash = potentialHashPart;
+                                  }
+                                }
+                                reefscanUrl = `https://reefscan.com/extrinsic/${cleanHash}`;
+                              }
+
+                              if (reefscanUrl) {
+                                return (
+                                  <a
+                                    href={reefscanUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-indigo-600 hover:text-indigo-900 hover:underline"
+                                    title={tx.extrinsicHash} // Tooltip остается полным хешем
+                                  >
+                                    {`${tx.extrinsicHash.substring(0, 6)}...${tx.extrinsicHash.substring(tx.extrinsicHash.length - 4)}`}
+                                  </a>
+                                );
+                              } else {
+                                // Если по какой-то причине URL не сформирован, показываем текст
+                                return <span title={tx.extrinsicHash}>{`${tx.extrinsicHash.substring(0, 6)}...${tx.extrinsicHash.substring(tx.extrinsicHash.length - 4)}`}</span>;
+                              }
+                            })()
+                          ) : (
+                            'N/A'
+                          )}
                         </td>
                         <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700" title={tx.signer}>
                           {tx.signer ? `${tx.signer.substring(0, 6)}...${tx.signer.substring(tx.signer.length - 4)}` : 'N/A'}
@@ -562,6 +674,13 @@ const TransactionHistory: React.FC = () => {
                         </td>
                         <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 font-medium text-right">
                           {tx.amount != null ? String(tx.amount) : '-'}
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 font-medium text-right">
+                          {
+                            tx.signedData?.fee?.partialFee ? 
+                            `${(Number(BigInt(tx.signedData.fee.partialFee)) / 1e18).toFixed(4)} REEF` : 
+                            '-'
+                          }
                         </td>
                       </tr>
                     ))}
