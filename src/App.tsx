@@ -9,7 +9,11 @@ const client = new ApolloClient({
 function App() {
   return (
     <ApolloProvider client={client}>
-      <TransactionHistory />
+      <div className="min-h-screen bg-gray-50">
+        <div className="p-6">
+          <TransactionHistory />
+        </div>
+      </div>
     </ApolloProvider>
   );
 }
