@@ -12,18 +12,23 @@
   },
   "dependencies": {
     "@apollo/client": "^3.13.8",
+    "@radix-ui/react-tooltip": "^1.2.7",
     "@reef-defi/api": "^1.1.0",
     "axios": "^1.9.0",
+    "clsx": "^2.1.1",
     "ethers": "^6.14.0",
     "framer-motion": "^12.10.5",
     "graphql": "^16.11.0",
+    "lucide-react": "^0.516.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "tailwind-merge": "^3.3.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.22.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
     "@vitejs/plugin-react": "^4.3.4",

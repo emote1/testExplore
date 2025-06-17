@@ -4,10 +4,13 @@
 
 export const PAGINATION_CONFIG = {
   /** Number of transactions to display per page in the UI */
-  UI_TRANSACTIONS_PER_PAGE: 12,
+  UI_TRANSACTIONS_PER_PAGE: 10,
   
   /** Number of transactions to fetch per request when scanning for last page */
   SEQUENTIAL_FETCH_PAGE_SIZE: 50,
+  
+  /** Number of transactions to fetch per block for optimization */
+  BLOCK_FETCH_SIZE: 50,
   
   /** Maximum number of pages to keep in cache */
   MAX_CACHE_SIZE: 50,
@@ -17,6 +20,9 @@ export const PAGINATION_CONFIG = {
   
   /** Maximum items for optimized last page fetch */
   MAX_OPTIMIZED_FETCH_COUNT: 50,
+  
+  /** Enable block-based pagination optimization */
+  ENABLE_BLOCK_OPTIMIZATION: true,
 } as const;
 
 export const API_CONFIG = {

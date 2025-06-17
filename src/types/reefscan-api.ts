@@ -52,22 +52,22 @@ export interface ApiPageInfo {
  */
 export interface GraphQLTransactionNode {
   id: string;
-  blockNumber: number;
-  timestamp: string;
   extrinsicHash?: string;
-  extrinsicId?: string;
-  from: { id: string; address?: string; evmAddress?: string };
-  to: { id: string; address?: string; evmAddress?: string };
+  extrinsicId: string;
+  from: { id: string; evmAddress?: string };
+  to: { id: string; evmAddress?: string };
+  timestamp: string;
+  amount: string;
+  success: boolean;
   type: string;
-  amount?: string;
+  denom?: string;
+  token: ApiToken; // Use the ApiToken interface here
+  signedData?: any;
+  blockNumber: number;
   name?: string; // Для REEF20_TRANSFER (имя токена)
   contractAddress?: string; // Для REEF20_TRANSFER
-  success?: boolean;
   section?: string;
   method?: string;
-  signedData?: string; // JSON строка
-  token?: { id: string; name: string; symbol: string; decimals: number };
-  denom?: string;
 }
 
 /**
@@ -102,4 +102,20 @@ export interface ApiTransactionResponseData {
  */
 export interface ApiFullTransactionResponse extends ApiError {
   data?: ApiTransactionResponseData;
+}
+
+/**
+ * Represents the 'token' object in the API response
+ */
+export interface ApiToken {
+  id: string;
+  name?: string;
+  contractData?: any; // Changed from nested contract.contract_data
+}
+
+/**
+ * Represents a single transaction edge, containing the transaction node itself.
+ */
+export interface ApiTransactionEdge {
+  node: GraphQLTransactionNode;
 }
