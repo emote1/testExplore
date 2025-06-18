@@ -4,7 +4,8 @@ import { formatUnits } from 'ethers';
 import { useTransactionDataWithBlocks } from '../hooks/use-transaction-data-with-blocks';
 import type { Transaction } from '../types/transaction-types';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
-import { Loader2 } from 'lucide-react';
+import { Loader2, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
+import { generateReefscanUrl } from '../utils/reefscan-helpers';
 
 interface TransactionHistoryWithBlocksProps {
   initialAddress?: string;
@@ -114,7 +115,13 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
 
   const truncateHash = (hash: string, start: number = 6, end: number = 4): string => {
     if (!hash) return '';
-    return `${hash.slice(0, start)}...${hash.slice(-end)}`;
+    return `${hash.substring(0, start)}...${hash.substring(hash.length - end)}`;
+  };
+
+  const isNftTransfer = (tokenSymbol: string): boolean => {
+    if (!tokenSymbol) return false;
+    const upperSymbol = tokenSymbol.toUpperCase();
+    return upperSymbol.includes('ERC1155') || upperSymbol.includes('ERC721');
   };
 
   return (
@@ -261,51 +268,69 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                <AnimatePresence mode="popLayout">
-                  {transactions.map((transaction) => (
-                    <motion.tr
-                      key={transaction.id} // Changed from transaction.hash to the unique transaction.id
-                      layout
-                      initial={{ opacity: 0, y: -10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -20 }}
-                      transition={{ duration: 0.3 }}
-                      className="hover:bg-gray-50"
-                    >
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {formatDate(transaction.timestamp)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {getTransactionType(transaction, nativeAddressForCurrentSearch)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-600">
-                        {truncateHash(transaction.hash)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-600">
-                        {truncateHash(transaction.from)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-600">
-                        {truncateHash(transaction.to)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {formatAmount(transaction.amount, transaction.tokenDecimals, transaction.tokenSymbol)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                        {formatFee(transaction.feeAmount.toString(), transaction.feeTokenSymbol)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span
-                          className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                            transaction.status === 'Success'
-                              ? 'bg-green-100 text-green-800'
-                              : 'bg-red-100 text-red-800'
-                          }`}
-                        >
-                          {transaction.status}
-                        </span>
-                      </td>
-                    </motion.tr>
-                  ))}
+                <AnimatePresence>
+                  {transactions.map((transaction) => {
+                    const transactionType = getTransactionType(transaction, nativeAddressForCurrentSearch);
+                    return (
+                      <motion.tr
+                        key={transaction.id} // Use a stable, unique key for each transaction
+                        className="hover:bg-gray-50"
+                      >
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {formatDate(transaction.timestamp)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {transactionType === 'Входящая транзакция' && (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                              <ArrowDownLeft className="mr-1.5 h-4 w-4" />
+                              Входящая
+                            </span>
+                          )}
+                          {transactionType === 'Исходящая транзакция' && (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                              <ArrowUpRight className="mr-1.5 h-4 w-4" />
+                              Исходящая
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-600">
+                          <a 
+                            href={generateReefscanUrl(transaction)} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:text-blue-800 hover:underline"
+                          >
+                            {truncateHash(transaction.hash)}
+                          </a>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-600">
+                          {truncateHash(transaction.from)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-600">
+                          {truncateHash(transaction.to)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {isNftTransfer(transaction.tokenSymbol)
+                            ? 'NFT'
+                            : formatAmount(transaction.amount, transaction.tokenDecimals, transaction.tokenSymbol)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                          {formatFee(transaction.feeAmount.toString(), transaction.feeTokenSymbol)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span
+                            className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                              transaction.status === 'Success'
+                                ? 'bg-green-100 text-green-800'
+                                : 'bg-red-100 text-red-800'
+                            }`}
+                          >
+                            {transaction.status}
+                          </span>
+                        </td>
+                      </motion.tr>
+                    );
+                  })}
                 </AnimatePresence>
               </tbody>
             </table>

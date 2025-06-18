@@ -141,7 +141,7 @@ describe('TransactionHistoryWithBlocks', () => {
     const cells = within(firstDataRow).getAllByRole('cell');
 
     // New column order: Date (0), Тип (1), Hash (2), От кого (3), Кому (4), Amount (5), Fee (6), Status (7)
-    expect(within(cells[1]).getByText(/Входящая транзакция/i)).toBeInTheDocument(); // Type
+    expect(within(cells[1]).getByText(/Входящая/i)).toBeInTheDocument(); // Type
     expect(within(cells[5]).getByText(/1,234.56 REEF/i)).toBeInTheDocument(); // Amount
     expect(within(cells[6]).getByText(/0.0123 REEF/i)).toBeInTheDocument(); // Fee
     expect(within(cells[7]).getByText(/Success/i)).toBeInTheDocument(); // Status
@@ -180,7 +180,7 @@ describe('TransactionHistoryWithBlocks', () => {
     const cells = within(firstDataRow).getAllByRole('cell');
 
     // New column order: Date (0), Тип (1), Hash (2), От кого (3), Кому (4), Amount (5), Fee (6), Status (7)
-    expect(within(cells[1]).getByText(/Исходящая транзакция/i)).toBeInTheDocument(); // Type
+    expect(within(cells[1]).getByText(/Исходящая/i)).toBeInTheDocument(); // Type
     expect(within(cells[5]).getByText(/50.5123 MRD/i)).toBeInTheDocument(); // Amount
     expect(within(cells[6]).getByText(/0.0057 REEF/i)).toBeInTheDocument(); // Fee (rounded)
     expect(within(cells[7]).getByText(/Success/i)).toBeInTheDocument(); // Status
@@ -220,7 +220,7 @@ describe('TransactionHistoryWithBlocks', () => {
     expect(within(cells[5]).getByText(/123.00 REEF/i)).toBeInTheDocument();
     expect(within(cells[6]).getByText(/0.001 REEF/i)).toBeInTheDocument();
     // Check type column (index 1)
-    expect(within(cells[1]).getByText(/Входящая транзакция/i)).toBeInTheDocument();
+    expect(within(cells[1]).getByText(/Входящая/i)).toBeInTheDocument();
   });
 
   // Test Case 4: Transaction with zero amount
@@ -289,7 +289,7 @@ describe('TransactionHistoryWithBlocks', () => {
 
     // New column order: Date (0), Тип (1), Hash (2), От кого (3), Кому (4), Amount (5), Fee (6), Status (7)
     expect(within(cells[5]).getByText(/2,500.00 REEF/i)).toBeInTheDocument();
-    expect(within(cells[1]).getByText(/Исходящая транзакция/i)).toBeInTheDocument(); // Type should be Outgoing for self-transfer
+    expect(within(cells[1]).getByText(/Исходящая/i)).toBeInTheDocument(); // Type should be Outgoing for self-transfer
   });
 
   // Test Case 6: MRD Transaction Amount Rendering (0 decimals from map/default)
@@ -326,7 +326,7 @@ describe('TransactionHistoryWithBlocks', () => {
     const cells = within(firstDataRow).getAllByRole('cell');
 
     // New column order: Date (0), Тип (1), Hash (2), От кого (3), Кому (4), Amount (5), Fee (6), Status (7)
-    expect(within(cells[1]).getByText(/Исходящая транзакция/i)).toBeInTheDocument(); // Type
+    expect(within(cells[1]).getByText(/Исходящая/i)).toBeInTheDocument(); // Type
     expect(within(cells[5]).getByText(/50.5 MRD/i)).toBeInTheDocument(); // Amount
     expect(within(cells[6]).getByText(/0.005 REEF/i)).toBeInTheDocument(); // Fee
   });
