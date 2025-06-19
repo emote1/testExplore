@@ -16,13 +16,16 @@ export const PAGINATION_CONFIG = {
   MAX_CACHE_SIZE: 50,
   
   /** Maximum number of pages to scan sequentially */
-  MAX_SEQUENTIAL_FETCH_PAGES: 80,
+  MAX_SEQUENTIAL_FETCH_PAGES: 20,
   
   /** Maximum items for optimized last page fetch */
   MAX_OPTIMIZED_FETCH_COUNT: 50,
   
   /** Enable block-based pagination optimization */
   ENABLE_BLOCK_OPTIMIZATION: true,
+  
+  /** Polling interval in milliseconds */
+  POLLING_INTERVAL_MS: 30000, // 30 seconds by default, less frequent than before
 } as const;
 
 export const API_CONFIG = {

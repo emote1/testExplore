@@ -8,6 +8,11 @@ interface MockedAxios {
   post: Mock<(...args: any[]) => Promise<any>>;
 }
 
+// Mock useTransferSubscription to avoid Apollo errors
+vi.mock('./useTransferSubscription', () => ({
+  useTransferSubscription: vi.fn()
+}));
+
 // Mock axios module
 vi.mock('axios', () => ({
   __esModule: true, 

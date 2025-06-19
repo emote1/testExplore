@@ -11,6 +11,7 @@ import {
   canServePageFromBlock,
   getPagesInBlock
 } from '../utils/block-pagination';
+import { useTransferSubscription } from './useTransferSubscription';
 
 // Define a helper interface for parsed contract_data
 interface ParsedContractData {
@@ -61,6 +62,7 @@ interface UseTransactionDataReturn {
     transactionsInBlock: number;
     pagesInBlock: number;
   };
+  prependNewTransaction: (transaction: Transaction) => void;
 }
 
 // Helper to parse signedData from the API
@@ -464,6 +466,28 @@ export function useTransactionDataWithBlocks(initialAddress: string = ''): UseTr
     // This is a simplified implementation
   }, []);
 
+  // Real-time transaction updates
+  const prependNewTransaction = useCallback((transaction: Transaction) => {
+    setTransactions(prevTransactions => {
+      // Check if transaction already exists to avoid duplicates
+      const exists = prevTransactions.some(tx => tx.id === transaction.id);
+      if (exists) return prevTransactions;
+      
+      // Add new transaction at the beginning and limit to UI_TRANSACTIONS_PER_PAGE
+      return [transaction, ...prevTransactions].slice(0, PAGINATION_CONFIG.UI_TRANSACTIONS_PER_PAGE);
+    });
+    
+    // Increment total count for new transactions
+    setTotalTransactions(prevTotal => prevTotal + 1);
+  }, []); // No dependencies - uses functional state updates
+
+  // Subscribe to new transactions only on first page
+  useTransferSubscription({
+    nativeAddress: nativeAddressForCurrentSearch,
+    onNewTransaction: prependNewTransaction,
+    isEnabled: currentPage === 1 && !!nativeAddressForCurrentSearch
+  });
+
   // Cache stats
   const cacheStats = useMemo(() => {
     const stats = cacheManager.current.getStats();
@@ -512,6 +536,7 @@ export function useTransactionDataWithBlocks(initialAddress: string = ''): UseTr
     setUserInputAddress,
     handleSort,
     cacheStats,
-    blockStats
+    blockStats,
+    prependNewTransaction
   };
 }
