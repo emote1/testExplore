@@ -3,13 +3,12 @@
  * Handles FIFO cache with access tracking and size management
  */
 
-import type { Transaction } from '../types/transaction-types';
-import type { ApiPageInfo } from '../types/reefscan-api';
+import type { Transfer, PageInfo } from '../types/graphql-generated';
 import { PAGINATION_CONFIG, CACHE_CONFIG } from '../constants/pagination';
 
 export interface CachedPageData {
-  transactions: Transaction[];
-  pageInfo: ApiPageInfo;
+  transactions: Transfer[];
+  pageInfo: PageInfo;
   nativeAddress: string;
   totalCount: number;
 }

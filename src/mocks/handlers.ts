@@ -4,8 +4,7 @@ import { graphql, HttpResponse } from 'msw';
 export const handlers = [
   // Пример обработчика для GraphQL запроса
   // Вам нужно будет адаптировать это под ваши конкретные запросы и данные
-  graphql.query('GetTransfers', ({ query, variables }) => {
-    console.log('[MSW] Intercepted GraphQL query:', query);
+  graphql.query('GetTransfers', ({ variables }) => {
     console.log('[MSW] Intercepted GraphQL variables:', variables);
 
     // Пример ответа для начальной загрузки

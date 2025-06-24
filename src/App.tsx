@@ -1,8 +1,13 @@
-import { ApolloClient, InMemoryCache, ApolloProvider } from '@apollo/client';
+import { ApolloClient, InMemoryCache, ApolloProvider, HttpLink } from '@apollo/client';
 import { TransactionHistoryWithBlocks } from './components/TransactionHistoryWithBlocks';
 
-const client = new ApolloClient({
+// HTTP link for queries and mutations - polling will handle subscriptions
+const httpLink = new HttpLink({
   uri: 'https://squid.subsquid.io/reef-explorer/graphql',
+});
+
+const client = new ApolloClient({
+  link: httpLink,
   cache: new InMemoryCache(),
 });
 

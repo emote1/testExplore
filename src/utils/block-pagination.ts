@@ -1,16 +1,27 @@
-import type { Transaction, TransactionBlock, BlockPaginationState } from '../types/transaction-types';
-import type { ApiPageInfo } from '../types/reefscan-api';
+import type { UiTransfer } from '../data/transfer-mapper';
+import type { PageInfo } from '../types/graphql-generated';
 import { PAGINATION_CONFIG } from '../constants/pagination';
+
+// New interfaces using AppTransaction
+export interface AppTransactionBlock {
+  transactions: UiTransfer[];
+  pageInfo: PageInfo;
+  totalCount: number;
+  fetchedAt: number;
+  nativeAddress: string;
+}
+
+
 
 /**
  * Creates a transaction block from API response
  */
 export function createTransactionBlock(
-  transactions: Transaction[],
-  pageInfo: ApiPageInfo,
+  transactions: UiTransfer[],
+  pageInfo: PageInfo,
   totalCount: number,
   nativeAddress: string
-): TransactionBlock {
+): AppTransactionBlock {
   return {
     transactions,
     pageInfo,
@@ -24,10 +35,10 @@ export function createTransactionBlock(
  * Extracts a page of transactions from a block
  */
 export function extractPageFromBlock(
-  block: TransactionBlock,
+  block: AppTransactionBlock,
   pageNumber: number,
   blockStartPage: number
-): { transactions: Transaction[]; hasMore: boolean } {
+): { transactions: UiTransfer[]; hasMore: boolean } {
   const pageSize = PAGINATION_CONFIG.UI_TRANSACTIONS_PER_PAGE;
   const relativePageIndex = pageNumber - blockStartPage;
   const startIndex = relativePageIndex * pageSize;
@@ -47,7 +58,7 @@ export function extractPageFromBlock(
  * Determines if a page can be served from the current block
  */
 export function canServePageFromBlock(
-  block: TransactionBlock | null,
+  block: AppTransactionBlock | null,
   pageNumber: number,
   blockStartPage: number
 ): boolean {
@@ -63,24 +74,9 @@ export function canServePageFromBlock(
 /**
  * Calculates how many pages can be served from a block
  */
-export function getPagesInBlock(block: TransactionBlock): number {
+export function getPagesInBlock(block: AppTransactionBlock): number {
   const pageSize = PAGINATION_CONFIG.UI_TRANSACTIONS_PER_PAGE;
   return Math.ceil(block.transactions.length / pageSize);
 }
 
-/**
- * Validates block pagination state
- */
-export function validateBlockState(state: BlockPaginationState): boolean {
-  if (!state.currentBlock) return true;
-  
-  const { currentBlock, currentBlockStartPage } = state;
-  
-  // Validate that start page is positive
-  if (currentBlockStartPage < 1) return false;
-  
-  // Validate that block has transactions
-  if (currentBlock.transactions.length === 0) return false;
-  
-  return true;
-}
+

@@ -1,542 +1,176 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import axios from 'axios';
-import type { Transaction, SortConfig, SignedData, TransactionBlock, BlockPaginationState } from '../types/transaction-types';
-import type { ApiPageInfo, ApiTransfersConnection, ApiTransactionEdge } from '../types/reefscan-api';
-import { PaginationCacheManager } from '../utils/cache-manager';
-import { PAGINATION_CONFIG } from '../constants/pagination';
-import { determineDisplayType } from '../utils/reefscan-helpers';
-import {
-  createTransactionBlock,
-  extractPageFromBlock,
-  canServePageFromBlock,
-  getPagesInBlock
-} from '../utils/block-pagination';
-import { useTransferSubscription } from './useTransferSubscription';
+import { useMemo, useRef, useCallback, useState, useEffect } from 'react';
+import { useQuery, ApolloError, NetworkStatus, useLazyQuery } from '@apollo/client';
+import { PAGINATED_TRANSFERS_QUERY, FEE_EVENTS_QUERY } from '../data/transfers';
+import { TransfersQueryQuery, FeeEventsQueryQuery } from '../types/graphql-generated';
+import { UiTransfer, mapTransfersToUiTransfers } from '../data/transfer-mapper';
 
-// Define a helper interface for parsed contract_data
-interface ParsedContractData {
-  name?: string;
-  symbol?: string;
-  decimals?: number;
-}
+const EMPTY_TRANSACTIONS: UiTransfer[] = [];
 
-// Error interfaces
-interface AppError {
-  userMessage: string;
-  originalError?: unknown;
-}
-
-interface GraphQLError {
-  message: string;
-}
-
-const API_URL = 'https://squid.subsquid.io/reef-explorer/graphql';
-
-// Hook return interface
-interface UseTransactionDataReturn {
-  transactions: Transaction[];
-  currentPage: number;
+export interface UseTransactionDataReturn {
+  transactions: UiTransfer[];
+  isLoading: boolean;
+  isFetching: boolean;
+  error?: ApolloError;
+  fetchMore: () => void;
   hasNextPage: boolean;
-  totalTransactions: number;
-  error: string | null;
-  isFetchingTransactions: boolean;
-  isNavigatingToLastPage: boolean;
-  isLastPageNavigable: boolean;
-  userInputAddress: string;
-  currentSearchAddress: string;
-  nativeAddressForCurrentSearch: string | null;
-  pageInfoForCurrentPage: ApiPageInfo | null;
-  sortConfig: SortConfig;
-  handleFirstPage: () => void;
-  handlePreviousPage: () => void;
-  handleNextPage: () => void;
-  handleLastPage: () => void;
-  handleAddressSubmit: (address: string) => void;
-  setUserInputAddress: React.Dispatch<React.SetStateAction<string>>;
-  handleSort: (key: keyof Transaction | null) => void;
-  cacheStats: { size: number; maxSize: number; accessOrderLength: number; };
-  // New block-related stats for debugging
-  blockStats: {
-    hasCurrentBlock: boolean;
-    currentBlockStartPage: number;
-    transactionsInBlock: number;
-    pagesInBlock: number;
-  };
-  prependNewTransaction: (transaction: Transaction) => void;
+  totalCount: number;
 }
 
-// Helper to parse signedData from the API
-const parseSignedData = (data: any): SignedData | undefined => {
-  if (!data) {
-    return undefined;
-  }
-  try {
-    const rawSignedData = typeof data === 'string' ? JSON.parse(data) : data;
+const ORDER_BY_TIMESTAMP_DESC = ['timestamp_DESC'];
 
-    if (rawSignedData && rawSignedData.fee && typeof rawSignedData.fee.partialFee === 'string') {
-      return { 
-        fee: { 
-          partialFee: rawSignedData.fee.partialFee 
-        } 
-      };
-    }
-    if (rawSignedData && typeof rawSignedData.partialFee === 'string') {
-      return { fee: { partialFee: rawSignedData.partialFee } };
-    }
-    return undefined;
-  } catch (e) {
-    // Silently ignore parsing errors, as this data is not critical
-    return undefined;
-  }
-};
+export function useTransactionDataWithBlocks(
+  accountAddress: string | null,
+  limit: number,
+): UseTransactionDataReturn {
+  const variables = useMemo(() => {
+    if (!accountAddress) return undefined;
+    return {
+      first: limit,
+      after: null,
+      orderBy: ORDER_BY_TIMESTAMP_DESC,
+      where: {
+        OR: [
+          { from: { id_eq: accountAddress } },
+          { to: { id_eq: accountAddress } },
+        ],
+      },
+    };
+  }, [limit, accountAddress]);
 
-// Main hook implementation with block optimization
-export function useTransactionDataWithBlocks(initialAddress: string = ''): UseTransactionDataReturn {
-  // Cache manager instance (kept for fallback scenarios)
-  const cacheManager = useRef(new PaginationCacheManager());
-  
-  // Traditional state management
-  const [pageInfoForCurrentPage, setPageInfoForCurrentPage] = useState<ApiPageInfo | null>(null);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [userInputAddress, setUserInputAddress] = useState<string>(initialAddress);
-  const [currentSearchAddress, setCurrentSearchAddress] = useState<string>('');
-  const [nativeAddressForCurrentSearch, setNativeAddressForCurrentSearch] = useState<string | null>('');
-  const [totalTransactions, setTotalTransactions] = useState(0);
-  const [hasNextPage, setHasNextPage] = useState(false);
-  const [error, setError] = useState<AppError | null>(null);
-  const [isFetchingTransactions, setIsFetchingTransactions] = useState(false);
-  const [isNavigatingToLastPage, setIsNavigatingToLastPage] = useState(false);
-  const [isInitialDataSet, setIsInitialDataSet] = useState(false);
-  const [sortConfig, setSortConfig] = useState<SortConfig>({ key: null, direction: 'desc' });
-  const [isLastPageNavigable, setIsLastPageNavigable] = useState(true);
+  const { data, loading, error, fetchMore: apolloFetchMore, networkStatus } = useQuery<TransfersQueryQuery>(
+    PAGINATED_TRANSFERS_QUERY,
+    {
+      variables,
+      skip: !accountAddress || !variables,
+      fetchPolicy: 'cache-and-network',
+      nextFetchPolicy: 'cache-first',
+      notifyOnNetworkStatusChange: true,
+    },
+  );
 
-  // New block-based state
-  const [blockCache, setBlockCache] = useState<Map<number, TransactionBlock>>(new Map());
-  const [blockState, setBlockState] = useState<BlockPaginationState>({
-    currentBlock: null,
-    currentBlockStartPage: 1,
-    remainingTransactions: []
-  });
+  const [fees, setFees] = useState<Record<string, string>>({});
+  const [loadFees, { data: feeData }] = useLazyQuery<FeeEventsQueryQuery>(FEE_EVENTS_QUERY);
 
-  // API function to fetch paginated transfers with configurable page size
-  const fetchPaginatedTransfers = useCallback(async (
-    nativeAddress: string,
-    pageSize: number,
-    cursor?: string | null
-  ): Promise<ApiTransfersConnection> => {
-    let paginationArgs = `first: ${pageSize}`;
-    if (cursor) {
-      paginationArgs += `, after: "${cursor}"`;
-    }
+  useEffect(() => {
+    if (data?.transfersConnection?.edges) {
+      const extrinsicHashes = [
+        ...new Set(
+          data.transfersConnection.edges
+            .map(edge => edge.node.extrinsicHash)
+            .filter((hash): hash is string => !!hash),
+        ),
+      ];
 
-    const query = `
-      query GetTransfers($nativeAddressVariable: String!) {
-        transfersConnection(
-          orderBy: timestamp_DESC,
-          where: {
-            AND: [
-              { success_eq: true },
-              { OR: [
-                  { from: { id_eq: $nativeAddressVariable } },
-                  { to: { id_eq: $nativeAddressVariable } }
-                ]
-              }
-            ]
+      if (extrinsicHashes.length > 0) {
+        loadFees({
+          variables: {
+            orderBy: ['timestamp_DESC'],
+            where: {
+              section_eq: 'transactionpayment',
+              method_eq: 'TransactionFeePaid',
+              extrinsic: { hash_in: extrinsicHashes },
+            },
           },
-          ${paginationArgs}
-        ) {
-          edges {
-            node {
-              id
-              timestamp
-              denom
-              amount
-              success
-              extrinsicHash
-              extrinsicId
-              type
-              token {
-                id
-                name
-                contractData
-              }
-              from { id evmAddress }
-              to { id evmAddress }
-              signedData
+        });
+      }
+    }
+  }, [data, loadFees]);
+
+  useEffect(() => {
+    if (feeData?.eventsConnection?.edges) {
+      const newFees = feeData.eventsConnection.edges.reduce(
+        (acc: Record<string, string>, edge) => {
+          const event = edge.node;
+          if (event?.extrinsic?.hash && Array.isArray(event.data) && event.data.length >= 2) {
+            const feeAmount = event.data[1]?.toString();
+            if (feeAmount) {
+              acc[event.extrinsic.hash] = feeAmount;
             }
           }
-          pageInfo {
-            hasNextPage
-            hasPreviousPage
-            startCursor
-            endCursor
-          }
-          totalCount
-        }
+          return acc;
+        },
+        {},
+      );
+
+      if (Object.keys(newFees).length > 0) {
+        setFees(prevFees => ({ ...prevFees, ...newFees }));
       }
-    `;
-
-    const variables = {
-      nativeAddressVariable: nativeAddress
-    };
-
-    const response = await axios.post(API_URL, { query, variables });
-    
-    if (response.data?.errors) {
-      throw new Error(response.data.errors.map((e: GraphQLError) => e.message).join(', '));
     }
+  }, [feeData]);
 
-    if (response.data?.data?.transfersConnection) {
-      return response.data.data.transfersConnection;
-    } else {
-      throw new Error('Invalid data structure or transfersConnection is null.');
+  const baseTransactions = useMemo(() => {
+    if (!data?.transfersConnection?.edges) return EMPTY_TRANSACTIONS;
+    return mapTransfersToUiTransfers(data.transfersConnection.edges, accountAddress);
+  }, [data, accountAddress]);
+
+  const transactions = useMemo(() => {
+    if (Object.keys(fees).length === 0) {
+      return baseTransactions;
     }
-  }, []);
-
-  // Process transaction edges into Transaction objects
-  const processTransactionEdges = useCallback((edges: ApiTransactionEdge[]): Transaction[] => {
-    const processedTransactions: Transaction[] = edges.map((edge) => {
-      const tx = edge.node;
-
-      // Safely parse signedData
-      const signedData = parseSignedData(tx.signedData);
-      const feeAmount = signedData?.fee?.partialFee || '0';
-
-      // Safely parse contract_data which might be a stringified JSON
-      let parsedContractData: ParsedContractData | undefined;
-      try {
-        if (tx.token?.contractData) {
-          parsedContractData = typeof tx.token.contractData === 'string'
-            ? JSON.parse(tx.token.contractData)
-            : tx.token.contractData;
-        }
-      } catch (e) {
-        // Silently ignore parsing errors
+    return baseTransactions.map(tx => {
+      const feeAmount = fees[tx.hash];
+      if (feeAmount) {
+        return { ...tx, feeAmount };
       }
-
-      return {
-        id: tx.id,
-        hash: tx.extrinsicHash || '', // Populate hash
-        timestamp: tx.timestamp,
-        from: tx.from.id,
-        to: tx.to.id,
-        fromEvm: tx.from.evmAddress,
-        toEvm: tx.to.evmAddress,
-        amount: tx.amount,
-        tokenSymbol: parsedContractData?.symbol || tx.token.name || 'Unknown',
-        tokenDecimals: parsedContractData?.decimals ?? 18, // Default to 18 if not available
-        success: tx.success,
-        status: tx.success ? 'Success' : 'Fail', // Populate status
-        extrinsicHash: tx.extrinsicHash,
-        extrinsicId: tx.extrinsicId,
-        type: determineDisplayType(tx.type, tx.from.id, tx.to.id, nativeAddressForCurrentSearch || ''),
-        feeAmount,
-        feeTokenSymbol: 'REEF', // Populate feeTokenSymbol
-        signedData,
-        raw: tx,
-      };
+      return tx;
     });
+  }, [baseTransactions, fees]);
 
-    return processedTransactions;
-  }, [nativeAddressForCurrentSearch]);
+  const pageInfoRef = useRef(data?.transfersConnection?.pageInfo);
+  pageInfoRef.current = data?.transfersConnection?.pageInfo;
 
-  // Fetch a new block of transactions
-  const fetchNewBlock = useCallback(async (
-    nativeAddress: string,
-    cursor?: string | null
-  ): Promise<TransactionBlock> => {
-    const fetchSize = PAGINATION_CONFIG.ENABLE_BLOCK_OPTIMIZATION 
-      ? PAGINATION_CONFIG.BLOCK_FETCH_SIZE 
-      : PAGINATION_CONFIG.UI_TRANSACTIONS_PER_PAGE;
+  const hasNextPage = data?.transfersConnection?.pageInfo?.hasNextPage || false;
 
-    const apiData = await fetchPaginatedTransfers(nativeAddress, fetchSize, cursor);
-    const processedTransactions = processTransactionEdges(apiData.edges);
-    
-    return createTransactionBlock(
-      processedTransactions,
-      apiData.pageInfo,
-      apiData.totalCount,
-      nativeAddress
-    );
-  }, [fetchPaginatedTransfers, processTransactionEdges]);
+  const fetchMore = useCallback(() => {
+    const currentPageInfo = pageInfoRef.current;
+    if (!currentPageInfo?.hasNextPage || !currentPageInfo?.endCursor) return;
 
-  // Load page data using block optimization
-  const loadPageData = useCallback(async (
-    pageNumber: number,
-    nativeAddress: string,
-    cursor?: string | null
-  ) => {
-    if (!nativeAddress) return;
+    apolloFetchMore({
+      variables: {
+        after: currentPageInfo.endCursor,
+      },
+      updateQuery: (prev, { fetchMoreResult }) => {
+        if (!fetchMoreResult?.transfersConnection) return prev;
 
-    setIsFetchingTransactions(true);
-    setError(null);
+        type Edge = typeof prev.transfersConnection.edges[0];
+        const existingIds = new Set(prev.transfersConnection.edges.map((e: Edge) => e.node.id));
+        const newEdges = fetchMoreResult.transfersConnection.edges.filter((e: Edge) => !existingIds.has(e.node.id));
 
-    try {
-      // 1. Check if we can serve this page from the current block
-      if (PAGINATION_CONFIG.ENABLE_BLOCK_OPTIMIZATION && 
-          canServePageFromBlock(blockState.currentBlock, pageNumber, blockState.currentBlockStartPage)) {
-        
-        const result = extractPageFromBlock(blockState.currentBlock!, pageNumber, blockState.currentBlockStartPage);
-        
-        setTransactions(result.transactions);
-        setCurrentPage(pageNumber);
-        setHasNextPage(result.hasMore);
-        setTotalTransactions(blockState.currentBlock!.totalCount);
-        
-        setPageInfoForCurrentPage({
-          hasNextPage: result.hasMore,
-          hasPreviousPage: pageNumber > 1,
-          startCursor: blockState.currentBlock!.pageInfo.startCursor,
-          endCursor: blockState.currentBlock!.pageInfo.endCursor
-        });
-        return; // Served from current block
-      }
-
-      // 2. Check if we can serve from a cached block
-      for (const [startPage, cachedBlock] of blockCache.entries()) {
-        if (canServePageFromBlock(cachedBlock, pageNumber, startPage)) {
-          // Found a block in the cache! Use it.
-          const result = extractPageFromBlock(cachedBlock, pageNumber, startPage);
-
-          setBlockState({ currentBlock: cachedBlock, currentBlockStartPage: startPage, remainingTransactions: [] });
-          setTransactions(result.transactions);
-          setCurrentPage(pageNumber);
-          setHasNextPage(result.hasMore);
-          setTotalTransactions(cachedBlock.totalCount);
-          setPageInfoForCurrentPage({
-            hasNextPage: result.hasMore,
-            hasPreviousPage: pageNumber > 1,
-            startCursor: cachedBlock.pageInfo.startCursor,
-            endCursor: cachedBlock.pageInfo.endCursor
-          });
-          return; // Served from cache
+        if (newEdges.length === 0) {
+          return {
+            ...prev,
+            transfersConnection: {
+              ...prev.transfersConnection,
+              pageInfo: {
+                ...fetchMoreResult.transfersConnection.pageInfo,
+                hasNextPage: false,
+              },
+            },
+          };
         }
-      }
 
-      // 3. Need to fetch a new block
-      const newBlock = await fetchNewBlock(nativeAddress, cursor);
-      
-      // Add new block to cache
-      setBlockCache(prevCache => new Map(prevCache).set(pageNumber, newBlock));
-      
-      // Update block state with the new block
-      setBlockState({
-        currentBlock: newBlock,
-        currentBlockStartPage: pageNumber,
-        remainingTransactions: []
-      });
-
-      // Extract first page from the new block
-      const result = extractPageFromBlock(newBlock, pageNumber, pageNumber);
-      
-      setTransactions(result.transactions);
-      setCurrentPage(pageNumber);
-      setHasNextPage(result.hasMore);
-      setTotalTransactions(newBlock.totalCount);
-      
-      setPageInfoForCurrentPage({
-        hasNextPage: result.hasMore,
-        hasPreviousPage: pageNumber > 1,
-        startCursor: newBlock.pageInfo.startCursor,
-        endCursor: newBlock.pageInfo.endCursor
-      });
-
-      const totalPages = Math.ceil(newBlock.totalCount / PAGINATION_CONFIG.UI_TRANSACTIONS_PER_PAGE);
-      const pagesToJump = totalPages - pageNumber;
-      setIsLastPageNavigable(pagesToJump <= PAGINATION_CONFIG.MAX_SEQUENTIAL_FETCH_PAGES);
-
-    } catch (err) {
-      // Only log errors in non-test environments to avoid stderr pollution during tests
-      if (process.env.NODE_ENV !== 'test') {
-        console.error('Error loading page data:', err);
-      }
-      setError({
-        userMessage: 'Ошибка загрузки данных. Попробуйте обновить страницу.',
-        originalError: err
-      });
-    } finally {
-      setIsFetchingTransactions(false);
-    }
-  }, [blockState, fetchNewBlock, blockCache]);
-
-  // Navigation handlers
-  const handleNextPage = useCallback(async () => {
-    if (!nativeAddressForCurrentSearch || isFetchingTransactions || !hasNextPage) return;
-    const nextPage = currentPage + 1;
-    await loadPageData(nextPage, nativeAddressForCurrentSearch, blockState.currentBlock?.pageInfo.endCursor);
-  }, [currentPage, nativeAddressForCurrentSearch, isFetchingTransactions, blockState, loadPageData, hasNextPage]);
-
-  const handlePreviousPage = useCallback(async () => {
-    if (!nativeAddressForCurrentSearch || isFetchingTransactions || currentPage <= 1) return;
-    const prevPage = currentPage - 1;
-    await loadPageData(prevPage, nativeAddressForCurrentSearch, null); // Cursor is null for previous, cache will be checked
-  }, [currentPage, nativeAddressForCurrentSearch, isFetchingTransactions, loadPageData]);
-
-  const handleFirstPage = useCallback(async () => {
-    if (!nativeAddressForCurrentSearch || isFetchingTransactions) return;
-    await loadPageData(1, nativeAddressForCurrentSearch);
-  }, [nativeAddressForCurrentSearch, isFetchingTransactions, loadPageData]);
-
-  const handleLastPage = useCallback(async () => {
-    if (!nativeAddressForCurrentSearch || isFetchingTransactions || !totalTransactions || !isLastPageNavigable) return;
-
-    setIsNavigatingToLastPage(true);
-    setError(null);
-
-    try {
-      const totalPages = Math.ceil(totalTransactions / PAGINATION_CONFIG.UI_TRANSACTIONS_PER_PAGE);
-      if (currentPage === totalPages) {
-        setIsNavigatingToLastPage(false);
-        return;
-      }
-
-      let currentBlock = blockState.currentBlock;
-      let currentBlockStartPage = blockState.currentBlockStartPage;
-      const newCache = new Map(blockCache);
-
-      while (currentBlock && currentBlock.pageInfo.hasNextPage && !canServePageFromBlock(currentBlock, totalPages, currentBlockStartPage)) {
-        const nextBlockStartPage = currentBlockStartPage + getPagesInBlock(currentBlock);
-        const newBlock = await fetchNewBlock(nativeAddressForCurrentSearch, currentBlock.pageInfo.endCursor);
-        newCache.set(nextBlockStartPage, newBlock);
-        currentBlock = newBlock;
-        currentBlockStartPage = nextBlockStartPage;
-      }
-      
-      setBlockCache(newCache);
-
-      await loadPageData(totalPages, nativeAddressForCurrentSearch);
-
-    } catch (err) {
-      if (process.env.NODE_ENV !== 'test') {
-        console.error('Error navigating to last page:', err);
-      }
-      setError({
-        userMessage: 'Ошибка при переходе на последнюю страницу.',
-        originalError: err,
-      });
-    } finally {
-      setIsNavigatingToLastPage(false);
-    }
-  }, [
-    nativeAddressForCurrentSearch,
-    isFetchingTransactions,
-    totalTransactions,
-    currentPage,
-    blockState,
-    blockCache,
-    loadPageData,
-    fetchNewBlock,
-    isLastPageNavigable,
-  ]);
-
-  // Address handling
-  const handleAddressSubmit = useCallback(async (address: string) => {
-    if (!address.trim()) return;
-
-    setCurrentSearchAddress(address);
-    setNativeAddressForCurrentSearch(null); // Reset while resolving
-    setError(null);
-    setTransactions([]);
-    setCurrentPage(1);
-    setBlockState({ currentBlock: null, currentBlockStartPage: 1, remainingTransactions: [] });
-    setBlockCache(new Map());
-    setIsInitialDataSet(false);
-    setIsLastPageNavigable(true);
-
-    try {
-      // Resolve native address
-      // For simplicity, we'll assume the input address is the native address
-      setNativeAddressForCurrentSearch(address);
-      
-      // Load first page
-      await loadPageData(1, address);
-    } catch (err) {
-      console.error('Error resolving address:', err);
-    }
-  }, [loadPageData]);
-
-  // Sorting handler (simplified)
-  const handleSort = useCallback((key: keyof Transaction | null) => {
-    setSortConfig(prev => ({
-      key,
-      direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc'
-    }));
-    // Note: Sorting with blocks would require re-fetching data with different orderBy
-    // This is a simplified implementation
-  }, []);
-
-  // Real-time transaction updates
-  const prependNewTransaction = useCallback((transaction: Transaction) => {
-    setTransactions(prevTransactions => {
-      // Check if transaction already exists to avoid duplicates
-      const exists = prevTransactions.some(tx => tx.id === transaction.id);
-      if (exists) return prevTransactions;
-      
-      // Add new transaction at the beginning and limit to UI_TRANSACTIONS_PER_PAGE
-      return [transaction, ...prevTransactions].slice(0, PAGINATION_CONFIG.UI_TRANSACTIONS_PER_PAGE);
+        return {
+          ...prev,
+          transfersConnection: {
+            ...prev.transfersConnection,
+            pageInfo: fetchMoreResult.transfersConnection.pageInfo,
+            edges: [
+              ...prev.transfersConnection.edges,
+              ...newEdges,
+            ],
+          },
+        };
+      },
     });
-    
-    // Increment total count for new transactions
-    setTotalTransactions(prevTotal => prevTotal + 1);
-  }, []); // No dependencies - uses functional state updates
-
-  // Subscribe to new transactions only on first page
-  useTransferSubscription({
-    nativeAddress: nativeAddressForCurrentSearch,
-    onNewTransaction: prependNewTransaction,
-    isEnabled: currentPage === 1 && !!nativeAddressForCurrentSearch
-  });
-
-  // Cache stats
-  const cacheStats = useMemo(() => {
-    const stats = cacheManager.current.getStats();
-    return {
-      size: stats.size,
-      maxSize: stats.maxSize,
-      accessOrderLength: stats.accessOrderLength
-    };
-  }, []);
-
-  // Block stats for debugging
-  const blockStats = useMemo(() => ({
-    hasCurrentBlock: blockState.currentBlock !== null,
-    currentBlockStartPage: blockState.currentBlockStartPage,
-    transactionsInBlock: blockState.currentBlock?.transactions.length || 0,
-    pagesInBlock: blockState.currentBlock ? getPagesInBlock(blockState.currentBlock) : 0
-  }), [blockState]);
-
-  // Initialize with address if provided
-  useEffect(() => {
-    if (initialAddress && !isInitialDataSet) {
-      handleAddressSubmit(initialAddress);
-      setIsInitialDataSet(true);
-    }
-  }, [initialAddress, isInitialDataSet, handleAddressSubmit]);
+  }, [apolloFetchMore]);
 
   return {
     transactions,
-    currentPage,
+    isLoading: loading && networkStatus !== NetworkStatus.fetchMore,
+    isFetching: networkStatus === NetworkStatus.fetchMore,
+    error,
+    fetchMore,
     hasNextPage,
-    totalTransactions,
-    error: error?.userMessage || null,
-    isFetchingTransactions,
-    isNavigatingToLastPage,
-    isLastPageNavigable,
-    userInputAddress,
-    currentSearchAddress,
-    nativeAddressForCurrentSearch,
-    pageInfoForCurrentPage,
-    sortConfig,
-    handleFirstPage,
-    handlePreviousPage,
-    handleNextPage,
-    handleLastPage,
-    handleAddressSubmit,
-    setUserInputAddress,
-    handleSort,
-    cacheStats,
-    blockStats,
-    prependNewTransaction
+    totalCount: data?.transfersConnection?.totalCount || 0,
   };
 }

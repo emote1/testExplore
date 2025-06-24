@@ -1,7 +1,12 @@
 {
-  "files": [],
-  "references": [
-    { "path": "./tsconfig.app.json" },
-    { "path": "./tsconfig.node.json" }
-  ]
+  "extends": "./tsconfig.base.json",
+  "include": [
+    "src",
+    "vite.config.ts",
+    "codegen.ts",
+    "postcss.config.js",
+    "tailwind.config.js",
+    "eslint.config.js"
+  ],
+  "exclude": ["node_modules", "dist"]
 }

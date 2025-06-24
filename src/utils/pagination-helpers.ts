@@ -3,10 +3,9 @@
  * Helper functions for transaction pagination logic
  */
 
-import type { Transaction } from '../types/transaction-types';
-import type { ApiPageInfo } from '../types/reefscan-api';
+import type { Transfer, PageInfo } from '../types/graphql-generated';
 import { PAGINATION_CONFIG } from '../constants/pagination';
-import type { CachedPageData } from './cache-manager';
+import type { CachedPageData } from '../data/cache-manager';
 
 /**
  * Calculate total number of UI pages based on total transactions
@@ -20,17 +19,17 @@ export function calculateTotalPages(totalTransactions: number): number {
  * Calculate which UI pages can be created from a batch of transactions
  */
 export function calculateUiPagesFromBatch(
-  batchTransactions: Transaction[],
+  batchTransactions: Transfer[],
   batchPageNumber: number
 ): Array<{
   pageNumber: number;
-  transactions: Transaction[];
+  transactions: Transfer[];
   startIndex: number;
   endIndex: number;
 }> {
   const pages: Array<{
     pageNumber: number;
-    transactions: Transaction[];
+    transactions: Transfer[];
     startIndex: number;
     endIndex: number;
   }> = [];
@@ -75,9 +74,9 @@ export function calculateUiPagesFromBatch(
  * Extract the correct last page transactions from a batch
  */
 export function extractLastPageTransactions(
-  batchTransactions: Transaction[],
+  batchTransactions: Transfer[],
   totalTransactions: number
-): Transaction[] {
+): Transfer[] {
   if (batchTransactions.length <= PAGINATION_CONFIG.UI_TRANSACTIONS_PER_PAGE) {
     return batchTransactions;
   }
@@ -99,8 +98,8 @@ export function extractLastPageTransactions(
  * Create UI page cache data from batch data
  */
 export function createUiPageCacheData(
-  transactions: Transaction[],
-  pageInfo: ApiPageInfo,
+  transactions: Transfer[],
+  pageInfo: PageInfo,
   nativeAddress: string,
   totalCount: number,
   hasNextPage: boolean,
@@ -161,7 +160,7 @@ export function validatePaginationParams(params: {
 export function isAlreadyOnTargetPage(
   currentPage: number,
   targetPage: number,
-  transactions: Transaction[],
+  transactions: Transfer[],
   hasNextPage: boolean
 ): boolean {
   return currentPage === targetPage && 

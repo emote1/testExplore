@@ -3,17 +3,16 @@ import {
   createTransactionBlock,
   extractPageFromBlock,
   canServePageFromBlock,
-  getPagesInBlock,
-  validateBlockState
+  getPagesInBlock
 } from './block-pagination';
-import type { Transaction, BlockPaginationState } from '../types/transaction-types';
-import type { ApiPageInfo } from '../types/reefscan-api';
+import type { PageInfo } from '../types/graphql-generated';
+import type { UiTransfer } from '../data/transfer-mapper';
 import { PAGINATION_CONFIG } from '../constants/pagination';
 
 const UI_PAGE_SIZE = PAGINATION_CONFIG.UI_TRANSACTIONS_PER_PAGE; // Should be 10
 
 // Mock data helpers
-const createMockTransaction = (id: string): Transaction => ({
+const createMockTransaction = (id: string): UiTransfer => ({
   id,
   hash: `hash-${id}`,
   from: `from-${id}`,
@@ -29,7 +28,7 @@ const createMockTransaction = (id: string): Transaction => ({
   tokenDecimals: 18
 });
 
-const createMockPageInfo = (hasNextPage: boolean = true): ApiPageInfo => ({
+const createMockPageInfo = (hasNextPage: boolean = true): PageInfo => ({
   hasNextPage,
   hasPreviousPage: false,
   startCursor: 'start-cursor',
@@ -159,53 +158,5 @@ describe('Block Pagination Utils', () => {
     });
   });
 
-  describe('validateBlockState', () => {
-    it('should return true for null block', () => {
-      const state: BlockPaginationState = {
-        currentBlock: null,
-        currentBlockStartPage: 1,
-        remainingTransactions: []
-      };
-
-      expect(validateBlockState(state)).toBe(true);
-    });
-
-    it('should return true for valid block state', () => {
-      const transactions = Array.from({ length: UI_PAGE_SIZE * 2 }, (_, i) => createMockTransaction(`${i + 1}`));
-      const block = createTransactionBlock(transactions, createMockPageInfo(), 100, 'test-address');
-      
-      const state: BlockPaginationState = {
-        currentBlock: block,
-        currentBlockStartPage: 1,
-        remainingTransactions: []
-      };
-
-      expect(validateBlockState(state)).toBe(true);
-    });
-
-    it('should return false for invalid start page', () => {
-      const transactions = Array.from({ length: UI_PAGE_SIZE * 2 }, (_, i) => createMockTransaction(`${i + 1}`));
-      const block = createTransactionBlock(transactions, createMockPageInfo(), 100, 'test-address');
-      
-      const state: BlockPaginationState = {
-        currentBlock: block,
-        currentBlockStartPage: 0,
-        remainingTransactions: []
-      };
-
-      expect(validateBlockState(state)).toBe(false);
-    });
-
-    it('should return false for empty block transactions', () => {
-      const block = createTransactionBlock([], createMockPageInfo(), 0, 'test-address');
-      
-      const state: BlockPaginationState = {
-        currentBlock: block,
-        currentBlockStartPage: 1,
-        remainingTransactions: []
-      };
-
-      expect(validateBlockState(state)).toBe(false);
-    });
-  });
+  
 });

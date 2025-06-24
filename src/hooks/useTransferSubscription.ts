@@ -1,119 +1,89 @@
 import { useQuery } from '@apollo/client';
-import { gql } from '@apollo/client';
-import { useCallback, useRef, useEffect, useMemo } from 'react';
-import type { Transaction } from '../types/transaction-types';
-import { mapTransferToTransaction } from '../utils/transfer-mapper';
-import { PAGINATION_CONFIG } from '../constants/pagination';
-
-const TRANSFERS_QUERY = gql`
-  query RecentTransfers($where: TransferWhereInput, $orderBy: [TransferOrderByInput!]) {
-    transfers(where: $where, orderBy: $orderBy, limit: 5) {
-      id
-      amount
-      timestamp
-      success
-      extrinsicHash
-      from {
-        id
-      }
-      to {
-        id
-      }
-      token {
-        id
-        name
-        contractData
-      }
-    }
-  }
-`;
+import { useRef, useEffect, useMemo } from 'react';
+import { mapTransfersToUiTransfers, type UiTransfer } from '../data/transfer-mapper';
+import { TRANSFERS_POLLING_QUERY } from '../data/transfers';
+import type { TransfersPollingQueryQuery } from '../types/graphql-generated';
 
 interface UseTransferSubscriptionProps {
-  nativeAddress: string | null;
-  onNewTransaction: (transaction: Transaction) => void;
+  address: string | null;
+  onNewTransfer: (transfer: UiTransfer) => void;
   isEnabled: boolean;
 }
 
 export function useTransferSubscription({
-  nativeAddress,
-  onNewTransaction,
-  isEnabled
+  address,
+  onNewTransfer,
+  isEnabled,
 }: UseTransferSubscriptionProps) {
-  const addedTransactionIds = useRef<Set<string>>(new Set());
+  const seenTransferIds = useRef<Set<string>>(new Set());
+  const lastSeenTimestamp = useRef<string | null>(null);
+
+  const queryVariables = useMemo(() => {
+    if (!address) return null;
+
+    return {
+      where: {
+        OR: [
+          { from: { id_eq: address } },
+          { to: { id_eq: address } },
+        ],
+      },
+      orderBy: ['timestamp_DESC'] as const,
+      offset: 0,
+      limit: 10,
+    };
+  }, [address]);
 
   // Clear tracking when address changes
   useEffect(() => {
-    addedTransactionIds.current.clear();
-  }, [nativeAddress]);
+    seenTransferIds.current.clear();
+    lastSeenTimestamp.current = null;
+  }, [address]);
 
-  const processTransfer = useCallback((transfer: any): Transaction | null => {
-    if (!transfer) return null;
-
-    // Client-side filtering since we're getting all transfers
-    if (nativeAddress !== null) {
-      const isRelevant = transfer.from?.id === nativeAddress || transfer.to?.id === nativeAddress;
-      if (!isRelevant) {
-        return null;
-      }
-    }
-
-    // Use the reusable mapper utility
-    return mapTransferToTransaction(transfer, nativeAddress);
-  }, [nativeAddress]);
-
-  // Memoize query variables to prevent unnecessary re-renders
-  const queryVariables = useMemo(() => {
-    return nativeAddress !== null ? {
-      where: {
-        OR: [
-          { from: { id_eq: nativeAddress } },
-          { to: { id_eq: nativeAddress } }
-        ]
-      },
-      orderBy: ['timestamp_DESC' as const]
-    } : undefined;
-  }, [nativeAddress]);
-
-  // Use polling instead of subscription since server doesn't support Subscription.transfers
-  const { data, error } = useQuery(TRANSFERS_QUERY, {
-    variables: queryVariables,
-    pollInterval: isEnabled ? PAGINATION_CONFIG.POLLING_INTERVAL_MS : 0, // Use configurable polling interval
-    skip: !isEnabled || nativeAddress === null, // Skip query if disabled or no address
-    fetchPolicy: 'cache-and-network',
-    notifyOnNetworkStatusChange: true
+  const { data, error } = useQuery<TransfersPollingQueryQuery>(TRANSFERS_POLLING_QUERY, {
+    variables: queryVariables || undefined,
+    skip: !isEnabled || !address,
+    pollInterval: isEnabled ? 20000 : 0, // Poll every 20 seconds when enabled (reduced from 5s)
+    notifyOnNetworkStatusChange: false,
   });
 
-  // Process new data when it arrives
-  useEffect(() => {
-    if (!data?.transfers?.length) {
-      return;
-    }
-    
-    // Process all transfers
-    data.transfers.forEach((transfer: any) => {
-      // Check if we've already added this transaction
-      if (addedTransactionIds.current.has(transfer.id)) {
-        return;
-      }
-      
-      const transaction = processTransfer(transfer);
-      
-      if (transaction) {
-        addedTransactionIds.current.add(transfer.id);
-        onNewTransaction(transaction);
-      }
-    });
-  }, [data, processTransfer, onNewTransaction]);
-
-  // Log errors always to ensure tests can verify error handling
   useEffect(() => {
     if (error) {
-      console.error('Polling error:', error);
+      console.error('Subscription error:', error);
+      return;
     }
-  }, [error]);
-  
-  // Всегда возвращаем объект с методами, даже если запрос отключен
-  return {
-    isPolling: isEnabled && nativeAddress !== null
-  };
+
+    if (!data?.transfers) return;
+
+    // Map transfers to UI format - wrap in edge structure for mapper compatibility
+    const transferEdges = data.transfers.map((transfer) => ({ node: transfer }));
+    const uiTransfers = mapTransfersToUiTransfers(transferEdges);
+
+    if (uiTransfers.length === 0) return;
+
+    // If this is the first load, just remember the latest timestamp without triggering notifications
+    if (lastSeenTimestamp.current === null) {
+      lastSeenTimestamp.current = uiTransfers[0]?.timestamp || null;
+      uiTransfers.forEach(transfer => {
+        seenTransferIds.current.add(transfer.id);
+      });
+      return;
+    }
+
+    // Only notify about transfers that are newer than the last seen timestamp
+    uiTransfers.forEach(transfer => {
+      const isNewTransfer = !seenTransferIds.current.has(transfer.id) && 
+                            transfer.timestamp > (lastSeenTimestamp.current || '');
+      
+      if (isNewTransfer) {
+        seenTransferIds.current.add(transfer.id);
+        onNewTransfer(transfer);
+        
+        // Update the latest timestamp
+        if (!lastSeenTimestamp.current || transfer.timestamp > lastSeenTimestamp.current) {
+          lastSeenTimestamp.current = transfer.timestamp;
+        }
+      }
+    });
+  }, [data, error, onNewTransfer, address]);
 }
