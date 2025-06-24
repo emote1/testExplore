@@ -1,7 +1,7 @@
 /// <reference types="vitest/globals" />
 
 import { render, screen, within } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach, Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { TransactionHistoryWithBlocks } from './TransactionHistoryWithBlocks';
 import { useTanstackTransactionAdapter, TanstackTransactionAdapterReturn } from '../hooks/useTanstackTransactionAdapter';
 import { useTransferSubscription } from '../hooks/useTransferSubscription';

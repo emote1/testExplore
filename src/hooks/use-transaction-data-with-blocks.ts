@@ -50,25 +50,26 @@ export function useTransactionDataWithBlocks(
 
   const [fees, setFees] = useState<Record<string, string>>({});
   const [loadFees, { data: feeData }] = useFeeEventsQueryLazyQuery();
+  const requestedFeeHashesRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (data?.transfersConnection?.edges) {
-      const extrinsicHashes = [
-        ...new Set(
-          data.transfersConnection.edges
-            .map(edge => edge.node.extrinsicHash)
-            .filter((hash): hash is string => !!hash),
-        ),
-      ];
+      const allHashes = data.transfersConnection.edges
+        .map(edge => edge.node.extrinsicHash)
+        .filter((hash): hash is string => !!hash);
 
-      if (extrinsicHashes.length > 0) {
+      const newHashes = allHashes.filter(hash => !requestedFeeHashesRef.current.has(hash));
+
+      if (newHashes.length > 0) {
+        newHashes.forEach(hash => requestedFeeHashesRef.current.add(hash));
+
         loadFees({
           variables: {
             orderBy: ['timestamp_DESC'],
             where: {
               section_eq: 'transactionpayment',
               method_eq: 'TransactionFeePaid',
-              extrinsic: { hash_in: extrinsicHashes },
+              extrinsic: { hash_in: newHashes },
             },
           },
         });

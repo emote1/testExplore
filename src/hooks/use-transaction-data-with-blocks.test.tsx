@@ -1,5 +1,5 @@
 /// <reference types="vitest/globals" />
-import { renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor, act } from '@testing-library/react';
 import { MockedProvider, MockedResponse } from '@apollo/client/testing';
 import { useTransactionDataWithBlocks } from './use-transaction-data-with-blocks';
 import { PAGINATED_TRANSFERS_QUERY, FEE_EVENTS_QUERY } from '../data/transfers';
@@ -129,6 +129,23 @@ const errorWrapper = ({ children }: { children: React.ReactNode }) => (
   </MockedProvider>
 );
 
+// Mocks including an additional page of data for fetchMore tests
+const secondPageExtrinsicHashes = Array.from({ length: 5 }, (_, i) => `0xhash${i + 11}`);
+const fetchMoreMocks: MockedResponse[] = [
+  ...mocks,
+  createTransfersMock(
+    { limit: MOCK_LIMIT, after: '10' },
+    { hasNextPage: false, endCursor: '15', count: 5, startId: 11 },
+  ),
+  createFeeMock(secondPageExtrinsicHashes),
+];
+
+const fetchMoreWrapper = ({ children }: { children: React.ReactNode }) => (
+  <MockedProvider mocks={fetchMoreMocks} addTypename={true}>
+    {children}
+  </MockedProvider>
+);
+
 describe('useTransactionDataWithBlocks', () => {
   it('should return loading state initially', () => {
     const { result } = renderHook(() => useTransactionDataWithBlocks(MOCK_ADDRESS, MOCK_LIMIT), { wrapper });
@@ -167,6 +184,28 @@ describe('useTransactionDataWithBlocks', () => {
     expect(result.current.transactions.length).toBe(0);
   });
 
-  // Note: Testing `fetchMore` is more complex now as it would require another set of mocks
-  // for both the next page of transfers and their corresponding fees. This is a good candidate for a follow-up.
+  it('should append new transfers when fetchMore is called', async () => {
+    const { result } = renderHook(() => useTransactionDataWithBlocks(MOCK_ADDRESS, MOCK_LIMIT), {
+      wrapper: fetchMoreWrapper,
+    });
+
+    // Wait for initial data
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.transactions.length).toBe(10);
+    });
+
+    expect(result.current.hasNextPage).toBe(true);
+
+    act(() => {
+      result.current.fetchMore();
+    });
+
+    await waitFor(() => {
+      expect(result.current.transactions.length).toBe(15);
+      // Wait until the fee for the last transaction of the new page is applied
+      expect(result.current.transactions[14].feeAmount).toBe('123450000000000000');
+    });
+    expect(result.current.hasNextPage).toBe(false);
+  });
 });

@@ -42,6 +42,20 @@ const processTransfer = (
 ): UiTransfer => {
   const { symbol: tokenSymbol, decimals: tokenDecimals } = parseTokenData(transfer);
 
+  const toAddress = transfer.to.id.toLowerCase().trim();
+  const fromAddress = transfer.from.id.toLowerCase().trim();
+  const currentUserAddress = (userAddress || '').toLowerCase().trim();
+
+  const isTo = toAddress === currentUserAddress;
+  const isFrom = fromAddress === currentUserAddress;
+
+  let type = 'UNKNOWN';
+  if (isTo) {
+    type = 'INCOMING';
+  } else if (isFrom) {
+    type = 'OUTGOING';
+  }
+
   return {
     id: transfer.id,
     hash: transfer.extrinsicHash || '',
@@ -53,12 +67,7 @@ const processTransfer = (
     tokenDecimals,
     success: transfer.success,
     status: transfer.success ? 'Success' : 'Fail',
-    type: 
-      transfer.to.id.toLowerCase() === (userAddress || '').toLowerCase()
-        ? transfer.from.id.toLowerCase() === (userAddress || '').toLowerCase()
-          ? 'SELF'
-          : 'INCOMING'
-        : 'OUTGOING',
+    type, // Use the calculated type
     feeAmount: '0', // This will be updated by the hook if needed
     feeTokenSymbol: 'REEF',
   };

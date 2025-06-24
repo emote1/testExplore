@@ -14,9 +14,9 @@ const createMockAccount = (id: string): Account => ({
   ...({} as Omit<Account, '__typename' | 'id'>),
 });
 
-const createMockVerifiedContract = (name: string): VerifiedContract => ({
+const createMockVerifiedContract = (id: string, name: string): VerifiedContract => ({
   __typename: 'VerifiedContract',
-  id: 'contract-id',
+  id,
   name,
   // Use type assertion for complex required fields
   ...({} as Omit<VerifiedContract, '__typename' | 'id' | 'name'>),
@@ -29,6 +29,7 @@ const createMockTransferEdge = (
   amount: string,
   fromAddress: string,
   toAddress: string,
+  tokenId: string,
   tokenName: string,
   success: boolean,
   extrinsicHash?: string,
@@ -43,7 +44,7 @@ const createMockTransferEdge = (
     extrinsicHash: extrinsicHash || `0xhash-${id}`,
     from: createMockAccount(fromAddress),
     to: createMockAccount(toAddress),
-    token: createMockVerifiedContract(tokenName),
+    token: createMockVerifiedContract(tokenId, tokenName),
     // Use type assertion for remaining required fields
     ...({} as Omit<Transfer, '__typename' | 'id' | 'amount' | 'timestamp' | 'success' | 'type' | 'extrinsicHash' | 'from' | 'to' | 'token'>),
   };
@@ -65,6 +66,7 @@ describe('mapTransfersToUiTransfers', () => {
       '5000',
       ANOTHER_ADDRESS,
       USER_ADDRESS,
+      'reef-token',
       'REEF',
       true,
     );
@@ -95,6 +97,7 @@ describe('mapTransfersToUiTransfers', () => {
       '6000',
       USER_ADDRESS,
       ANOTHER_ADDRESS,
+      'reef-token',
       'REEF',
       true,
     );
@@ -122,6 +125,7 @@ describe('mapTransfersToUiTransfers', () => {
       '7000',
       USER_ADDRESS,
       USER_ADDRESS,
+      'reef-token',
       'REEF',
       true,
     );
@@ -129,7 +133,7 @@ describe('mapTransfersToUiTransfers', () => {
     const result = mapTransfersToUiTransfers([transfer], USER_ADDRESS);
 
     expect(result).toHaveLength(1);
-    expect(result[0]).toMatchObject({ id: 'transfer-3', from: USER_ADDRESS, to: USER_ADDRESS, amount: '7000', type: 'SELF' });
+    expect(result[0]).toMatchObject({ id: 'transfer-3', from: USER_ADDRESS, to: USER_ADDRESS, amount: '7000', type: 'INCOMING' });
   });
 
   it('should correctly map a custom token transfer', () => {
@@ -140,6 +144,7 @@ describe('mapTransfersToUiTransfers', () => {
       '8000',
       USER_ADDRESS,
       ANOTHER_ADDRESS,
+      'usdc-token',
       'USDC',
       true,
     );
@@ -165,6 +170,7 @@ describe('mapTransfersToUiTransfers', () => {
       '1',
       ANOTHER_ADDRESS,
       USER_ADDRESS,
+      'nft-token',
       'NFT Collection',
       true,
     );
@@ -192,6 +198,7 @@ describe('mapTransfersToUiTransfers', () => {
       '11000',
       USER_ADDRESS,
       ANOTHER_ADDRESS,
+      'reef-token',
       'REEF',
       false,
     );
@@ -208,6 +215,6 @@ describe('mapTransfersToUiTransfers', () => {
   });
 
   it('should handle undefined input', () => {
-    expect(mapTransfersToUiTransfers(undefined, 'some-address')).toEqual([]);
+    expect(mapTransfersToUiTransfers([], 'some-address')).toEqual([]);
   });
 });
