@@ -4172,13 +4172,6 @@ export type FeeEventsQueryQueryVariables = Exact<{
 
 export type FeeEventsQueryQuery = { __typename?: 'Query', eventsConnection: { __typename?: 'EventsConnection', edges: Array<{ __typename?: 'EventEdge', node: { __typename?: 'Event', id: string, data: any, extrinsic: { __typename?: 'Extrinsic', id: string, hash: string } } }> } };
 
-export type DiagnosticTransfersQueryQueryVariables = Exact<{
-  orderBy: Array<TransferOrderByInput> | TransferOrderByInput;
-}>;
-
-
-export type DiagnosticTransfersQueryQuery = { __typename?: 'Query', transfersConnection: { __typename?: 'TransfersConnection', totalCount: number, edges: Array<{ __typename?: 'TransferEdge', node: { __typename?: 'Transfer', id: string, amount: any, timestamp: any, type: TransferType, from: { __typename?: 'Account', id: string }, to: { __typename?: 'Account', id: string } } }> } };
-
 export type TransfersSubscriptionSubscriptionVariables = Exact<{
   where?: InputMaybe<TransferWhereInput>;
   orderBy?: InputMaybe<Array<TransferOrderByInput> | TransferOrderByInput>;
@@ -4322,60 +4315,6 @@ export type FeeEventsQueryQueryHookResult = ReturnType<typeof useFeeEventsQueryQ
 export type FeeEventsQueryLazyQueryHookResult = ReturnType<typeof useFeeEventsQueryLazyQuery>;
 export type FeeEventsQuerySuspenseQueryHookResult = ReturnType<typeof useFeeEventsQuerySuspenseQuery>;
 export type FeeEventsQueryQueryResult = Apollo.QueryResult<FeeEventsQueryQuery, FeeEventsQueryQueryVariables>;
-export const DiagnosticTransfersQueryDocument = gql`
-    query DiagnosticTransfersQuery($orderBy: [TransferOrderByInput!]!) {
-  transfersConnection(first: 5, orderBy: $orderBy) {
-    edges {
-      node {
-        id
-        from {
-          id
-        }
-        to {
-          id
-        }
-        amount
-        timestamp
-        type
-      }
-    }
-    totalCount
-  }
-}
-    `;
-
-/**
- * __useDiagnosticTransfersQueryQuery__
- *
- * To run a query within a React component, call `useDiagnosticTransfersQueryQuery` and pass it any options that fit your needs.
- * When your component renders, `useDiagnosticTransfersQueryQuery` returns an object from Apollo Client that contains loading, error, and data properties
- * you can use to render your UI.
- *
- * @param baseOptions options that will be passed into the query, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options;
- *
- * @example
- * const { data, loading, error } = useDiagnosticTransfersQueryQuery({
- *   variables: {
- *      orderBy: // value for 'orderBy'
- *   },
- * });
- */
-export function useDiagnosticTransfersQueryQuery(baseOptions: Apollo.QueryHookOptions<DiagnosticTransfersQueryQuery, DiagnosticTransfersQueryQueryVariables> & ({ variables: DiagnosticTransfersQueryQueryVariables; skip?: boolean; } | { skip: boolean; }) ) {
-        const options = {...defaultOptions, ...baseOptions}
-        return Apollo.useQuery<DiagnosticTransfersQueryQuery, DiagnosticTransfersQueryQueryVariables>(DiagnosticTransfersQueryDocument, options);
-      }
-export function useDiagnosticTransfersQueryLazyQuery(baseOptions?: Apollo.LazyQueryHookOptions<DiagnosticTransfersQueryQuery, DiagnosticTransfersQueryQueryVariables>) {
-          const options = {...defaultOptions, ...baseOptions}
-          return Apollo.useLazyQuery<DiagnosticTransfersQueryQuery, DiagnosticTransfersQueryQueryVariables>(DiagnosticTransfersQueryDocument, options);
-        }
-export function useDiagnosticTransfersQuerySuspenseQuery(baseOptions?: Apollo.SkipToken | Apollo.SuspenseQueryHookOptions<DiagnosticTransfersQueryQuery, DiagnosticTransfersQueryQueryVariables>) {
-          const options = baseOptions === Apollo.skipToken ? baseOptions : {...defaultOptions, ...baseOptions}
-          return Apollo.useSuspenseQuery<DiagnosticTransfersQueryQuery, DiagnosticTransfersQueryQueryVariables>(DiagnosticTransfersQueryDocument, options);
-        }
-export type DiagnosticTransfersQueryQueryHookResult = ReturnType<typeof useDiagnosticTransfersQueryQuery>;
-export type DiagnosticTransfersQueryLazyQueryHookResult = ReturnType<typeof useDiagnosticTransfersQueryLazyQuery>;
-export type DiagnosticTransfersQuerySuspenseQueryHookResult = ReturnType<typeof useDiagnosticTransfersQuerySuspenseQuery>;
-export type DiagnosticTransfersQueryQueryResult = Apollo.QueryResult<DiagnosticTransfersQueryQuery, DiagnosticTransfersQueryQueryVariables>;
 export const TransfersSubscriptionDocument = gql`
     subscription TransfersSubscription($where: TransferWhereInput, $orderBy: [TransferOrderByInput!], $offset: Int, $limit: Int) {
   transfers(where: $where, orderBy: $orderBy, offset: $offset, limit: $limit) {

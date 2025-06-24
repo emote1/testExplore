@@ -1,7 +1,10 @@
 import { useMemo, useRef, useCallback, useState, useEffect } from 'react';
-import { useQuery, ApolloError, NetworkStatus, useLazyQuery } from '@apollo/client';
-import { PAGINATED_TRANSFERS_QUERY, FEE_EVENTS_QUERY } from '../data/transfers';
-import { TransfersQueryQuery, FeeEventsQueryQuery } from '../types/graphql-generated';
+import { ApolloError, NetworkStatus } from '@apollo/client';
+import {
+  useTransfersQueryQuery,
+  useFeeEventsQueryLazyQuery,
+  type TransferOrderByInput,
+} from '../types/graphql-generated';
 import { UiTransfer, mapTransfersToUiTransfers } from '../data/transfer-mapper';
 
 const EMPTY_TRANSACTIONS: UiTransfer[] = [];
@@ -16,7 +19,7 @@ export interface UseTransactionDataReturn {
   totalCount: number;
 }
 
-const ORDER_BY_TIMESTAMP_DESC = ['timestamp_DESC'];
+const ORDER_BY_TIMESTAMP_DESC: TransferOrderByInput[] = ['timestamp_DESC'];
 
 export function useTransactionDataWithBlocks(
   accountAddress: string | null,
@@ -37,19 +40,16 @@ export function useTransactionDataWithBlocks(
     };
   }, [limit, accountAddress]);
 
-  const { data, loading, error, fetchMore: apolloFetchMore, networkStatus } = useQuery<TransfersQueryQuery>(
-    PAGINATED_TRANSFERS_QUERY,
-    {
-      variables,
-      skip: !accountAddress || !variables,
-      fetchPolicy: 'cache-and-network',
-      nextFetchPolicy: 'cache-first',
-      notifyOnNetworkStatusChange: true,
-    },
-  );
+  const { data, loading, error, fetchMore: apolloFetchMore, networkStatus } = useTransfersQueryQuery({
+    variables: variables!,
+    skip: !accountAddress || !variables,
+    fetchPolicy: 'cache-and-network',
+    nextFetchPolicy: 'cache-first',
+    notifyOnNetworkStatusChange: true,
+  });
 
   const [fees, setFees] = useState<Record<string, string>>({});
-  const [loadFees, { data: feeData }] = useLazyQuery<FeeEventsQueryQuery>(FEE_EVENTS_QUERY);
+  const [loadFees, { data: feeData }] = useFeeEventsQueryLazyQuery();
 
   useEffect(() => {
     if (data?.transfersConnection?.edges) {

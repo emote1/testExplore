@@ -24,11 +24,11 @@ export function useTanstackTransactionAdapter(
 ): TanstackTransactionAdapterReturn {
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
-    pageSize: 10, // Must match page size in the data hook
+    pageSize: 10,
   });
 
   const {
-    transactions: mappedTransactions,
+    transactions: initialTransactions,
     isLoading,
     isFetching,
     error,
@@ -37,68 +37,66 @@ export function useTanstackTransactionAdapter(
     totalCount,
   } = useTransactionDataWithBlocks(address, 50);
 
-  const [newSubscribedTransfers, setNewSubscribedTransfers] = useState<UiTransfer[]>([]);
+  const [allTransactions, setAllTransactions] = useState<UiTransfer[]>(initialTransactions || []);
 
-  const combinedData = useMemo(() => {
-    const mappedIds = new Set((mappedTransactions || []).map(t => t.id));
-    const uniqueNewSubscribed = newSubscribedTransfers.filter(t => !mappedIds.has(t.id));
-    return [...uniqueNewSubscribed, ...mappedTransactions];
-  }, [newSubscribedTransfers, mappedTransactions]);
+  useEffect(() => {
+    // When the initial transactions from the query change (e.g., new address search),
+    // reset the allTransactions state. We combine the new initial list with any
+    // transactions that might have come from the subscription in the meantime.
+    setAllTransactions(currentSubscribed => {
+      const initialIds = new Set((initialTransactions || []).map(t => t.id));
+      const uniqueSubscribed = currentSubscribed.filter(t => !initialIds.has(t.id));
+      return [...uniqueSubscribed, ...(initialTransactions || [])];
+    });
+  }, [initialTransactions]);
+
+
+  const addTransaction = useCallback((newTransaction: UiTransfer) => {
+    setAllTransactions(currentTransactions => {
+      if (currentTransactions.some(t => t.id === newTransaction.id)) {
+        return currentTransactions;
+      }
+      return [newTransaction, ...currentTransactions];
+    });
+  }, []);
 
   const pageCount = useMemo(() => {
-    if (!totalCount) return 0;
-    // Adjust total count for new items from subscription
-    const total = totalCount + (combinedData.length - mappedTransactions.length);
+    const total = Math.max(totalCount, allTransactions.length);
     return Math.ceil(total / pagination.pageSize);
-  }, [totalCount, pagination.pageSize, combinedData.length, mappedTransactions.length]);
+  }, [totalCount, allTransactions.length, pagination.pageSize]);
 
   const dataForCurrentPage = useMemo(() => {
     const { pageIndex, pageSize } = pagination;
     const start = pageIndex * pageSize;
     const end = start + pageSize;
-    return combinedData.slice(start, end);
-  }, [pagination, combinedData]);
-
-  const addTransaction = useCallback((newTransaction: UiTransfer) => {
-    setNewSubscribedTransfers(prevData => [newTransaction, ...prevData]);
-  }, []);
-
-  const meta = useMemo(() => ({
-    addTransaction,
-  }), [addTransaction]);
-
-  const tableState = useMemo(() => ({
-    pagination,
-  }), [pagination]);
+    return allTransactions.slice(start, end);
+  }, [pagination, allTransactions]);
 
   const table = useReactTable({
     data: dataForCurrentPage,
-    meta,
     columns: transactionColumns,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     manualPagination: true,
     pageCount,
-    state: tableState,
+    state: { pagination },
     onPaginationChange: setPagination,
   });
 
-  // Effect to fetch more data when the user paginates to a page for which we don't have data.
   useEffect(() => {
-    const itemsLoaded = mappedTransactions.length;
+    const itemsLoaded = initialTransactions.length;
     const currentPageFirstItemIndex = pagination.pageIndex * pagination.pageSize;
 
-    // If the number of loaded items is less than or equal to the index of the first item
-    // on the page the user is trying to view, we need to fetch more data.
-    if (itemsLoaded <= currentPageFirstItemIndex && hasNextPage && !isLoading) {
+    if (itemsLoaded > 0 && itemsLoaded <= currentPageFirstItemIndex && hasNextPage && !isLoading && !isFetching) {
       fetchMore();
     }
   }, [
     pagination.pageIndex,
     pagination.pageSize,
-    mappedTransactions.length,
+    initialTransactions.length,
     hasNextPage,
     isLoading,
+    isFetching,
     fetchMore,
   ]);
 
