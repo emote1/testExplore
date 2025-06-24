@@ -20,15 +20,34 @@ This project is a web application for viewing the transaction history of a Reef 
 - **Table**: [TanStack Table v8](https://tanstack.com/table/v8)
 - **Testing**: [Vitest](https://vitest.dev/), [React Testing Library](https://testing-library.com/docs/react-testing-library/intro/)
 
+## GraphQL Codegen for Type Safety
+
+This project uses [GraphQL Code Generator](https://www.the-guild.dev/graphql/codegen) to automatically generate TypeScript types and Apollo Client hooks directly from the Subsquid GraphQL schema. This ensures end-to-end type safety between the frontend and the GraphQL API.
+
+### Key Benefits
+- **Automatic Type Generation**: No more manual creation of TypeScript interfaces for API responses.
+- **Type Safety**: Prevents errors by ensuring that you cannot access a field that doesn't exist in the schema.
+- **Developer Experience**: Provides autocompletion and type checking in your IDE.
+
+### How it Works
+- The configuration is located in `codegen.ts`.
+- The generated types and hooks are located in `src/types/graphql-generated.ts`. This file is **not** committed to version control and is listed in `.gitignore`.
+
+### Usage
+To manually regenerate types, run:
+```bash
+npm run codegen
+```
+This command is also automatically executed as part of the `npm run build` script, ensuring that the types are always up-to-date before creating a production build.
+
 ## Project Structure
 
 ```
 src
-├── api/          # GraphQL queries and Apollo Client setup
-├── components/   # React components
-├── constants/    # Application constants
-├── hooks/        # Custom React hooks
-├── types/        # TypeScript type definitions
+├── components/   # React components for the UI
+├── data/         # GraphQL queries, fragments, and data mapping logic
+├── hooks/        # Custom React hooks for business logic and data fetching
+├── types/        # Contains auto-generated GraphQL types (`graphql-generated.ts`)
 ├── utils/        # Utility functions
 └── main.tsx      # Application entry point
 ```

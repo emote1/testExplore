@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --build tsconfig.build.json && vite build",
+    "build": "npm run codegen && tsc --build tsconfig.build.json && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "codegen": "graphql-codegen --config codegen.ts",
