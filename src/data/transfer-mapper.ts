@@ -27,10 +27,29 @@ const parseTokenData = (transfer: Transfer): { symbol: string; decimals: number 
     case 'ERC721':
     case 'ERC1155':
       return { symbol: 'NFT', decimals: 0 };
-    case 'ERC20':
-      // Use token name if available, fallback to type
-      const tokenName = transfer.token?.name || 'TOKEN';
-      return { symbol: tokenName, decimals: 18 }; // Default to 18 for ERC20
+    case 'ERC20': {
+      // Attempt to read symbol and decimals from contractData
+      let symbol = transfer.token?.name || 'TOKEN';
+      let decimals = 18;
+
+      const { contractData } = transfer.token || {};
+      if (contractData) {
+        try {
+          const data =
+            typeof contractData === 'string' ? JSON.parse(contractData) : contractData;
+          if (typeof data.symbol === 'string' && data.symbol) {
+            symbol = data.symbol;
+          }
+          if (data.decimals !== undefined && !isNaN(Number(data.decimals))) {
+            decimals = Number(data.decimals);
+          }
+        } catch (error) {
+          console.error('Failed to parse contractData for token', transfer.token?.id, error);
+        }
+      }
+
+      return { symbol, decimals };
+    }
     default:
       return { symbol: 'UNKNOWN', decimals: 0 };
   }

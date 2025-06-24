@@ -14,12 +14,13 @@ const createMockAccount = (id: string): Account => ({
   ...({} as Omit<Account, '__typename' | 'id'>),
 });
 
-const createMockVerifiedContract = (name: string): VerifiedContract => ({
+const createMockVerifiedContract = (name: string, contractData?: any): VerifiedContract => ({
   __typename: 'VerifiedContract',
   id: 'contract-id',
   name,
+  contractData,
   // Use type assertion for complex required fields
-  ...({} as Omit<VerifiedContract, '__typename' | 'id' | 'name'>),
+  ...({} as Omit<VerifiedContract, '__typename' | 'id' | 'name' | 'contractData'>),
 });
 
 const createMockTransferEdge = (
@@ -32,6 +33,7 @@ const createMockTransferEdge = (
   tokenName: string,
   success: boolean,
   extrinsicHash?: string,
+  contractData?: any,
 ): TransferEdge => {
   const transfer: Transfer = {
     __typename: 'Transfer',
@@ -43,7 +45,7 @@ const createMockTransferEdge = (
     extrinsicHash: extrinsicHash || `0xhash-${id}`,
     from: createMockAccount(fromAddress),
     to: createMockAccount(toAddress),
-    token: createMockVerifiedContract(tokenName),
+    token: createMockVerifiedContract(tokenName, contractData),
     // Use type assertion for remaining required fields
     ...({} as Omit<Transfer, '__typename' | 'id' | 'amount' | 'timestamp' | 'success' | 'type' | 'extrinsicHash' | 'from' | 'to' | 'token'>),
   };
@@ -155,6 +157,25 @@ describe('mapTransfersToUiTransfers', () => {
       feeAmount: '0',
       type: 'OUTGOING',
     });
+  });
+
+  it('should parse symbol and decimals from contractData when name is missing', () => {
+    const transfer = createMockTransferEdge(
+      'transfer-contract',
+      '2023-01-08T12:00:00.000Z',
+      'ERC20',
+      '1000',
+      USER_ADDRESS,
+      ANOTHER_ADDRESS,
+      '',
+      true,
+      undefined,
+      { symbol: 'USDT', decimals: 6 },
+    );
+
+    const result = mapTransfersToUiTransfers([transfer], USER_ADDRESS);
+
+    expect(result[0]).toMatchObject({ tokenSymbol: 'USDT', tokenDecimals: 6 });
   });
 
   it('should correctly map an NFT transfer', () => {
