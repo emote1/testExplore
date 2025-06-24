@@ -4162,7 +4162,7 @@ export type TransfersQueryQueryVariables = Exact<{
 }>;
 
 
-export type TransfersQueryQuery = { __typename?: 'Query', transfersConnection: { __typename?: 'TransfersConnection', totalCount: number, edges: Array<{ __typename?: 'TransferEdge', node: { __typename?: 'Transfer', id: string, amount: any, timestamp: any, success: boolean, type: TransferType, extrinsicHash?: string | null, from: { __typename?: 'Account', id: string }, to: { __typename?: 'Account', id: string }, token: { __typename?: 'VerifiedContract', id: string, name: string } } }>, pageInfo: { __typename?: 'PageInfo', hasNextPage: boolean, endCursor: string } } };
+export type TransfersQueryQuery = { __typename?: 'Query', transfersConnection: { __typename?: 'TransfersConnection', totalCount: number, edges: Array<{ __typename?: 'TransferEdge', node: { __typename?: 'Transfer', id: string, amount: any, timestamp: any, success: boolean, type: TransferType, extrinsicHash?: string | null, from: { __typename?: 'Account', id: string }, to: { __typename?: 'Account', id: string }, token: { __typename?: 'VerifiedContract', id: string, name: string, contractData?: any | null } } }>, pageInfo: { __typename?: 'PageInfo', hasNextPage: boolean, endCursor: string } } };
 
 export type FeeEventsQueryQueryVariables = Exact<{
   where?: InputMaybe<EventWhereInput>;
@@ -4218,6 +4218,7 @@ export const TransfersQueryDocument = gql`
         token {
           id
           name
+          contractData
         }
       }
     }

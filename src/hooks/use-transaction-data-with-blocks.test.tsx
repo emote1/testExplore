@@ -59,6 +59,7 @@ const createTransfersMock = (
               __typename: 'VerifiedContract',
               id: 'reef-token',
               name: 'REEF',
+              contractData: null,
             },
           },
         })),

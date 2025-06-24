@@ -14,12 +14,13 @@ const createMockAccount = (id: string): Account => ({
   ...({} as Omit<Account, '__typename' | 'id'>),
 });
 
-const createMockVerifiedContract = (id: string, name: string): VerifiedContract => ({
+const createMockVerifiedContract = (name: string, contractData?: any): VerifiedContract => ({
   __typename: 'VerifiedContract',
-  id,
+  id: 'contract-id',
   name,
+  contractData,
   // Use type assertion for complex required fields
-  ...({} as Omit<VerifiedContract, '__typename' | 'id' | 'name'>),
+  ...({} as Omit<VerifiedContract, '__typename' | 'id' | 'name' | 'contractData'>),
 });
 
 const createMockTransferEdge = (
@@ -29,10 +30,10 @@ const createMockTransferEdge = (
   amount: string,
   fromAddress: string,
   toAddress: string,
-  tokenId: string,
   tokenName: string,
   success: boolean,
   extrinsicHash?: string,
+  contractData?: any,
 ): TransferEdge => {
   const transfer: Transfer = {
     __typename: 'Transfer',
@@ -44,7 +45,7 @@ const createMockTransferEdge = (
     extrinsicHash: extrinsicHash || `0xhash-${id}`,
     from: createMockAccount(fromAddress),
     to: createMockAccount(toAddress),
-    token: createMockVerifiedContract(tokenId, tokenName),
+    token: createMockVerifiedContract(tokenName, contractData),
     // Use type assertion for remaining required fields
     ...({} as Omit<Transfer, '__typename' | 'id' | 'amount' | 'timestamp' | 'success' | 'type' | 'extrinsicHash' | 'from' | 'to' | 'token'>),
   };
@@ -66,7 +67,6 @@ describe('mapTransfersToUiTransfers', () => {
       '5000',
       ANOTHER_ADDRESS,
       USER_ADDRESS,
-      'reef-token',
       'REEF',
       true,
     );
@@ -97,7 +97,6 @@ describe('mapTransfersToUiTransfers', () => {
       '6000',
       USER_ADDRESS,
       ANOTHER_ADDRESS,
-      'reef-token',
       'REEF',
       true,
     );
@@ -125,7 +124,6 @@ describe('mapTransfersToUiTransfers', () => {
       '7000',
       USER_ADDRESS,
       USER_ADDRESS,
-      'reef-token',
       'REEF',
       true,
     );
@@ -144,7 +142,6 @@ describe('mapTransfersToUiTransfers', () => {
       '8000',
       USER_ADDRESS,
       ANOTHER_ADDRESS,
-      'usdc-token',
       'USDC',
       true,
     );
@@ -161,6 +158,24 @@ describe('mapTransfersToUiTransfers', () => {
       type: 'OUTGOING',
     });
   });
+  it('should parse symbol and decimals from contractData when name is missing', () => {
+    const transfer = createMockTransferEdge(
+      'transfer-contract',
+      '2023-01-08T12:00:00.000Z',
+      'ERC20',
+      '1000',
+      USER_ADDRESS,
+      ANOTHER_ADDRESS,
+      '',
+      true,
+      undefined,
+      { symbol: 'USDT', decimals: 6 },
+    );
+
+    const result = mapTransfersToUiTransfers([transfer], USER_ADDRESS);
+
+    expect(result[0]).toMatchObject({ tokenSymbol: 'USDT', tokenDecimals: 6 });
+  });
 
   it('should correctly map an NFT transfer', () => {
     const transfer = createMockTransferEdge(
@@ -170,7 +185,6 @@ describe('mapTransfersToUiTransfers', () => {
       '1',
       ANOTHER_ADDRESS,
       USER_ADDRESS,
-      'nft-token',
       'NFT Collection',
       true,
     );
@@ -198,7 +212,6 @@ describe('mapTransfersToUiTransfers', () => {
       '11000',
       USER_ADDRESS,
       ANOTHER_ADDRESS,
-      'reef-token',
       'REEF',
       false,
     );

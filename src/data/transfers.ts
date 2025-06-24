@@ -20,6 +20,7 @@ export const PAGINATED_TRANSFERS_QUERY = gql`
           token {
             id
             name
+            contractData
           }
         }
       }
