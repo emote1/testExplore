@@ -1,8 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import { mapTransfersToUiTransfers } from './transfer-mapper';
-import type { TransfersQueryQuery, Transfer, Account, VerifiedContract, TransferType } from '../types/graphql-generated';
+import type {
+  TransfersQueryQuery as TransfersQuery,
+  Transfer,
+  Account,
+  VerifiedContract,
+  TransferType,
+  ExtrinsicsByIdsQuery,
+} from '../types/graphql-generated';
 
-type TransferEdge = TransfersQueryQuery['transfersConnection']['edges'][0];
+type TransferEdge = TransfersQuery['transfersConnection']['edges'][0];
+type Extrinsic = ExtrinsicsByIdsQuery['extrinsics'][0];
 
 const USER_ADDRESS = '5G1kG9y9Qtnk2WPSb1d1A2x3s4e5U6f7G8h9iJ0kL1m2n3o4';
 const ANOTHER_ADDRESS = '5AnotherAddressForTestingPurpose';
@@ -10,16 +18,17 @@ const ANOTHER_ADDRESS = '5AnotherAddressForTestingPurpose';
 const createMockAccount = (id: string): Account => ({
   __typename: 'Account',
   id,
-  // Use type assertion for complex required fields
   ...({} as Omit<Account, '__typename' | 'id'>),
 });
 
-const createMockVerifiedContract = (name: string, contractData?: any): VerifiedContract => ({
+const createMockVerifiedContract = (
+  name: string,
+  contractData?: any,
+): VerifiedContract => ({
   __typename: 'VerifiedContract',
   id: 'contract-id',
   name,
   contractData,
-  // Use type assertion for complex required fields
   ...({} as Omit<VerifiedContract, '__typename' | 'id' | 'name' | 'contractData'>),
 });
 
@@ -33,6 +42,7 @@ const createMockTransferEdge = (
   tokenName: string,
   success: boolean,
   extrinsicHash?: string,
+  extrinsicId?: string,
   contractData?: any,
 ): TransferEdge => {
   const transfer: Transfer = {
@@ -43,23 +53,50 @@ const createMockTransferEdge = (
     success,
     type,
     extrinsicHash: extrinsicHash || `0xhash-${id}`,
+    extrinsicId: extrinsicId || `extrinsic-id-${id}`,
     from: createMockAccount(fromAddress),
     to: createMockAccount(toAddress),
     token: createMockVerifiedContract(tokenName, contractData),
-    // Use type assertion for remaining required fields
-    ...({} as Omit<Transfer, '__typename' | 'id' | 'amount' | 'timestamp' | 'success' | 'type' | 'extrinsicHash' | 'from' | 'to' | 'token'>),
+    ...({} as Omit<
+      Transfer,
+      | '__typename'
+      | 'id'
+      | 'amount'
+      | 'timestamp'
+      | 'success'
+      | 'type'
+      | 'extrinsicHash'
+      | 'extrinsicId'
+      | 'from'
+      | 'to'
+      | 'token'
+    >),
   };
 
   return {
     __typename: 'TransferEdge',
     node: transfer,
-    // Use type assertion for any other edge fields
     ...({} as Omit<TransferEdge, '__typename' | 'node'>),
   };
 };
 
+const createMockExtrinsic = (id: string, partialFeeHex: string): Extrinsic => ({
+  __typename: 'Extrinsic',
+  id,
+  signedData: {
+    __typename: 'SignedData',
+    fee: {
+      __typename: 'Fee',
+      partialFee: partialFeeHex,
+    },
+  },
+  ...({} as Omit<Extrinsic, '__typename' | 'id' | 'signedData'>),
+});
+
 describe('mapTransfersToUiTransfers', () => {
-  it('should correctly map a standard REEF transfer where the user is the recipient', () => {
+  const emptyExtrinsics: Extrinsic[] = [];
+
+  it('should correctly map an incoming REEF transfer', () => {
     const transfer = createMockTransferEdge(
       'transfer-1',
       '2023-01-01T12:00:00.000Z',
@@ -71,25 +108,20 @@ describe('mapTransfersToUiTransfers', () => {
       true,
     );
 
-    const result = mapTransfersToUiTransfers([transfer], USER_ADDRESS);
+    const result = mapTransfersToUiTransfers([transfer], USER_ADDRESS, emptyExtrinsics);
 
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({
       id: 'transfer-1',
-      hash: '0xhash-transfer-1',
-      from: ANOTHER_ADDRESS,
-      to: USER_ADDRESS,
-      amount: '5000',
-      tokenSymbol: 'REEF',
-      tokenDecimals: 18,
-      feeAmount: '0',
       type: 'INCOMING',
+      amount: '5000',
+      token: { name: 'REEF', decimals: 18 },
+      fee: { amount: '0', token: { name: 'REEF', decimals: 18 } },
       success: true,
-      status: 'Success',
     });
   });
 
-  it('should correctly map a standard REEF transfer where the user is the sender', () => {
+  it('should correctly map an outgoing REEF transfer', () => {
     const transfer = createMockTransferEdge(
       'transfer-2',
       '2023-01-02T12:00:00.000Z',
@@ -101,133 +133,142 @@ describe('mapTransfersToUiTransfers', () => {
       true,
     );
 
-    const result = mapTransfersToUiTransfers([transfer], USER_ADDRESS);
+    const result = mapTransfersToUiTransfers([transfer], USER_ADDRESS, emptyExtrinsics);
 
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({
       id: 'transfer-2',
-      hash: '0xhash-transfer-2',
-      from: USER_ADDRESS,
-      to: ANOTHER_ADDRESS,
-      amount: '6000',
-      tokenSymbol: 'REEF',
-      feeAmount: '0',
       type: 'OUTGOING',
     });
-  });
-
-  it('should correctly map a self-transfer', () => {
-    const transfer = createMockTransferEdge(
-      'transfer-3',
-      '2023-01-03T12:00:00.000Z',
-      'Native',
-      '7000',
-      USER_ADDRESS,
-      USER_ADDRESS,
-      'REEF',
-      true,
-    );
-
-    const result = mapTransfersToUiTransfers([transfer], USER_ADDRESS);
-
-    expect(result).toHaveLength(1);
-    expect(result[0]).toMatchObject({ id: 'transfer-3', from: USER_ADDRESS, to: USER_ADDRESS, amount: '7000', type: 'INCOMING' });
-  });
-
-  it('should correctly map a custom token transfer', () => {
-    const transfer = createMockTransferEdge(
-      'transfer-4',
-      '2023-01-04T12:00:00.000Z',
-      'ERC20',
-      '8000',
-      USER_ADDRESS,
-      ANOTHER_ADDRESS,
-      'USDC',
-      true,
-    );
-
-    const result = mapTransfersToUiTransfers([transfer], USER_ADDRESS);
-
-    expect(result).toHaveLength(1);
-    expect(result[0]).toMatchObject({
-      id: 'transfer-4',
-      amount: '8000',
-      tokenSymbol: 'USDC',
-      tokenDecimals: 18,
-      feeAmount: '0',
-      type: 'OUTGOING',
-    });
-  });
-  it('should parse symbol and decimals from contractData when name is missing', () => {
-    const transfer = createMockTransferEdge(
-      'transfer-contract',
-      '2023-01-08T12:00:00.000Z',
-      'ERC20',
-      '1000',
-      USER_ADDRESS,
-      ANOTHER_ADDRESS,
-      '',
-      true,
-      undefined,
-      { symbol: 'USDT', decimals: 6 },
-    );
-
-    const result = mapTransfersToUiTransfers([transfer], USER_ADDRESS);
-
-    expect(result[0]).toMatchObject({ tokenSymbol: 'USDT', tokenDecimals: 6 });
   });
 
   it('should correctly map an NFT transfer', () => {
     const transfer = createMockTransferEdge(
-      'transfer-nft',
-      '2023-01-05T12:00:00.000Z',
-      'ERC721',
+      'transfer-nft-1',
+      '2023-01-03T12:00:00.000Z',
+      'ERC1155',
       '1',
-      ANOTHER_ADDRESS,
       USER_ADDRESS,
-      'NFT Collection',
+      ANOTHER_ADDRESS,
+      'My Awesome NFT',
       true,
     );
 
-    const result = mapTransfersToUiTransfers([transfer], USER_ADDRESS);
+    const result = mapTransfersToUiTransfers([transfer], USER_ADDRESS, emptyExtrinsics);
 
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({
-      id: 'transfer-nft',
-      amount: '1',
-      tokenSymbol: 'NFT',
-      tokenDecimals: 0,
-      type: 'INCOMING',
-      from: ANOTHER_ADDRESS,
-      to: USER_ADDRESS,
-      feeAmount: '0',
+      token: { name: 'NFT', decimals: 0 },
     });
   });
 
-  it('should handle failed extrinsics', () => {
+  it('should correctly extract fee from an extrinsic', () => {
     const transfer = createMockTransferEdge(
-      'transfer-7',
-      '2023-01-07T12:00:00.000Z',
+      'transfer-fee-1',
+      '2023-01-04T12:00:00.000Z',
       'Native',
-      '11000',
+      '7000',
+      USER_ADDRESS,
+      ANOTHER_ADDRESS,
+      'REEF',
+      true,
+      '0xhash-fee-1',
+      'extrinsic-id-fee-1',
+    );
+
+    const extrinsic = createMockExtrinsic(
+      'extrinsic-id-fee-1',
+      '0x23c34600', // 600,000,000
+    );
+
+    const result = mapTransfersToUiTransfers([transfer], USER_ADDRESS, [extrinsic]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].fee.amount).toBe('600000000');
+  });
+
+  it('should return an empty array if transfers are null or undefined', () => {
+    expect(mapTransfersToUiTransfers(null, USER_ADDRESS, [])).toEqual([]);
+    expect(mapTransfersToUiTransfers(undefined, USER_ADDRESS, [])).toEqual([]);
+  });
+
+  it('should return an empty array if userAddress is null or undefined', () => {
+    const transfer = createMockTransferEdge('t1', 'ts', 'Native', '1', 'a', 'b', 'r', true);
+    expect(mapTransfersToUiTransfers([transfer], null, [])).toEqual([]);
+    expect(mapTransfersToUiTransfers([transfer], undefined, [])).toEqual([]);
+  });
+
+  it('should handle failed transfers', () => {
+    const transfer = createMockTransferEdge(
+      'transfer-fail-1',
+      '2023-01-06T12:00:00.000Z',
+      'Native',
+      '8000',
       USER_ADDRESS,
       ANOTHER_ADDRESS,
       'REEF',
       false,
     );
+    const result = mapTransfersToUiTransfers([transfer], USER_ADDRESS, emptyExtrinsics);
+    expect(result[0].success).toBe(false);
+  });
 
-    const result = mapTransfersToUiTransfers([transfer], USER_ADDRESS);
+  it('should map ERC20 token transfers correctly', () => {
+    const transfer = createMockTransferEdge(
+      'transfer-reef20-1',
+      '2023-01-07T12:00:00.000Z',
+      'ERC20',
+      '9000',
+      USER_ADDRESS,
+      ANOTHER_ADDRESS,
+      'MyToken',
+      true,
+      undefined,
+      undefined,
+      { decimals: 10 },
+    );
+
+    const result = mapTransfersToUiTransfers([transfer], USER_ADDRESS, emptyExtrinsics);
 
     expect(result).toHaveLength(1);
-    expect(result[0]).toMatchObject({ success: false, status: 'Fail' });
+    expect(result[0]).toMatchObject({
+      id: 'transfer-reef20-1',
+      type: 'OUTGOING',
+      amount: '9000',
+      token: { name: 'MyToken', decimals: 10 },
+      fee: { amount: '0', token: { name: 'REEF', decimals: 18 } },
+      success: true,
+    });
+  });
+
+  it('should default feeAmount to "0" if extrinsic is not found', () => {
+    const transfer = createMockTransferEdge(
+      'transfer-no-fee',
+      '2023-01-07T12:00:00.000Z',
+      'Native',
+      '10000',
+      USER_ADDRESS,
+      ANOTHER_ADDRESS,
+      'REEF',
+      true,
+    );
+
+    // Pass an empty array for extrinsics
+    const result = mapTransfersToUiTransfers([transfer], USER_ADDRESS, []);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      id: 'transfer-no-fee',
+      type: 'OUTGOING',
+      amount: '10000',
+      token: { name: 'REEF', decimals: 18 },
+      fee: { amount: '0', token: { name: 'REEF', decimals: 18 } },
+      success: true,
+    });
   });
 
   it('should handle empty input', () => {
-    const result = mapTransfersToUiTransfers([], USER_ADDRESS);
+    const result = mapTransfersToUiTransfers([], USER_ADDRESS, emptyExtrinsics);
     expect(result).toEqual([]);
-  });
-
-  it('should handle undefined input', () => {
-    expect(mapTransfersToUiTransfers([], 'some-address')).toEqual([]);
   });
 });

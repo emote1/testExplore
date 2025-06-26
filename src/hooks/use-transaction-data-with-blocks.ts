@@ -1,11 +1,14 @@
-import { useMemo, useRef, useCallback, useState, useEffect } from 'react';
-import { ApolloError, NetworkStatus } from '@apollo/client';
+import { useMemo, useCallback, useEffect, useState } from 'react';
+import { useQuery, useLazyQuery, ApolloError, NetworkStatus } from '@apollo/client';
 import {
-  useTransfersQueryQuery,
-  useFeeEventsQueryLazyQuery,
-  type TransferOrderByInput,
+  TransfersQueryQuery as TransfersQuery,
+  TransfersQueryQueryVariables as TransfersQueryVariables,
+  ExtrinsicsByIdsQuery,
+  TransferOrderByInput,
+  ExtrinsicsByIdsQueryVariables,
 } from '../types/graphql-generated';
 import { UiTransfer, mapTransfersToUiTransfers } from '../data/transfer-mapper';
+import { PAGINATED_TRANSFERS_QUERY, EXTRINSICS_BY_IDS_QUERY } from '../data/transfers';
 
 const EMPTY_TRANSACTIONS: UiTransfer[] = [];
 
@@ -25,153 +28,120 @@ export function useTransactionDataWithBlocks(
   accountAddress: string | null,
   limit: number,
 ): UseTransactionDataReturn {
-  const variables = useMemo(() => {
-    if (!accountAddress) return undefined;
-    return {
-      first: limit,
-      after: null,
-      orderBy: ORDER_BY_TIMESTAMP_DESC,
-      where: {
-        OR: [
-          { from: { id_eq: accountAddress } },
-          { to: { id_eq: accountAddress } },
-        ],
+  const {
+    data: transfersData,
+    loading: transfersLoading,
+    error: transfersError,
+    fetchMore: apolloFetchMore,
+    networkStatus,
+  } = useQuery<TransfersQuery, TransfersQueryVariables>(
+    PAGINATED_TRANSFERS_QUERY,
+    {
+      variables: {
+        first: limit,
+        after: null,
+        orderBy: ORDER_BY_TIMESTAMP_DESC,
+        where: {
+          OR: [
+            { from: { id_eq: accountAddress } },
+            { to: { id_eq: accountAddress } },
+          ],
+        },
       },
-    };
-  }, [limit, accountAddress]);
+      skip: !accountAddress,
+      fetchPolicy: 'cache-and-network',
+      nextFetchPolicy: 'cache-first',
+      notifyOnNetworkStatusChange: true,
+    },
+  );
 
-  const { data, loading, error, fetchMore: apolloFetchMore, networkStatus } = useTransfersQueryQuery({
-    variables: variables!,
-    skip: !accountAddress || !variables,
-    fetchPolicy: 'cache-and-network',
-    nextFetchPolicy: 'cache-first',
-    notifyOnNetworkStatusChange: true,
-  });
+  const [allExtrinsics, setAllExtrinsics] = useState<ExtrinsicsByIdsQuery['extrinsics']>([]);
 
-  const [fees, setFees] = useState<Record<string, string>>({});
-  const [loadFees, { data: feeData }] = useFeeEventsQueryLazyQuery();
-  const requestedFeeHashesRef = useRef<Set<string>>(new Set());
+  const allExtrinsicIds = useMemo(() => {
+    const ids = new Set<string>();
+    transfersData?.transfersConnection?.edges.forEach((edge) => {
+      if (edge?.node?.extrinsicId) {
+        ids.add(edge.node.extrinsicId);
+      }
+    });
+    return Array.from(ids);
+  }, [transfersData]);
 
-  useEffect(() => {
-    if (data?.transfersConnection?.edges) {
-      const allHashes = data.transfersConnection.edges
-        .map(edge => edge.node.extrinsicHash)
-        .filter((hash): hash is string => !!hash);
+  const newExtrinsicIds = useMemo(() => {
+    const fetchedIds = new Set(allExtrinsics.map((ext) => ext.id));
+    return allExtrinsicIds.filter((id) => !fetchedIds.has(id));
+  }, [allExtrinsicIds, allExtrinsics]);
 
-      const newHashes = allHashes.filter(hash => !requestedFeeHashesRef.current.has(hash));
-
-      if (newHashes.length > 0) {
-        newHashes.forEach(hash => requestedFeeHashesRef.current.add(hash));
-
-        loadFees({
-          variables: {
-            orderBy: ['timestamp_DESC'],
-            where: {
-              section_eq: 'transactionpayment',
-              method_eq: 'TransactionFeePaid',
-              extrinsic: { hash_in: newHashes },
-            },
-          },
+  const [fetchExtrinsics, { loading: extrinsicsLoading, error: extrinsicsError }] = useLazyQuery<
+    ExtrinsicsByIdsQuery,
+    ExtrinsicsByIdsQueryVariables
+  >(EXTRINSICS_BY_IDS_QUERY, {
+    onCompleted: (data) => {
+      if (data?.extrinsics) {
+        setAllExtrinsics((prev) => {
+          const existingIds = new Set(prev.map((e) => e.id));
+          const newOnes = data.extrinsics.filter((e) => !existingIds.has(e.id));
+          return [...prev, ...newOnes];
         });
       }
-    }
-  }, [data, loadFees]);
+    },
+  });
 
   useEffect(() => {
-    if (feeData?.eventsConnection?.edges) {
-      const newFees = feeData.eventsConnection.edges.reduce(
-        (acc: Record<string, string>, edge) => {
-          const event = edge.node;
-          if (event?.extrinsic?.hash && Array.isArray(event.data) && event.data.length >= 2) {
-            const feeAmount = event.data[1]?.toString();
-            if (feeAmount) {
-              acc[event.extrinsic.hash] = feeAmount;
-            }
-          }
-          return acc;
-        },
-        {},
-      );
-
-      if (Object.keys(newFees).length > 0) {
-        setFees(prevFees => ({ ...prevFees, ...newFees }));
-      }
+    if (newExtrinsicIds.length > 0) {
+      fetchExtrinsics({ variables: { ids: newExtrinsicIds } });
     }
-  }, [feeData]);
-
-  const baseTransactions = useMemo(() => {
-    if (!data?.transfersConnection?.edges) return EMPTY_TRANSACTIONS;
-    return mapTransfersToUiTransfers(data.transfersConnection.edges, accountAddress);
-  }, [data, accountAddress]);
+  }, [newExtrinsicIds, fetchExtrinsics]);
 
   const transactions = useMemo(() => {
-    if (Object.keys(fees).length === 0) {
-      return baseTransactions;
-    }
-    return baseTransactions.map(tx => {
-      const feeAmount = fees[tx.hash];
-      if (feeAmount) {
-        return { ...tx, feeAmount };
-      }
-      return tx;
-    });
-  }, [baseTransactions, fees]);
+    const transferEdges = transfersData?.transfersConnection.edges || [];
+    if (!accountAddress) return EMPTY_TRANSACTIONS;
+    return mapTransfersToUiTransfers(transferEdges, accountAddress, allExtrinsics);
+  }, [transfersData, allExtrinsics, accountAddress]);
 
-  const pageInfoRef = useRef(data?.transfersConnection?.pageInfo);
-  pageInfoRef.current = data?.transfersConnection?.pageInfo;
-
-  const hasNextPage = data?.transfersConnection?.pageInfo?.hasNextPage || false;
+  const hasNextPage = transfersData?.transfersConnection?.pageInfo?.hasNextPage || false;
 
   const fetchMore = useCallback(() => {
-    const currentPageInfo = pageInfoRef.current;
-    if (!currentPageInfo?.hasNextPage || !currentPageInfo?.endCursor) return;
+    if (!hasNextPage || !transfersData?.transfersConnection?.pageInfo?.endCursor) return;
 
     apolloFetchMore({
       variables: {
-        after: currentPageInfo.endCursor,
+        after: transfersData.transfersConnection.pageInfo.endCursor,
       },
       updateQuery: (prev, { fetchMoreResult }) => {
         if (!fetchMoreResult?.transfersConnection) return prev;
-
-        type Edge = typeof prev.transfersConnection.edges[0];
-        const existingIds = new Set(prev.transfersConnection.edges.map((e: Edge) => e.node.id));
-        const newEdges = fetchMoreResult.transfersConnection.edges.filter((e: Edge) => !existingIds.has(e.node.id));
-
-        if (newEdges.length === 0) {
+        const newEdges = fetchMoreResult.transfersConnection.edges;
+        if (!newEdges || newEdges.length === 0) {
           return {
             ...prev,
             transfersConnection: {
               ...prev.transfersConnection,
-              pageInfo: {
-                ...fetchMoreResult.transfersConnection.pageInfo,
-                hasNextPage: false,
-              },
+              pageInfo: fetchMoreResult.transfersConnection.pageInfo,
             },
           };
         }
-
         return {
           ...prev,
           transfersConnection: {
             ...prev.transfersConnection,
             pageInfo: fetchMoreResult.transfersConnection.pageInfo,
-            edges: [
-              ...prev.transfersConnection.edges,
-              ...newEdges,
-            ],
+            edges: [...prev.transfersConnection.edges, ...newEdges],
           },
         };
       },
     });
-  }, [apolloFetchMore]);
+  }, [apolloFetchMore, hasNextPage, transfersData]);
+
+  const isLoading = (transfersLoading || extrinsicsLoading) && networkStatus !== NetworkStatus.fetchMore;
+  const error = transfersError || extrinsicsError;
 
   return {
     transactions,
-    isLoading: loading && networkStatus !== NetworkStatus.fetchMore,
+    isLoading,
     isFetching: networkStatus === NetworkStatus.fetchMore,
     error,
     fetchMore,
     hasNextPage,
-    totalCount: data?.transfersConnection?.totalCount || 0,
+    totalCount: transfersData?.transfersConnection?.totalCount || 0,
   };
 }

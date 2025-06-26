@@ -66,18 +66,15 @@ describe('TransactionHistoryWithBlocks', () => {
     // Arrange
     const incomingTransaction: UiTransfer = {
       id: 'tx1',
-      hash: '0xhash1',
+      extrinsicHash: '0xhash1',
       timestamp: '2023-10-27T10:00:00.000Z',
       from: 'address_other',
       to: testAddress,
       amount: '1234000000000000000000',
-      feeAmount: '100000000000000000',
-      tokenSymbol: 'REEF',
-      feeTokenSymbol: 'REEF',
-      tokenDecimals: 18,
+      token: { id: 'reef', name: 'REEF', decimals: 18 },
+      fee: { amount: '100000000000000000', token: { id: 'reef', name: 'REEF', decimals: 18 } },
       success: true,
       type: 'INCOMING',
-      status: 'Success',
     };
 
     mockedUseTanstackTransactionAdapter.mockReturnValue({
@@ -101,18 +98,15 @@ describe('TransactionHistoryWithBlocks', () => {
     // Arrange
     const outgoingTransaction: UiTransfer = {
       id: 'tx2',
-      hash: '0xhash2',
+      extrinsicHash: '0xhash2',
       timestamp: '2023-10-27T11:00:00.000Z',
       from: testAddress,
       to: 'recipient_address',
       amount: '50500000000000000000000',
-      feeAmount: '100000000000000000',
-      tokenSymbol: 'MRD',
-      feeTokenSymbol: 'REEF',
-      tokenDecimals: 18,
+      token: { id: 'mrd', name: 'MRD', decimals: 18 },
+      fee: { amount: '100000000000000000', token: { id: 'reef', name: 'REEF', decimals: 18 } },
       success: true,
       type: 'OUTGOING',
-      status: 'Success',
     };
 
     mockedUseTanstackTransactionAdapter.mockReturnValue({
@@ -135,18 +129,15 @@ describe('TransactionHistoryWithBlocks', () => {
     // Arrange
     const nftTransaction: UiTransfer = {
       id: 'tx_nft_01',
-      hash: '0xhash_nft',
+      extrinsicHash: '0xhash_nft',
       timestamp: '2023-10-27T12:00:00.000Z',
       from: 'nft_sender',
       to: testAddress,
       amount: '1',
-      tokenSymbol: 'MyNFT',
-      tokenDecimals: 0,
+      token: { id: 'nft-1', name: 'MyNFT', decimals: 0 },
+      fee: { amount: '100000000000000000', token: { id: 'reef', name: 'REEF', decimals: 18 } },
       success: true,
       type: 'INCOMING',
-      status: 'Success',
-      feeAmount: '100000000000000000',
-      feeTokenSymbol: 'REEF',
     };
 
     mockedUseTanstackTransactionAdapter.mockReturnValue({

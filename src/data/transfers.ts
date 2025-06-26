@@ -11,6 +11,7 @@ export const PAGINATED_TRANSFERS_QUERY = gql`
           success
           type
           extrinsicHash
+          extrinsicId
           from {
             id
           }
@@ -33,47 +34,16 @@ export const PAGINATED_TRANSFERS_QUERY = gql`
   }
 `;
 
-export const FEE_EVENTS_QUERY = gql`
-  query FeeEventsQuery($where: EventWhereInput, $orderBy: [EventOrderByInput!]!) {
-    eventsConnection(orderBy: $orderBy, where: $where) {
-      edges {
-        node {
-          id
-          data
-          extrinsic {
-            id
-            hash
-          }
-        }
-      }
+export const EXTRINSICS_BY_IDS_QUERY = gql`
+  query ExtrinsicsByIds($ids: [String!]) {
+    extrinsics(where: { id_in: $ids }) {
+      id
+      hash
+      signedData
     }
   }
 `;
 
-// Simple transfers subscription for real-time updates (Subscription API doesn't support *Connection)
-export const TRANSFERS_SUBSCRIPTION_QUERY = gql`
-  subscription TransfersSubscription($where: TransferWhereInput, $orderBy: [TransferOrderByInput!], $offset: Int, $limit: Int) {
-    transfers(where: $where, orderBy: $orderBy, offset: $offset, limit: $limit) {
-      id
-      amount
-      timestamp
-      success
-      type
-      extrinsicHash
-      from {
-        id
-      }
-      to {
-        id
-      }
-      token {
-        id
-        name
-        contractData
-      }
-    }
-  }
-`;
 
 // Polling query for new transfers (used by subscription hook)
 export const TRANSFERS_POLLING_QUERY = gql`
@@ -85,6 +55,7 @@ export const TRANSFERS_POLLING_QUERY = gql`
       success
       type
       extrinsicHash
+      extrinsicId
       from {
         id
       }

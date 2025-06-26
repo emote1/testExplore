@@ -5,7 +5,6 @@ import { ArrowUpRight, ArrowDownLeft, ExternalLink } from 'lucide-react';
 import { generateReefscanUrl } from '../utils/reefscan-helpers';
 import {
   formatTokenAmount,
-  formatFee,
   formatTimestamp,
   shortenHash,
 } from '../utils/formatters';
@@ -40,30 +39,17 @@ export const transactionColumns: ColumnDef<UiTransfer>[] = [
     accessorKey: 'type',
     header: 'Type',
     cell: ({ row }) => {
-      const type = row.original.type;
-
+      const { type } = row.original;
       const isIncoming = type === 'INCOMING';
-      const isSelf = type === 'SELF';
 
-      const textColor = isIncoming
-        ? 'text-green-700'
-        : isSelf
-        ? 'text-blue-700'
-        : 'text-red-700';
-
+      const textColor = isIncoming ? 'text-green-700' : 'text-red-700';
       const Icon = isIncoming ? ArrowDownLeft : ArrowUpRight;
-      const iconColor = isIncoming
-        ? 'text-green-500'
-        : isSelf
-        ? 'text-blue-500'
-        : 'text-red-500';
+      const iconColor = isIncoming ? 'text-green-500' : 'text-red-500';
 
       return (
         <div className="flex items-center space-x-2">
           <Icon className={`h-4 w-4 ${iconColor}`} />
-          <span className={`text-sm font-medium ${textColor}`}>
-            {type}
-          </span>
+          <span className={`text-sm font-medium ${textColor}`}>{type}</span>
         </div>
       );
     },
@@ -73,8 +59,8 @@ export const transactionColumns: ColumnDef<UiTransfer>[] = [
     header: 'Hash',
     cell: ({ row }) => {
       const transaction = row.original;
-      const hash = transaction.hash || '';
-            const reefscanUrl = generateReefscanUrl(row.original);
+      const hash = transaction.extrinsicHash || '';
+      const reefscanUrl = generateReefscanUrl(transaction);
       
       return (
         <a
@@ -103,32 +89,32 @@ export const transactionColumns: ColumnDef<UiTransfer>[] = [
     accessorKey: 'amount',
     header: 'Amount',
     cell: ({ row }) => {
-      const transaction = row.original;
+      const { amount, token } = row.original;
       return (
         <div className="text-sm font-medium text-gray-900">
-          {formatTokenAmount(transaction.amount, transaction.tokenDecimals, transaction.tokenSymbol)}
+          {formatTokenAmount(amount, token.decimals, token.name)}
         </div>
       );
     },
   },
   {
-    accessorKey: 'feeAmount',
+    accessorKey: 'fee',
     header: 'Fee',
     cell: ({ row }) => {
-      const transaction = row.original;
+      const { fee } = row.original;
       return (
         <div className="text-sm text-gray-600">
-          {formatFee(transaction.feeAmount, transaction.feeTokenSymbol)}
+          {formatTokenAmount(fee.amount, fee.token.decimals, fee.token.name)}
         </div>
       );
     },
   },
   {
-    accessorKey: 'status',
+    accessorKey: 'success',
     header: 'Status',
     cell: ({ row }) => {
-      const status = row.getValue('status') as string;
-      const success = row.original.success;
+      const success = row.getValue('success') as boolean;
+      const statusText = success ? 'Success' : 'Failed';
       
       return (
         <span
@@ -138,7 +124,7 @@ export const transactionColumns: ColumnDef<UiTransfer>[] = [
               : 'bg-red-100 text-red-800'
           }`}
         >
-          {status}
+          {statusText}
         </span>
       );
     },

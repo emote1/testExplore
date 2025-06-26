@@ -4162,25 +4162,14 @@ export type TransfersQueryQueryVariables = Exact<{
 }>;
 
 
-export type TransfersQueryQuery = { __typename?: 'Query', transfersConnection: { __typename?: 'TransfersConnection', totalCount: number, edges: Array<{ __typename?: 'TransferEdge', node: { __typename?: 'Transfer', id: string, amount: any, timestamp: any, success: boolean, type: TransferType, extrinsicHash?: string | null, from: { __typename?: 'Account', id: string }, to: { __typename?: 'Account', id: string }, token: { __typename?: 'VerifiedContract', id: string, name: string, contractData?: any | null } } }>, pageInfo: { __typename?: 'PageInfo', hasNextPage: boolean, endCursor: string } } };
+export type TransfersQueryQuery = { __typename?: 'Query', transfersConnection: { __typename?: 'TransfersConnection', totalCount: number, edges: Array<{ __typename?: 'TransferEdge', node: { __typename?: 'Transfer', id: string, amount: any, timestamp: any, success: boolean, type: TransferType, extrinsicHash?: string | null, extrinsicId?: string | null, from: { __typename?: 'Account', id: string }, to: { __typename?: 'Account', id: string }, token: { __typename?: 'VerifiedContract', id: string, name: string, contractData?: any | null } } }>, pageInfo: { __typename?: 'PageInfo', hasNextPage: boolean, endCursor: string } } };
 
-export type FeeEventsQueryQueryVariables = Exact<{
-  where?: InputMaybe<EventWhereInput>;
-  orderBy: Array<EventOrderByInput> | EventOrderByInput;
+export type ExtrinsicsByIdsQueryVariables = Exact<{
+  ids?: InputMaybe<Array<Scalars['String']['input']> | Scalars['String']['input']>;
 }>;
 
 
-export type FeeEventsQueryQuery = { __typename?: 'Query', eventsConnection: { __typename?: 'EventsConnection', edges: Array<{ __typename?: 'EventEdge', node: { __typename?: 'Event', id: string, data: any, extrinsic: { __typename?: 'Extrinsic', id: string, hash: string } } }> } };
-
-export type TransfersSubscriptionSubscriptionVariables = Exact<{
-  where?: InputMaybe<TransferWhereInput>;
-  orderBy?: InputMaybe<Array<TransferOrderByInput> | TransferOrderByInput>;
-  offset?: InputMaybe<Scalars['Int']['input']>;
-  limit?: InputMaybe<Scalars['Int']['input']>;
-}>;
-
-
-export type TransfersSubscriptionSubscription = { __typename?: 'Subscription', transfers: Array<{ __typename?: 'Transfer', id: string, amount: any, timestamp: any, success: boolean, type: TransferType, extrinsicHash?: string | null, from: { __typename?: 'Account', id: string }, to: { __typename?: 'Account', id: string }, token: { __typename?: 'VerifiedContract', id: string, name: string, contractData?: any | null } }> };
+export type ExtrinsicsByIdsQuery = { __typename?: 'Query', extrinsics: Array<{ __typename?: 'Extrinsic', id: string, hash: string, signedData?: any | null }> };
 
 export type TransfersPollingQueryQueryVariables = Exact<{
   where?: InputMaybe<TransferWhereInput>;
@@ -4190,7 +4179,7 @@ export type TransfersPollingQueryQueryVariables = Exact<{
 }>;
 
 
-export type TransfersPollingQueryQuery = { __typename?: 'Query', transfers: Array<{ __typename?: 'Transfer', id: string, amount: any, timestamp: any, success: boolean, type: TransferType, extrinsicHash?: string | null, from: { __typename?: 'Account', id: string }, to: { __typename?: 'Account', id: string }, token: { __typename?: 'VerifiedContract', id: string, name: string, contractData?: any | null } }> };
+export type TransfersPollingQueryQuery = { __typename?: 'Query', transfers: Array<{ __typename?: 'Transfer', id: string, amount: any, timestamp: any, success: boolean, type: TransferType, extrinsicHash?: string | null, extrinsicId?: string | null, from: { __typename?: 'Account', id: string }, to: { __typename?: 'Account', id: string }, token: { __typename?: 'VerifiedContract', id: string, name: string, contractData?: any | null } }> };
 
 
 export const TransfersQueryDocument = gql`
@@ -4209,6 +4198,7 @@ export const TransfersQueryDocument = gql`
         success
         type
         extrinsicHash
+        extrinsicId
         from {
           id
         }
@@ -4266,105 +4256,48 @@ export type TransfersQueryQueryHookResult = ReturnType<typeof useTransfersQueryQ
 export type TransfersQueryLazyQueryHookResult = ReturnType<typeof useTransfersQueryLazyQuery>;
 export type TransfersQuerySuspenseQueryHookResult = ReturnType<typeof useTransfersQuerySuspenseQuery>;
 export type TransfersQueryQueryResult = Apollo.QueryResult<TransfersQueryQuery, TransfersQueryQueryVariables>;
-export const FeeEventsQueryDocument = gql`
-    query FeeEventsQuery($where: EventWhereInput, $orderBy: [EventOrderByInput!]!) {
-  eventsConnection(orderBy: $orderBy, where: $where) {
-    edges {
-      node {
-        id
-        data
-        extrinsic {
-          id
-          hash
-        }
-      }
-    }
+export const ExtrinsicsByIdsDocument = gql`
+    query ExtrinsicsByIds($ids: [String!]) {
+  extrinsics(where: {id_in: $ids}) {
+    id
+    hash
+    signedData
   }
 }
     `;
 
 /**
- * __useFeeEventsQueryQuery__
+ * __useExtrinsicsByIdsQuery__
  *
- * To run a query within a React component, call `useFeeEventsQueryQuery` and pass it any options that fit your needs.
- * When your component renders, `useFeeEventsQueryQuery` returns an object from Apollo Client that contains loading, error, and data properties
+ * To run a query within a React component, call `useExtrinsicsByIdsQuery` and pass it any options that fit your needs.
+ * When your component renders, `useExtrinsicsByIdsQuery` returns an object from Apollo Client that contains loading, error, and data properties
  * you can use to render your UI.
  *
  * @param baseOptions options that will be passed into the query, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options;
  *
  * @example
- * const { data, loading, error } = useFeeEventsQueryQuery({
+ * const { data, loading, error } = useExtrinsicsByIdsQuery({
  *   variables: {
- *      where: // value for 'where'
- *      orderBy: // value for 'orderBy'
+ *      ids: // value for 'ids'
  *   },
  * });
  */
-export function useFeeEventsQueryQuery(baseOptions: Apollo.QueryHookOptions<FeeEventsQueryQuery, FeeEventsQueryQueryVariables> & ({ variables: FeeEventsQueryQueryVariables; skip?: boolean; } | { skip: boolean; }) ) {
+export function useExtrinsicsByIdsQuery(baseOptions?: Apollo.QueryHookOptions<ExtrinsicsByIdsQuery, ExtrinsicsByIdsQueryVariables>) {
         const options = {...defaultOptions, ...baseOptions}
-        return Apollo.useQuery<FeeEventsQueryQuery, FeeEventsQueryQueryVariables>(FeeEventsQueryDocument, options);
+        return Apollo.useQuery<ExtrinsicsByIdsQuery, ExtrinsicsByIdsQueryVariables>(ExtrinsicsByIdsDocument, options);
       }
-export function useFeeEventsQueryLazyQuery(baseOptions?: Apollo.LazyQueryHookOptions<FeeEventsQueryQuery, FeeEventsQueryQueryVariables>) {
+export function useExtrinsicsByIdsLazyQuery(baseOptions?: Apollo.LazyQueryHookOptions<ExtrinsicsByIdsQuery, ExtrinsicsByIdsQueryVariables>) {
           const options = {...defaultOptions, ...baseOptions}
-          return Apollo.useLazyQuery<FeeEventsQueryQuery, FeeEventsQueryQueryVariables>(FeeEventsQueryDocument, options);
+          return Apollo.useLazyQuery<ExtrinsicsByIdsQuery, ExtrinsicsByIdsQueryVariables>(ExtrinsicsByIdsDocument, options);
         }
-export function useFeeEventsQuerySuspenseQuery(baseOptions?: Apollo.SkipToken | Apollo.SuspenseQueryHookOptions<FeeEventsQueryQuery, FeeEventsQueryQueryVariables>) {
+export function useExtrinsicsByIdsSuspenseQuery(baseOptions?: Apollo.SkipToken | Apollo.SuspenseQueryHookOptions<ExtrinsicsByIdsQuery, ExtrinsicsByIdsQueryVariables>) {
           const options = baseOptions === Apollo.skipToken ? baseOptions : {...defaultOptions, ...baseOptions}
-          return Apollo.useSuspenseQuery<FeeEventsQueryQuery, FeeEventsQueryQueryVariables>(FeeEventsQueryDocument, options);
+          return Apollo.useSuspenseQuery<ExtrinsicsByIdsQuery, ExtrinsicsByIdsQueryVariables>(ExtrinsicsByIdsDocument, options);
         }
-export type FeeEventsQueryQueryHookResult = ReturnType<typeof useFeeEventsQueryQuery>;
-export type FeeEventsQueryLazyQueryHookResult = ReturnType<typeof useFeeEventsQueryLazyQuery>;
-export type FeeEventsQuerySuspenseQueryHookResult = ReturnType<typeof useFeeEventsQuerySuspenseQuery>;
-export type FeeEventsQueryQueryResult = Apollo.QueryResult<FeeEventsQueryQuery, FeeEventsQueryQueryVariables>;
-export const TransfersSubscriptionDocument = gql`
-    subscription TransfersSubscription($where: TransferWhereInput, $orderBy: [TransferOrderByInput!], $offset: Int, $limit: Int) {
-  transfers(where: $where, orderBy: $orderBy, offset: $offset, limit: $limit) {
-    id
-    amount
-    timestamp
-    success
-    type
-    extrinsicHash
-    from {
-      id
-    }
-    to {
-      id
-    }
-    token {
-      id
-      name
-      contractData
-    }
-  }
-}
-    `;
-
-/**
- * __useTransfersSubscriptionSubscription__
- *
- * To run a query within a React component, call `useTransfersSubscriptionSubscription` and pass it any options that fit your needs.
- * When your component renders, `useTransfersSubscriptionSubscription` returns an object from Apollo Client that contains loading, error, and data properties
- * you can use to render your UI.
- *
- * @param baseOptions options that will be passed into the subscription, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options;
- *
- * @example
- * const { data, loading, error } = useTransfersSubscriptionSubscription({
- *   variables: {
- *      where: // value for 'where'
- *      orderBy: // value for 'orderBy'
- *      offset: // value for 'offset'
- *      limit: // value for 'limit'
- *   },
- * });
- */
-export function useTransfersSubscriptionSubscription(baseOptions?: Apollo.SubscriptionHookOptions<TransfersSubscriptionSubscription, TransfersSubscriptionSubscriptionVariables>) {
-        const options = {...defaultOptions, ...baseOptions}
-        return Apollo.useSubscription<TransfersSubscriptionSubscription, TransfersSubscriptionSubscriptionVariables>(TransfersSubscriptionDocument, options);
-      }
-export type TransfersSubscriptionSubscriptionHookResult = ReturnType<typeof useTransfersSubscriptionSubscription>;
-export type TransfersSubscriptionSubscriptionResult = Apollo.SubscriptionResult<TransfersSubscriptionSubscription>;
+export type ExtrinsicsByIdsQueryHookResult = ReturnType<typeof useExtrinsicsByIdsQuery>;
+export type ExtrinsicsByIdsLazyQueryHookResult = ReturnType<typeof useExtrinsicsByIdsLazyQuery>;
+export type ExtrinsicsByIdsSuspenseQueryHookResult = ReturnType<typeof useExtrinsicsByIdsSuspenseQuery>;
+export type ExtrinsicsByIdsQueryResult = Apollo.QueryResult<ExtrinsicsByIdsQuery, ExtrinsicsByIdsQueryVariables>;
 export const TransfersPollingQueryDocument = gql`
     query TransfersPollingQuery($where: TransferWhereInput, $orderBy: [TransferOrderByInput!], $offset: Int, $limit: Int) {
   transfers(where: $where, orderBy: $orderBy, offset: $offset, limit: $limit) {
@@ -4374,6 +4307,7 @@ export const TransfersPollingQueryDocument = gql`
     success
     type
     extrinsicHash
+    extrinsicId
     from {
       id
     }

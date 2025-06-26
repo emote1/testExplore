@@ -51,11 +51,11 @@ export function useTransferSubscription({
       return;
     }
 
-    if (!data?.transfers) return;
+    if (!data?.transfers || !address) return;
 
     // Map transfers to UI format - wrap in edge structure for mapper compatibility
     const transferEdges = data.transfers.map((transfer) => ({ node: transfer }));
-    const uiTransfers = mapTransfersToUiTransfers(transferEdges);
+    const uiTransfers = mapTransfersToUiTransfers(transferEdges, address, []);
 
     if (uiTransfers.length === 0) return;
 
