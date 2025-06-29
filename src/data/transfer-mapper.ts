@@ -35,17 +35,28 @@ type Extrinsic = ExtrinsicsByIdsQuery['extrinsics'][0];
 
 // Helper to parse token symbol and decimals from a transfer
 const parseTokenData = (transfer: Transfer): { symbol: string; decimals: number } => {
+  // Handle NFTs first, as they are distinct.
   if (transfer.type === 'ERC721' || transfer.type === 'ERC1155') {
     return { symbol: 'NFT', decimals: 0 };
   }
-  if (transfer.type === 'ERC20') {
-    return {
-      symbol: transfer.token.name,
-      decimals: transfer.token.contractData?.decimals ?? 18,
-    };
+
+  // The native REEF token is the only one without contractData.
+  if (!transfer.token.contractData) {
+    return { symbol: 'REEF', decimals: 18 };
   }
-  // Default to Native REEF for any other type (like 'Native')
-  return { symbol: 'REEF', decimals: 18 };
+
+  // Also treat REEFERC20 as REEF for display purposes.
+  if (transfer.token.name === 'REEFERC20') {
+    return { symbol: 'REEF', decimals: 18 };
+  }
+
+  // For all other tokens (like ERC20), use their provided name and decimals.
+  // Prioritize `symbol` from contractData if available, as `name` can be generic.
+  const symbol = (transfer.token.contractData as any)?.symbol || transfer.token.name;
+  return {
+    symbol,
+    decimals: (transfer.token.contractData as any)?.decimals ?? 18,
+  };
 };
 
 // Helper to determine if a transfer is incoming or outgoing

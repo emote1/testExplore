@@ -47,8 +47,8 @@ export function generateReefscanUrl(transaction: UiTransfer): string {
   }
 
   // If a transfer-specific URL can't be made, fall back to the extrinsic hash.
-  if (transaction.hash) {
-    const cleanHash = transaction.hash.startsWith('0x') ? transaction.hash : `0x${transaction.hash}`;
+  if (transaction.extrinsicHash) {
+    const cleanHash = transaction.extrinsicHash.startsWith('0x') ? transaction.extrinsicHash : `0x${transaction.extrinsicHash}`;
     if (cleanHash.length === 66 && /^[0-9a-fA-F]{64}$/.test(cleanHash.substring(2))) {
       return `${baseUrl}/extrinsic/${cleanHash}`;
     }

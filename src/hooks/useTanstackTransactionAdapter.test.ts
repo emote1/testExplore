@@ -7,18 +7,26 @@ import { ApolloError } from '@apollo/client';
 // Helper to create mock data conforming to the UiTransfer structure
 const createMockUiTransfer = (id: string): UiTransfer => ({
   id,
-  hash: `0xhash${id}`,
+  extrinsicHash: `0xhash${id}`,
   timestamp: new Date().toISOString(),
   from: `from-${id}`,
   to: `to-${id}`,
   amount: '100000000000000000000',
-  tokenSymbol: 'REEF',
-  tokenDecimals: 18,
+  token: {
+    id: 'reef',
+    name: 'REEF',
+    decimals: 18,
+  },
   success: true,
-  status: 'Success',
   type: 'INCOMING',
-  feeAmount: '0',
-  feeTokenSymbol: 'REEF',
+  fee: {
+    amount: '0',
+    token: {
+      id: 'reef',
+      name: 'REEF',
+      decimals: 18,
+    },
+  },
 });
 
 // Mock the underlying data hook

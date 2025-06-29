@@ -5,20 +5,17 @@ describe('generateReefscanUrl', () => {
   const mockTransaction = (data: Partial<UiTransfer>): UiTransfer => {
     return {
       id: 'default-id',
-      hash: '0x' + '0'.repeat(64),
+      extrinsicHash: '0x' + '0'.repeat(64),
       timestamp: new Date().toISOString(),
       from: 'fromAddress',
       to: 'toAddress',
       amount: '100',
-      tokenSymbol: 'REEF',
-      tokenDecimals: 18,
+      token: { id: 'reef', name: 'REEF', decimals: 18 },
       success: true,
-      status: 'Success',
-      type: 'NATIVE_TRANSFER',
-      feeAmount: '1',
-      feeTokenSymbol: 'REEF',
+      type: 'INCOMING',
+      fee: { amount: '1', token: { id: 'reef', name: 'REEF', decimals: 18 } },
       ...data,
-    };
+    } as UiTransfer;
   };
 
   it('should generate URL for a valid 3-part decimal ID', () => {
@@ -42,40 +39,40 @@ describe('generateReefscanUrl', () => {
   });
 
   it('should prefer a valid ID over a valid hash', () => {
-    const tx = mockTransaction({ id: '123-1-1', hash: '0x' + 'e'.repeat(64) });
+    const tx = mockTransaction({ id: '123-1-1', extrinsicHash: '0x' + 'e'.repeat(64) });
     expect(generateReefscanUrl(tx)).toBe('https://reefscan.com/transfer/123/1/1');
   });
 
   it('should fall back to a valid hash if the ID is invalid', () => {
     const hash = '0x' + 'f'.repeat(64);
-    const tx = mockTransaction({ id: 'invalid-id', hash });
+    const tx = mockTransaction({ id: 'invalid-id', extrinsicHash: hash });
     expect(generateReefscanUrl(tx)).toBe(`https://reefscan.com/extrinsic/${hash}`);
   });
 
   it('should fall back to a valid hash if the ID is missing', () => {
     const hash = '0x' + 'd'.repeat(64);
-    const tx = mockTransaction({ id: '', hash });
+    const tx = mockTransaction({ id: '', extrinsicHash: hash });
     expect(generateReefscanUrl(tx)).toBe(`https://reefscan.com/extrinsic/${hash}`);
   });
 
   it('should generate URL from a hash that needs a 0x prefix', () => {
     const hash = 'b'.repeat(64);
-    const tx = mockTransaction({ id: 'invalid', hash });
+    const tx = mockTransaction({ id: 'invalid', extrinsicHash: hash });
     expect(generateReefscanUrl(tx)).toBe(`https://reefscan.com/extrinsic/0x${hash}`);
   });
 
   it('should return # if ID is invalid and hash is invalid', () => {
-    const tx = mockTransaction({ id: 'invalid', hash: 'invalid-hash' });
+    const tx = mockTransaction({ id: 'invalid', extrinsicHash: 'invalid-hash' });
     expect(generateReefscanUrl(tx)).toBe('#');
   });
 
   it('should return # if ID is invalid and hash is too short', () => {
-    const tx = mockTransaction({ id: 'invalid', hash: '0x123' });
+    const tx = mockTransaction({ id: 'invalid', extrinsicHash: '0x123' });
     expect(generateReefscanUrl(tx)).toBe('#');
   });
 
   it('should return # if no ID or hash is provided', () => {
-    const tx = mockTransaction({ id: '', hash: '' });
+    const tx = mockTransaction({ id: '', extrinsicHash: '' });
     expect(generateReefscanUrl(tx)).toBe('#');
   });
 });
