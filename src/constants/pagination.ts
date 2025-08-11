@@ -6,8 +6,8 @@ export const PAGINATION_CONFIG = {
   /** Number of transactions to display per page in the UI */
   UI_TRANSACTIONS_PER_PAGE: 10,
   
-  /** Number of transactions to fetch per request when scanning for last page */
-  SEQUENTIAL_FETCH_PAGE_SIZE: 50,
+  /** Number of items to fetch per API request */
+  API_FETCH_PAGE_SIZE: 50,
   
   /** Number of transactions to fetch per block for optimization */
   BLOCK_FETCH_SIZE: 50,

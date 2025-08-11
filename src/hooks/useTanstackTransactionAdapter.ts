@@ -9,13 +9,13 @@ import {
 import { useTransactionDataWithBlocks } from './use-transaction-data-with-blocks';
 import { transactionColumns } from '../components/transaction-columns';
 import { UiTransfer } from '../data/transfer-mapper';
+import { PAGINATION_CONFIG } from '../constants/pagination';
 import { ApolloError } from '@apollo/client';
 
 export interface TanstackTransactionAdapterReturn {
   table: Table<UiTransfer>;
   isLoading: boolean;
-  isFetching: boolean;
-  error?: ApolloError;
+  error?: ApolloError | Error;
   addTransaction: (newTransaction: UiTransfer) => void;
 }
 
@@ -24,18 +24,17 @@ export function useTanstackTransactionAdapter(
 ): TanstackTransactionAdapterReturn {
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
-    pageSize: 10,
+    pageSize: PAGINATION_CONFIG.UI_TRANSACTIONS_PER_PAGE,
   });
 
   const {
-    transactions: initialTransactions,
-    isLoading,
-    isFetching,
+    transfers: initialTransactions,
+    loading: isLoading,
     error,
     fetchMore,
-    hasNextPage,
+    hasMore: hasNextPage,
     totalCount,
-  } = useTransactionDataWithBlocks(address, 50);
+  } = useTransactionDataWithBlocks(address, PAGINATION_CONFIG.API_FETCH_PAGE_SIZE);
 
   const [allTransactions, setAllTransactions] = useState<UiTransfer[]>(initialTransactions || []);
 
@@ -61,9 +60,9 @@ export function useTanstackTransactionAdapter(
   }, []);
 
   const pageCount = useMemo(() => {
-    const total = Math.max(totalCount, allTransactions.length);
-    return Math.ceil(total / pagination.pageSize);
-  }, [totalCount, allTransactions.length, pagination.pageSize]);
+    if (totalCount === 0) return 0;
+    return Math.ceil(totalCount / pagination.pageSize);
+  }, [totalCount, pagination.pageSize]);
 
   const dataForCurrentPage = useMemo(() => {
     const { pageIndex, pageSize } = pagination;
@@ -84,26 +83,25 @@ export function useTanstackTransactionAdapter(
   });
 
   useEffect(() => {
-    const itemsLoaded = initialTransactions.length;
+    const itemsLoaded = allTransactions.length;
     const currentPageFirstItemIndex = pagination.pageIndex * pagination.pageSize;
 
-    if (itemsLoaded > 0 && itemsLoaded <= currentPageFirstItemIndex && hasNextPage && !isLoading && !isFetching) {
+    // Fetch more if we are near the end of the currently loaded data and a next page exists.
+    if (itemsLoaded > 0 && itemsLoaded - currentPageFirstItemIndex < pagination.pageSize && hasNextPage && !isLoading) {
       fetchMore();
     }
   }, [
     pagination.pageIndex,
     pagination.pageSize,
-    initialTransactions.length,
+    allTransactions.length,
     hasNextPage,
     isLoading,
-    isFetching,
     fetchMore,
   ]);
 
   return {
     table,
     isLoading,
-    isFetching,
     error,
     addTransaction,
   };

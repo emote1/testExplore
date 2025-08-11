@@ -1,104 +1,39 @@
-// src/mocks/handlers.ts
-import { graphql, HttpResponse } from 'msw';
+import { http, HttpResponse } from 'msw';
+
+// Simple in-memory fixtures for tests
+const FIXTURE_COLLECTION_ID = 'COLL_TEST_1';
+
+function buildCollectionResponse(limit: number, startFrom: number) {
+  const total = 30;
+  const items = Array.from({ length: Math.min(limit, Math.max(0, total - startFrom)) }).map((_, i) => {
+    const idx = startFrom + i + 1;
+    return {
+      id: `nft-${idx}`,
+      name: `NFT ${idx}`,
+      image: `https://example.com/nft-${idx}.png`,
+    };
+  });
+  return { items, total };
+}
 
 export const handlers = [
-  // Пример обработчика для GraphQL запроса
-  // Вам нужно будет адаптировать это под ваши конкретные запросы и данные
-  graphql.query('GetTransfers', ({ variables }) => {
-    console.log('[MSW] Intercepted GraphQL variables:', variables);
+  // GET /get/marketplace/by-collection/<COLLECTION_ID>/<any>?limit=..&startFrom=..
+  http.get('https://sqwid-api-mainnet.reefscan.info/get/marketplace/by-collection/:collectionId/:seg', ({ params, request }) => {
+    const url = new URL(request.url);
+    const limit = Number(url.searchParams.get('limit') ?? '12');
+    const startFrom = Number(url.searchParams.get('startFrom') ?? '0');
+    const { collectionId } = params as { collectionId: string };
 
-    // Пример ответа для начальной загрузки
-    if (variables.nativeAddressVariable === 'VALID_ADDRESS_INITIAL_LOAD') {
-      return HttpResponse.json({
-        data: {
-          transfersConnection: {
-            edges: [
-              { node: { id: 'tx1', from: { id: 'VALID_ADDRESS_INITIAL_LOAD' }, to: { id: 'SOME_OTHER_ADDRESS' }, amount: '1000', success: true, timestamp: '2023-01-01T12:00:00.000Z', type: 'TRANSFER', token: { name: 'REEF', symbol: 'REEF', decimals: 18 } } },
-              { node: { id: 'tx2', from: { id: 'SOME_OTHER_ADDRESS' }, to: { id: 'VALID_ADDRESS_INITIAL_LOAD' }, amount: '500', success: true, timestamp: '2023-01-01T11:00:00.000Z', type: 'TRANSFER', token: { name: 'REEF', symbol: 'REEF', decimals: 18 } } },
-              // ... еще 10 транзакций, чтобы было 12
-            ],
-            pageInfo: {
-              hasNextPage: true,
-              hasPreviousPage: false,
-              startCursor: 'START_CURSOR_1',
-              endCursor: 'END_CURSOR_1',
-            },
-            totalCount: 100, // Примерное общее количество
-          },
-        },
-      });
+    // Basic routing: success for known test ID, 404 otherwise
+    if (collectionId !== FIXTURE_COLLECTION_ID) {
+      return HttpResponse.json({ items: [], total: 0 }, { status: 200 });
     }
 
-    // Пример ответа для случая, когда транзакций нет
-    if (variables.nativeAddressVariable === 'ADDRESS_NO_TRANSACTIONS') {
-      return HttpResponse.json({
-        data: {
-          transfersConnection: {
-            edges: [],
-            pageInfo: {
-              hasNextPage: false,
-              hasPreviousPage: false,
-              startCursor: null,
-              endCursor: null,
-            },
-            totalCount: 0,
-          },
-        },
-      });
-    }
-    
-    // Пример ответа для следующей страницы
-    if (variables.nativeAddressVariable === 'VALID_ADDRESS_NEXT_PAGE' && variables.after === 'END_CURSOR_1') {
-      return HttpResponse.json({
-        data: {
-          transfersConnection: {
-            edges: [
-              { node: { id: 'tx13', from: { id: 'VALID_ADDRESS_NEXT_PAGE' }, to: { id: 'SOME_OTHER_ADDRESS' }, amount: '200', success: true, timestamp: '2023-01-02T12:00:00.000Z', type: 'TRANSFER', token: { name: 'REEF', symbol: 'REEF', decimals: 18 } } },
-              // ... еще транзакции для второй страницы
-            ],
-            pageInfo: {
-              hasNextPage: true, // или false, если это последняя
-              hasPreviousPage: true,
-              startCursor: 'START_CURSOR_2',
-              endCursor: 'END_CURSOR_2',
-            },
-            totalCount: 100, 
-          },
-        },
-      });
-    }
-
-    // Ответ по умолчанию или для непредусмотренных случаев
-    return HttpResponse.json({
-      errors: [{ message: 'Mocked response: Unhandled query variables' }],
-    });
+    const payload = buildCollectionResponse(limit, startFrom);
+    return HttpResponse.json(payload, { status: 200 });
   }),
-  graphql.query('GetAccountByEvm', ({ variables }) => {
-    const { evmAddress } = variables;
-    // In our tests, mockValidAddress is a native address.
-    // The hook's logic might call GetAccountByEvm if isEvmAddress returns true
-    // or if getNativeAddress attempts to resolve it as EVM.
-    // For simplicity, if it's mockValidAddress (which we use as input in tests),
-    // or other test-specific valid addresses, return it as if it's the native id.
-    if (
-      evmAddress === '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY' ||
-      evmAddress === 'VALID_ADDRESS_INITIAL_LOAD' ||
-      evmAddress === 'VALID_ADDRESS_NEXT_PAGE'
-    ) {
-      return HttpResponse.json({
-        data: {
-          accounts: [{ id: evmAddress as string }],
-        },
-      });
-    }
-    // For other EVM addresses (e.g., if we were to test actual EVM resolution)
-    // one might return a found native address or an empty array if not found.
-    // For now, for all others, return an empty array to simulate 'not found'.
-    return HttpResponse.json({
-      data: {
-        accounts: [],
-      },
-    });
+  // Fallback for the same host to prevent unhandled requests in tests
+  http.get('https://sqwid-api-mainnet.reefscan.info/*', () => {
+    return HttpResponse.json({ items: [], total: 0 }, { status: 200 });
   }),
-  // Добавьте другие обработчики для других операций GraphQL, если они есть
 ];

@@ -4,16 +4,18 @@ import type { UiTransfer } from '../data/transfer-mapper';
 import { useTransferSubscription } from '../hooks/useTransferSubscription';
 import { TransactionTableWithTanStack } from './TransactionTableWithTanStack';
 import { Loader2, AlertTriangle } from 'lucide-react';
+import { NftGallery } from './NftGallery';
 
 interface TransactionHistoryWithBlocksProps {
   initialAddress?: string;
 }
 
 export function TransactionHistoryWithBlocks({ initialAddress = '' }: TransactionHistoryWithBlocksProps) {
+  const [viewMode, setViewMode] = React.useState<'transactions' | 'nfts'>('transactions');
   const [address, setAddress] = React.useState(initialAddress);
   const [submittedAddress, setSubmittedAddress] = React.useState(initialAddress);
 
-  const { table, isLoading, isFetching, error, addTransaction } = useTanstackTransactionAdapter(submittedAddress);
+  const { table, isLoading, error, addTransaction } = useTanstackTransactionAdapter(submittedAddress);
   const [newTransfers, setNewTransfers] = React.useState<string[]>([]);
 
   const onNewTransfer = React.useCallback((newTransfer: UiTransfer) => {
@@ -42,6 +44,7 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
 
   React.useEffect(() => {
     setNewTransfers([]);
+    setViewMode('transactions'); // Reset to transactions view on new address submission
   }, [submittedAddress]);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -57,7 +60,7 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
           Enter a Reef address to view its transaction history.
         </p>
 
-        <form onSubmit={handleSubmit} className="flex items-center gap-4 mb-8 p-4 bg-white rounded-lg shadow">
+                <form onSubmit={handleSubmit} className="flex items-center gap-4 mb-6 p-4 bg-white rounded-lg shadow">
           <input
             type="text"
             value={address}
@@ -84,8 +87,38 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
           </div>
         )}
 
+                {submittedAddress && (
+          <div className="flex mb-4 border-b">
+            <button
+              className={`px-4 py-2 -mb-px font-semibold border-b-2 ${
+                viewMode === 'transactions'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+              onClick={() => setViewMode('transactions')}
+            >
+              Transactions
+            </button>
+            <button
+              className={`px-4 py-2 -mb-px font-semibold border-b-2 ${
+                viewMode === 'nfts'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+              onClick={() => setViewMode('nfts')}
+              data-testid="tab-nfts"
+            >
+              NFTs
+            </button>
+          </div>
+        )}
+
         {submittedAddress ? (
-          <TransactionTableWithTanStack table={table} isLoading={isLoading} isFetching={isFetching} newTransfers={newTransfers} />
+          viewMode === 'transactions' ? (
+            <TransactionTableWithTanStack table={table} isLoading={isLoading} newTransfers={newTransfers} />
+          ) : (
+            <NftGallery address={submittedAddress} />
+          )
         ) : (
           <div className="text-center py-12 bg-white rounded-lg shadow">
             <p className="text-gray-500">Please enter an address to begin.</p>

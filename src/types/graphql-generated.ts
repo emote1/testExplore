@@ -4154,7 +4154,36 @@ export type WhereIdInput = {
   id: Scalars['String']['input'];
 };
 
-export type TransfersQueryQueryVariables = Exact<{
+export type GetAccountByEvmQueryVariables = Exact<{
+  evmAddress: Scalars['String']['input'];
+}>;
+
+
+export type GetAccountByEvmQuery = { __typename?: 'Query', accounts: Array<{ __typename?: 'Account', id: string, evmAddress?: string | null }> };
+
+export type GetAccountByNativeQueryVariables = Exact<{
+  nativeAddress: Scalars['String']['input'];
+}>;
+
+
+export type GetAccountByNativeQuery = { __typename?: 'Query', accounts: Array<{ __typename?: 'Account', id: string, evmAddress?: string | null }> };
+
+export type NftIdsByAccountQueryQueryVariables = Exact<{
+  address: Scalars['String']['input'];
+  limit: Scalars['Int']['input'];
+}>;
+
+
+export type NftIdsByAccountQueryQuery = { __typename?: 'Query', transfers: Array<{ __typename?: 'Transfer', id: string, nftId?: any | null, token: { __typename?: 'VerifiedContract', id: string } }> };
+
+export type ExtrinsicFeeQueryQueryVariables = Exact<{
+  extrinsicHash: Scalars['String']['input'];
+}>;
+
+
+export type ExtrinsicFeeQueryQuery = { __typename?: 'Query', extrinsics: Array<{ __typename?: 'Extrinsic', events: Array<{ __typename?: 'Event', data: any }> }> };
+
+export type TransfersFeeQueryQueryVariables = Exact<{
   first: Scalars['Int']['input'];
   after?: InputMaybe<Scalars['String']['input']>;
   where?: InputMaybe<TransferWhereInput>;
@@ -4162,14 +4191,14 @@ export type TransfersQueryQueryVariables = Exact<{
 }>;
 
 
-export type TransfersQueryQuery = { __typename?: 'Query', transfersConnection: { __typename?: 'TransfersConnection', totalCount: number, edges: Array<{ __typename?: 'TransferEdge', node: { __typename?: 'Transfer', id: string, amount: any, timestamp: any, success: boolean, type: TransferType, extrinsicHash?: string | null, extrinsicId?: string | null, from: { __typename?: 'Account', id: string }, to: { __typename?: 'Account', id: string }, token: { __typename?: 'VerifiedContract', id: string, name: string, contractData?: any | null } } }>, pageInfo: { __typename?: 'PageInfo', hasNextPage: boolean, endCursor: string } } };
+export type TransfersFeeQueryQuery = { __typename?: 'Query', transfersConnection: { __typename?: 'TransfersConnection', totalCount: number, edges: Array<{ __typename?: 'TransferEdge', node: { __typename?: 'Transfer', id: string, amount: any, timestamp: any, success: boolean, type: TransferType, extrinsicHash?: string | null, from: { __typename?: 'Account', id: string }, to: { __typename?: 'Account', id: string }, token: { __typename?: 'VerifiedContract', id: string, name: string, contractData?: any | null } } }>, pageInfo: { __typename?: 'PageInfo', hasNextPage: boolean, endCursor: string } } };
 
-export type ExtrinsicsByIdsQueryVariables = Exact<{
+export type NftTokenIdQueryQueryVariables = Exact<{
   ids?: InputMaybe<Array<Scalars['String']['input']> | Scalars['String']['input']>;
 }>;
 
 
-export type ExtrinsicsByIdsQuery = { __typename?: 'Query', extrinsics: Array<{ __typename?: 'Extrinsic', id: string, hash: string, signedData?: any | null }> };
+export type NftTokenIdQueryQuery = { __typename?: 'Query', extrinsics: Array<{ __typename?: 'Extrinsic', id: string, hash: string, events: Array<{ __typename?: 'Event', id: string, section: string, method: string, data: any }> }> };
 
 export type TransfersPollingQueryQueryVariables = Exact<{
   where?: InputMaybe<TransferWhereInput>;
@@ -4182,8 +4211,183 @@ export type TransfersPollingQueryQueryVariables = Exact<{
 export type TransfersPollingQueryQuery = { __typename?: 'Query', transfers: Array<{ __typename?: 'Transfer', id: string, amount: any, timestamp: any, success: boolean, type: TransferType, extrinsicHash?: string | null, extrinsicId?: string | null, from: { __typename?: 'Account', id: string }, to: { __typename?: 'Account', id: string }, token: { __typename?: 'VerifiedContract', id: string, name: string, contractData?: any | null } }> };
 
 
-export const TransfersQueryDocument = gql`
-    query TransfersQuery($first: Int!, $after: String, $where: TransferWhereInput, $orderBy: [TransferOrderByInput!]!) {
+export const GetAccountByEvmDocument = gql`
+    query GetAccountByEvm($evmAddress: String!) {
+  accounts(where: {evmAddress_eq: $evmAddress}, limit: 1) {
+    id
+    evmAddress
+  }
+}
+    `;
+
+/**
+ * __useGetAccountByEvmQuery__
+ *
+ * To run a query within a React component, call `useGetAccountByEvmQuery` and pass it any options that fit your needs.
+ * When your component renders, `useGetAccountByEvmQuery` returns an object from Apollo Client that contains loading, error, and data properties
+ * you can use to render your UI.
+ *
+ * @param baseOptions options that will be passed into the query, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options;
+ *
+ * @example
+ * const { data, loading, error } = useGetAccountByEvmQuery({
+ *   variables: {
+ *      evmAddress: // value for 'evmAddress'
+ *   },
+ * });
+ */
+export function useGetAccountByEvmQuery(baseOptions: Apollo.QueryHookOptions<GetAccountByEvmQuery, GetAccountByEvmQueryVariables> & ({ variables: GetAccountByEvmQueryVariables; skip?: boolean; } | { skip: boolean; }) ) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useQuery<GetAccountByEvmQuery, GetAccountByEvmQueryVariables>(GetAccountByEvmDocument, options);
+      }
+export function useGetAccountByEvmLazyQuery(baseOptions?: Apollo.LazyQueryHookOptions<GetAccountByEvmQuery, GetAccountByEvmQueryVariables>) {
+          const options = {...defaultOptions, ...baseOptions}
+          return Apollo.useLazyQuery<GetAccountByEvmQuery, GetAccountByEvmQueryVariables>(GetAccountByEvmDocument, options);
+        }
+export function useGetAccountByEvmSuspenseQuery(baseOptions?: Apollo.SkipToken | Apollo.SuspenseQueryHookOptions<GetAccountByEvmQuery, GetAccountByEvmQueryVariables>) {
+          const options = baseOptions === Apollo.skipToken ? baseOptions : {...defaultOptions, ...baseOptions}
+          return Apollo.useSuspenseQuery<GetAccountByEvmQuery, GetAccountByEvmQueryVariables>(GetAccountByEvmDocument, options);
+        }
+export type GetAccountByEvmQueryHookResult = ReturnType<typeof useGetAccountByEvmQuery>;
+export type GetAccountByEvmLazyQueryHookResult = ReturnType<typeof useGetAccountByEvmLazyQuery>;
+export type GetAccountByEvmSuspenseQueryHookResult = ReturnType<typeof useGetAccountByEvmSuspenseQuery>;
+export type GetAccountByEvmQueryResult = Apollo.QueryResult<GetAccountByEvmQuery, GetAccountByEvmQueryVariables>;
+export const GetAccountByNativeDocument = gql`
+    query GetAccountByNative($nativeAddress: String!) {
+  accounts(where: {id_eq: $nativeAddress}, limit: 1) {
+    id
+    evmAddress
+  }
+}
+    `;
+
+/**
+ * __useGetAccountByNativeQuery__
+ *
+ * To run a query within a React component, call `useGetAccountByNativeQuery` and pass it any options that fit your needs.
+ * When your component renders, `useGetAccountByNativeQuery` returns an object from Apollo Client that contains loading, error, and data properties
+ * you can use to render your UI.
+ *
+ * @param baseOptions options that will be passed into the query, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options;
+ *
+ * @example
+ * const { data, loading, error } = useGetAccountByNativeQuery({
+ *   variables: {
+ *      nativeAddress: // value for 'nativeAddress'
+ *   },
+ * });
+ */
+export function useGetAccountByNativeQuery(baseOptions: Apollo.QueryHookOptions<GetAccountByNativeQuery, GetAccountByNativeQueryVariables> & ({ variables: GetAccountByNativeQueryVariables; skip?: boolean; } | { skip: boolean; }) ) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useQuery<GetAccountByNativeQuery, GetAccountByNativeQueryVariables>(GetAccountByNativeDocument, options);
+      }
+export function useGetAccountByNativeLazyQuery(baseOptions?: Apollo.LazyQueryHookOptions<GetAccountByNativeQuery, GetAccountByNativeQueryVariables>) {
+          const options = {...defaultOptions, ...baseOptions}
+          return Apollo.useLazyQuery<GetAccountByNativeQuery, GetAccountByNativeQueryVariables>(GetAccountByNativeDocument, options);
+        }
+export function useGetAccountByNativeSuspenseQuery(baseOptions?: Apollo.SkipToken | Apollo.SuspenseQueryHookOptions<GetAccountByNativeQuery, GetAccountByNativeQueryVariables>) {
+          const options = baseOptions === Apollo.skipToken ? baseOptions : {...defaultOptions, ...baseOptions}
+          return Apollo.useSuspenseQuery<GetAccountByNativeQuery, GetAccountByNativeQueryVariables>(GetAccountByNativeDocument, options);
+        }
+export type GetAccountByNativeQueryHookResult = ReturnType<typeof useGetAccountByNativeQuery>;
+export type GetAccountByNativeLazyQueryHookResult = ReturnType<typeof useGetAccountByNativeLazyQuery>;
+export type GetAccountByNativeSuspenseQueryHookResult = ReturnType<typeof useGetAccountByNativeSuspenseQuery>;
+export type GetAccountByNativeQueryResult = Apollo.QueryResult<GetAccountByNativeQuery, GetAccountByNativeQueryVariables>;
+export const NftIdsByAccountQueryDocument = gql`
+    query NftIdsByAccountQuery($address: String!, $limit: Int!) {
+  transfers(
+    where: {OR: [{from: {id_eq: $address}}, {to: {id_eq: $address}}], type_eq: ERC1155}
+    limit: $limit
+    orderBy: timestamp_DESC
+  ) {
+    id
+    nftId
+    token {
+      id
+    }
+  }
+}
+    `;
+
+/**
+ * __useNftIdsByAccountQueryQuery__
+ *
+ * To run a query within a React component, call `useNftIdsByAccountQueryQuery` and pass it any options that fit your needs.
+ * When your component renders, `useNftIdsByAccountQueryQuery` returns an object from Apollo Client that contains loading, error, and data properties
+ * you can use to render your UI.
+ *
+ * @param baseOptions options that will be passed into the query, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options;
+ *
+ * @example
+ * const { data, loading, error } = useNftIdsByAccountQueryQuery({
+ *   variables: {
+ *      address: // value for 'address'
+ *      limit: // value for 'limit'
+ *   },
+ * });
+ */
+export function useNftIdsByAccountQueryQuery(baseOptions: Apollo.QueryHookOptions<NftIdsByAccountQueryQuery, NftIdsByAccountQueryQueryVariables> & ({ variables: NftIdsByAccountQueryQueryVariables; skip?: boolean; } | { skip: boolean; }) ) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useQuery<NftIdsByAccountQueryQuery, NftIdsByAccountQueryQueryVariables>(NftIdsByAccountQueryDocument, options);
+      }
+export function useNftIdsByAccountQueryLazyQuery(baseOptions?: Apollo.LazyQueryHookOptions<NftIdsByAccountQueryQuery, NftIdsByAccountQueryQueryVariables>) {
+          const options = {...defaultOptions, ...baseOptions}
+          return Apollo.useLazyQuery<NftIdsByAccountQueryQuery, NftIdsByAccountQueryQueryVariables>(NftIdsByAccountQueryDocument, options);
+        }
+export function useNftIdsByAccountQuerySuspenseQuery(baseOptions?: Apollo.SkipToken | Apollo.SuspenseQueryHookOptions<NftIdsByAccountQueryQuery, NftIdsByAccountQueryQueryVariables>) {
+          const options = baseOptions === Apollo.skipToken ? baseOptions : {...defaultOptions, ...baseOptions}
+          return Apollo.useSuspenseQuery<NftIdsByAccountQueryQuery, NftIdsByAccountQueryQueryVariables>(NftIdsByAccountQueryDocument, options);
+        }
+export type NftIdsByAccountQueryQueryHookResult = ReturnType<typeof useNftIdsByAccountQueryQuery>;
+export type NftIdsByAccountQueryLazyQueryHookResult = ReturnType<typeof useNftIdsByAccountQueryLazyQuery>;
+export type NftIdsByAccountQuerySuspenseQueryHookResult = ReturnType<typeof useNftIdsByAccountQuerySuspenseQuery>;
+export type NftIdsByAccountQueryQueryResult = Apollo.QueryResult<NftIdsByAccountQueryQuery, NftIdsByAccountQueryQueryVariables>;
+export const ExtrinsicFeeQueryDocument = gql`
+    query ExtrinsicFeeQuery($extrinsicHash: String!) {
+  extrinsics(where: {hash_eq: $extrinsicHash}, limit: 1) {
+    events(
+      where: {section_eq: "transactionpayment", method_eq: "TransactionFeePaid"}
+    ) {
+      data
+    }
+  }
+}
+    `;
+
+/**
+ * __useExtrinsicFeeQueryQuery__
+ *
+ * To run a query within a React component, call `useExtrinsicFeeQueryQuery` and pass it any options that fit your needs.
+ * When your component renders, `useExtrinsicFeeQueryQuery` returns an object from Apollo Client that contains loading, error, and data properties
+ * you can use to render your UI.
+ *
+ * @param baseOptions options that will be passed into the query, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options;
+ *
+ * @example
+ * const { data, loading, error } = useExtrinsicFeeQueryQuery({
+ *   variables: {
+ *      extrinsicHash: // value for 'extrinsicHash'
+ *   },
+ * });
+ */
+export function useExtrinsicFeeQueryQuery(baseOptions: Apollo.QueryHookOptions<ExtrinsicFeeQueryQuery, ExtrinsicFeeQueryQueryVariables> & ({ variables: ExtrinsicFeeQueryQueryVariables; skip?: boolean; } | { skip: boolean; }) ) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useQuery<ExtrinsicFeeQueryQuery, ExtrinsicFeeQueryQueryVariables>(ExtrinsicFeeQueryDocument, options);
+      }
+export function useExtrinsicFeeQueryLazyQuery(baseOptions?: Apollo.LazyQueryHookOptions<ExtrinsicFeeQueryQuery, ExtrinsicFeeQueryQueryVariables>) {
+          const options = {...defaultOptions, ...baseOptions}
+          return Apollo.useLazyQuery<ExtrinsicFeeQueryQuery, ExtrinsicFeeQueryQueryVariables>(ExtrinsicFeeQueryDocument, options);
+        }
+export function useExtrinsicFeeQuerySuspenseQuery(baseOptions?: Apollo.SkipToken | Apollo.SuspenseQueryHookOptions<ExtrinsicFeeQueryQuery, ExtrinsicFeeQueryQueryVariables>) {
+          const options = baseOptions === Apollo.skipToken ? baseOptions : {...defaultOptions, ...baseOptions}
+          return Apollo.useSuspenseQuery<ExtrinsicFeeQueryQuery, ExtrinsicFeeQueryQueryVariables>(ExtrinsicFeeQueryDocument, options);
+        }
+export type ExtrinsicFeeQueryQueryHookResult = ReturnType<typeof useExtrinsicFeeQueryQuery>;
+export type ExtrinsicFeeQueryLazyQueryHookResult = ReturnType<typeof useExtrinsicFeeQueryLazyQuery>;
+export type ExtrinsicFeeQuerySuspenseQueryHookResult = ReturnType<typeof useExtrinsicFeeQuerySuspenseQuery>;
+export type ExtrinsicFeeQueryQueryResult = Apollo.QueryResult<ExtrinsicFeeQueryQuery, ExtrinsicFeeQueryQueryVariables>;
+export const TransfersFeeQueryDocument = gql`
+    query TransfersFeeQuery($first: Int!, $after: String, $where: TransferWhereInput, $orderBy: [TransferOrderByInput!]!) {
   transfersConnection(
     orderBy: $orderBy
     first: $first
@@ -4198,7 +4402,6 @@ export const TransfersQueryDocument = gql`
         success
         type
         extrinsicHash
-        extrinsicId
         from {
           id
         }
@@ -4222,16 +4425,16 @@ export const TransfersQueryDocument = gql`
     `;
 
 /**
- * __useTransfersQueryQuery__
+ * __useTransfersFeeQueryQuery__
  *
- * To run a query within a React component, call `useTransfersQueryQuery` and pass it any options that fit your needs.
- * When your component renders, `useTransfersQueryQuery` returns an object from Apollo Client that contains loading, error, and data properties
+ * To run a query within a React component, call `useTransfersFeeQueryQuery` and pass it any options that fit your needs.
+ * When your component renders, `useTransfersFeeQueryQuery` returns an object from Apollo Client that contains loading, error, and data properties
  * you can use to render your UI.
  *
  * @param baseOptions options that will be passed into the query, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options;
  *
  * @example
- * const { data, loading, error } = useTransfersQueryQuery({
+ * const { data, loading, error } = useTransfersFeeQueryQuery({
  *   variables: {
  *      first: // value for 'first'
  *      after: // value for 'after'
@@ -4240,64 +4443,69 @@ export const TransfersQueryDocument = gql`
  *   },
  * });
  */
-export function useTransfersQueryQuery(baseOptions: Apollo.QueryHookOptions<TransfersQueryQuery, TransfersQueryQueryVariables> & ({ variables: TransfersQueryQueryVariables; skip?: boolean; } | { skip: boolean; }) ) {
+export function useTransfersFeeQueryQuery(baseOptions: Apollo.QueryHookOptions<TransfersFeeQueryQuery, TransfersFeeQueryQueryVariables> & ({ variables: TransfersFeeQueryQueryVariables; skip?: boolean; } | { skip: boolean; }) ) {
         const options = {...defaultOptions, ...baseOptions}
-        return Apollo.useQuery<TransfersQueryQuery, TransfersQueryQueryVariables>(TransfersQueryDocument, options);
+        return Apollo.useQuery<TransfersFeeQueryQuery, TransfersFeeQueryQueryVariables>(TransfersFeeQueryDocument, options);
       }
-export function useTransfersQueryLazyQuery(baseOptions?: Apollo.LazyQueryHookOptions<TransfersQueryQuery, TransfersQueryQueryVariables>) {
+export function useTransfersFeeQueryLazyQuery(baseOptions?: Apollo.LazyQueryHookOptions<TransfersFeeQueryQuery, TransfersFeeQueryQueryVariables>) {
           const options = {...defaultOptions, ...baseOptions}
-          return Apollo.useLazyQuery<TransfersQueryQuery, TransfersQueryQueryVariables>(TransfersQueryDocument, options);
+          return Apollo.useLazyQuery<TransfersFeeQueryQuery, TransfersFeeQueryQueryVariables>(TransfersFeeQueryDocument, options);
         }
-export function useTransfersQuerySuspenseQuery(baseOptions?: Apollo.SkipToken | Apollo.SuspenseQueryHookOptions<TransfersQueryQuery, TransfersQueryQueryVariables>) {
+export function useTransfersFeeQuerySuspenseQuery(baseOptions?: Apollo.SkipToken | Apollo.SuspenseQueryHookOptions<TransfersFeeQueryQuery, TransfersFeeQueryQueryVariables>) {
           const options = baseOptions === Apollo.skipToken ? baseOptions : {...defaultOptions, ...baseOptions}
-          return Apollo.useSuspenseQuery<TransfersQueryQuery, TransfersQueryQueryVariables>(TransfersQueryDocument, options);
+          return Apollo.useSuspenseQuery<TransfersFeeQueryQuery, TransfersFeeQueryQueryVariables>(TransfersFeeQueryDocument, options);
         }
-export type TransfersQueryQueryHookResult = ReturnType<typeof useTransfersQueryQuery>;
-export type TransfersQueryLazyQueryHookResult = ReturnType<typeof useTransfersQueryLazyQuery>;
-export type TransfersQuerySuspenseQueryHookResult = ReturnType<typeof useTransfersQuerySuspenseQuery>;
-export type TransfersQueryQueryResult = Apollo.QueryResult<TransfersQueryQuery, TransfersQueryQueryVariables>;
-export const ExtrinsicsByIdsDocument = gql`
-    query ExtrinsicsByIds($ids: [String!]) {
+export type TransfersFeeQueryQueryHookResult = ReturnType<typeof useTransfersFeeQueryQuery>;
+export type TransfersFeeQueryLazyQueryHookResult = ReturnType<typeof useTransfersFeeQueryLazyQuery>;
+export type TransfersFeeQuerySuspenseQueryHookResult = ReturnType<typeof useTransfersFeeQuerySuspenseQuery>;
+export type TransfersFeeQueryQueryResult = Apollo.QueryResult<TransfersFeeQueryQuery, TransfersFeeQueryQueryVariables>;
+export const NftTokenIdQueryDocument = gql`
+    query NftTokenIdQuery($ids: [String!]) {
   extrinsics(where: {id_in: $ids}) {
     id
     hash
-    signedData
+    events(where: {section_eq: "uniques", method_eq: "Transferred"}) {
+      id
+      section
+      method
+      data
+    }
   }
 }
     `;
 
 /**
- * __useExtrinsicsByIdsQuery__
+ * __useNftTokenIdQueryQuery__
  *
- * To run a query within a React component, call `useExtrinsicsByIdsQuery` and pass it any options that fit your needs.
- * When your component renders, `useExtrinsicsByIdsQuery` returns an object from Apollo Client that contains loading, error, and data properties
+ * To run a query within a React component, call `useNftTokenIdQueryQuery` and pass it any options that fit your needs.
+ * When your component renders, `useNftTokenIdQueryQuery` returns an object from Apollo Client that contains loading, error, and data properties
  * you can use to render your UI.
  *
  * @param baseOptions options that will be passed into the query, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options;
  *
  * @example
- * const { data, loading, error } = useExtrinsicsByIdsQuery({
+ * const { data, loading, error } = useNftTokenIdQueryQuery({
  *   variables: {
  *      ids: // value for 'ids'
  *   },
  * });
  */
-export function useExtrinsicsByIdsQuery(baseOptions?: Apollo.QueryHookOptions<ExtrinsicsByIdsQuery, ExtrinsicsByIdsQueryVariables>) {
+export function useNftTokenIdQueryQuery(baseOptions?: Apollo.QueryHookOptions<NftTokenIdQueryQuery, NftTokenIdQueryQueryVariables>) {
         const options = {...defaultOptions, ...baseOptions}
-        return Apollo.useQuery<ExtrinsicsByIdsQuery, ExtrinsicsByIdsQueryVariables>(ExtrinsicsByIdsDocument, options);
+        return Apollo.useQuery<NftTokenIdQueryQuery, NftTokenIdQueryQueryVariables>(NftTokenIdQueryDocument, options);
       }
-export function useExtrinsicsByIdsLazyQuery(baseOptions?: Apollo.LazyQueryHookOptions<ExtrinsicsByIdsQuery, ExtrinsicsByIdsQueryVariables>) {
+export function useNftTokenIdQueryLazyQuery(baseOptions?: Apollo.LazyQueryHookOptions<NftTokenIdQueryQuery, NftTokenIdQueryQueryVariables>) {
           const options = {...defaultOptions, ...baseOptions}
-          return Apollo.useLazyQuery<ExtrinsicsByIdsQuery, ExtrinsicsByIdsQueryVariables>(ExtrinsicsByIdsDocument, options);
+          return Apollo.useLazyQuery<NftTokenIdQueryQuery, NftTokenIdQueryQueryVariables>(NftTokenIdQueryDocument, options);
         }
-export function useExtrinsicsByIdsSuspenseQuery(baseOptions?: Apollo.SkipToken | Apollo.SuspenseQueryHookOptions<ExtrinsicsByIdsQuery, ExtrinsicsByIdsQueryVariables>) {
+export function useNftTokenIdQuerySuspenseQuery(baseOptions?: Apollo.SkipToken | Apollo.SuspenseQueryHookOptions<NftTokenIdQueryQuery, NftTokenIdQueryQueryVariables>) {
           const options = baseOptions === Apollo.skipToken ? baseOptions : {...defaultOptions, ...baseOptions}
-          return Apollo.useSuspenseQuery<ExtrinsicsByIdsQuery, ExtrinsicsByIdsQueryVariables>(ExtrinsicsByIdsDocument, options);
+          return Apollo.useSuspenseQuery<NftTokenIdQueryQuery, NftTokenIdQueryQueryVariables>(NftTokenIdQueryDocument, options);
         }
-export type ExtrinsicsByIdsQueryHookResult = ReturnType<typeof useExtrinsicsByIdsQuery>;
-export type ExtrinsicsByIdsLazyQueryHookResult = ReturnType<typeof useExtrinsicsByIdsLazyQuery>;
-export type ExtrinsicsByIdsSuspenseQueryHookResult = ReturnType<typeof useExtrinsicsByIdsSuspenseQuery>;
-export type ExtrinsicsByIdsQueryResult = Apollo.QueryResult<ExtrinsicsByIdsQuery, ExtrinsicsByIdsQueryVariables>;
+export type NftTokenIdQueryQueryHookResult = ReturnType<typeof useNftTokenIdQueryQuery>;
+export type NftTokenIdQueryLazyQueryHookResult = ReturnType<typeof useNftTokenIdQueryLazyQuery>;
+export type NftTokenIdQuerySuspenseQueryHookResult = ReturnType<typeof useNftTokenIdQuerySuspenseQuery>;
+export type NftTokenIdQueryQueryResult = Apollo.QueryResult<NftTokenIdQueryQuery, NftTokenIdQueryQueryVariables>;
 export const TransfersPollingQueryDocument = gql`
     query TransfersPollingQuery($where: TransferWhereInput, $orderBy: [TransferOrderByInput!], $offset: Int, $limit: Int) {
   transfers(where: $where, orderBy: $orderBy, offset: $offset, limit: $limit) {

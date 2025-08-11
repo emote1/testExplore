@@ -16,7 +16,7 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
   return (
     <div className="p-4 bg-white rounded-lg shadow-md">
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
+        <table className="divide-y divide-gray-200">
           <thead className="bg-gray-50">
             {table.getHeaderGroups().map(headerGroup => (
               <tr key={headerGroup.id}>

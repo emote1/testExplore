@@ -1,0 +1,76 @@
+# Page snapshot
+
+```yaml
+- main:
+  - heading "Transaction History" [level=1]
+  - paragraph: Enter a Reef address to view its transaction history.
+  - textbox "Enter Reef address": "0x8De305c88Ec150c707517858E3ea67fEdD5180FF"
+  - button "Search"
+  - button "Transactions"
+  - button "NFTs"
+  - button "Sea creatures"
+  - heading "Sea creatures (13)" [level=2]
+  - button "Back to collections": Collections
+  - button "Previous page" [disabled]: Prev
+  - button "Next page": Next
+  - combobox "Items per page":
+    - option "12" [selected]
+    - option "24"
+    - option "48"
+  - 'link "3D Aquatic animal #1"':
+    - /url: https://reef.infura-ipfs.io/ipfs/QmbhUtmqBC5xrGB1LTgeLz18TV9ZXmhBHB8HDwymjGNEmz
+    - 'img "3D Aquatic animal #1"'
+  - text: x5
+  - 'heading "3D Aquatic animal #1" [level=3]'
+  - text: x5
+  - paragraph: Sea creatures
+  - 'link "3D Aquatic animal #8"':
+    - /url: https://reef.infura-ipfs.io/ipfs/QmUDyKx4ZvZQ93GSrHz7TScnVW6D32joPoBdGoWUdKNwjL
+    - 'img "3D Aquatic animal #8"'
+  - text: x5
+  - 'heading "3D Aquatic animal #8" [level=3]'
+  - text: x5
+  - paragraph: Sea creatures
+  - 'link "3D Aquatic animal #7"':
+    - /url: https://reef.infura-ipfs.io/ipfs/QmUWeUYsaZWanYJeExeD15j5MbR2KVQVQA2QUYeKTLykpZ
+    - 'img "3D Aquatic animal #7"'
+  - text: x5
+  - 'heading "3D Aquatic animal #7" [level=3]'
+  - text: x5
+  - paragraph: Sea creatures
+  - 'link "3D Aquatic animal #6"':
+    - /url: https://reef.infura-ipfs.io/ipfs/QmfHZoJaPeoBdCqxNYZ2x2oJAiJEMQPKeFLajhRthR2Tv1
+    - 'img "3D Aquatic animal #6"'
+  - text: x5
+  - 'heading "3D Aquatic animal #6" [level=3]'
+  - text: x5
+  - paragraph: Sea creatures
+  - 'link "3D Aquatic animal #5"':
+    - /url: https://reef.infura-ipfs.io/ipfs/QmSmaptBAGoDrwBZRpgCfp7iqVvuzf4L3CwwvUn244edMN
+    - 'img "3D Aquatic animal #5"'
+  - text: x5
+  - 'heading "3D Aquatic animal #5" [level=3]'
+  - text: x5
+  - paragraph: Sea creatures
+  - 'link "3D Aquatic animal #4"':
+    - /url: https://reef.infura-ipfs.io/ipfs/QmSK8VNtEDzqPWWkdiSnZRruvgtohkEAYMH2mxowLkk94V
+    - 'img "3D Aquatic animal #4"'
+  - text: x5
+  - 'heading "3D Aquatic animal #4" [level=3]'
+  - text: x5
+  - paragraph: Sea creatures
+  - 'link "3D Aquatic animal #3"':
+    - /url: https://reef.infura-ipfs.io/ipfs/QmSsPnKwNSAQX6Ky9TeM5jKMjJsM2gxvWU8bFWxhtGSs5j
+    - 'img "3D Aquatic animal #3"'
+  - text: x4
+  - 'heading "3D Aquatic animal #3" [level=3]'
+  - text: x4
+  - paragraph: Sea creatures
+  - 'link "3D Aquatic animal #2"':
+    - /url: https://reef.infura-ipfs.io/ipfs/QmdJeNQEbbJA19kKWQeg7cr1AajjjS1jVUJiszcF6VqMUK
+    - 'img "3D Aquatic animal #2"'
+  - text: x5
+  - 'heading "3D Aquatic animal #2" [level=3]'
+  - text: x5
+  - paragraph: Sea creatures
+```

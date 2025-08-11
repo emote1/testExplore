@@ -1,6 +1,6 @@
 import { useRef, useEffect, useMemo } from 'react';
 import { mapTransfersToUiTransfers, type UiTransfer } from '../data/transfer-mapper';
-import { useTransfersPollingQueryQuery, type TransferOrderByInput } from '../types/graphql-generated';
+import { useTransfersPollingQueryQuery, type TransferOrderByInput, type TransfersPollingQueryQuery } from '../types/graphql-generated';
 
 interface UseTransferSubscriptionProps {
   address: string | null;
@@ -54,8 +54,8 @@ export function useTransferSubscription({
     if (!data?.transfers || !address) return;
 
     // Map transfers to UI format - wrap in edge structure for mapper compatibility
-    const transferEdges = data.transfers.map((transfer) => ({ node: transfer }));
-    const uiTransfers = mapTransfersToUiTransfers(transferEdges, address, []);
+    const transferEdges = data.transfers.map((transfer: TransfersPollingQueryQuery['transfers'][0]) => ({ node: transfer }));
+    const uiTransfers = mapTransfersToUiTransfers(transferEdges, address);
 
     if (uiTransfers.length === 0) return;
 

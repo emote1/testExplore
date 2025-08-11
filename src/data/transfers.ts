@@ -1,7 +1,17 @@
 import { gql } from '@apollo/client';
 
+export const EXTRINSIC_FEE_QUERY = gql`
+  query ExtrinsicFeeQuery($extrinsicHash: String!) {
+    extrinsics(where: { hash_eq: $extrinsicHash }, limit: 1) {
+      events(where: {section_eq: "transactionpayment", method_eq: "TransactionFeePaid"}) {
+        data
+      }
+    }
+  }
+`;
+
 export const PAGINATED_TRANSFERS_QUERY = gql`
-  query TransfersQuery($first: Int!, $after: String, $where: TransferWhereInput, $orderBy: [TransferOrderByInput!]!) {
+  query TransfersFeeQuery($first: Int!, $after: String, $where: TransferWhereInput, $orderBy: [TransferOrderByInput!]!) {
     transfersConnection(orderBy: $orderBy, first: $first, after: $after, where: $where) {
       edges {
         node {
@@ -11,7 +21,6 @@ export const PAGINATED_TRANSFERS_QUERY = gql`
           success
           type
           extrinsicHash
-          extrinsicId
           from {
             id
           }
@@ -23,6 +32,7 @@ export const PAGINATED_TRANSFERS_QUERY = gql`
             name
             contractData
           }
+
         }
       }
       pageInfo {
@@ -34,12 +44,17 @@ export const PAGINATED_TRANSFERS_QUERY = gql`
   }
 `;
 
-export const EXTRINSICS_BY_IDS_QUERY = gql`
-  query ExtrinsicsByIds($ids: [String!]) {
+export const NFT_TOKEN_ID_QUERY = gql`
+  query NftTokenIdQuery($ids: [String!]) {
     extrinsics(where: { id_in: $ids }) {
       id
       hash
-      signedData
+      events(where: { section_eq: "uniques", method_eq: "Transferred" }) {
+        id
+        section
+        method
+        data
+      }
     }
   }
 `;
