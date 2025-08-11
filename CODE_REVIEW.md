@@ -4,7 +4,7 @@ This document provides a high-level overview of the project's structure, archite
 
 ## 📂 Project Structure
 
-The project follows a standard feature-based structure for React applications. Here are the key directories and their responsibilities:
+The project follows a feature-oriented structure. Below is the updated map of key files and their responsibilities:
 
 ```
 reef-web3-history-vite/
@@ -15,8 +15,11 @@ reef-web3-history-vite/
 │   ├── 📂 components/         # React components
 │   │   ├── TransactionHistoryWithBlocks.tsx  # Main view, orchestrates data fetching and display
 │   │   ├── TransactionTableWithTanStack.tsx  # Reusable TanStack Table component
-│   │   ├── transaction-columns.tsx         # Column definitions for the table
-│   │   └── ui/                           # Shadcn UI components
+│   │   ├── transaction-columns.tsx           # Column definitions for the table
+│   │   ├── NftGallery.tsx                    # NFTs view (collections grid and collection items)
+│   │   ├── NftCard.tsx                       # NFT item card
+│   │   ├── CollectionCard.tsx               # Collection card
+│   │   └── ui/                               # Shadcn UI components
 │   │
 │   ├── 📂 data/               # GraphQL queries, mappers, and cache logic
 │   │   ├── transfers.ts                  # All GraphQL queries/fragments for transfers
@@ -28,6 +31,9 @@ reef-web3-history-vite/
 │   │   ├── usePaginationAndSorting.ts        # Manages pagination & sorting state
 │   │   ├── useTanstackTransactionAdapter.ts  # Adapts data for TanStack Table
 │   │   └── useTransferSubscription.ts        # Handles real-time updates via subscriptions
+│   │   ├── use-sqwid-collections-by-owner.ts # Loads NFT collections via Sqwid API
+│   │   ├── use-sqwid-collection.ts           # Loads NFTs for selected collection
+│   │   └── use-sqwid-nfts.ts                 # Types/helpers for Sqwid NFTs
 │   │
 │   ├── 📂 types/              # TypeScript type definitions
 │   │   ├── graphql-generated.ts          # Auto-generated types from GraphQL schema (DO NOT EDIT)
@@ -39,12 +45,20 @@ reef-web3-history-vite/
 │       ├── formatters.ts                 # Display formatting for dates, amounts, etc.
 │       └── ui.ts                         # UI utility functions (e.g., `cn`)
 │
-└── 📄 CODE_REVIEW.md         # This file!
+├── 📂 tests/                  # Test suites
+│   └── 📂 e2e/
+│       └── nft.spec.ts       # Playwright E2E for NFTs flow
+├── 📄 vitest.config.ts        # Unit test configuration
+├── 📄 playwright.config.ts    # Playwright configuration
+├── 📂 .github/workflows/
+│   └── e2e.yml               # GitHub Actions workflow for Playwright
+├── 📄 .npmrc                  # npm config (cleaned from pnpm-only keys)
+└── 📄 CODE_REVIEW.md         # This file
 ```
 
 ---
 
-## 🌊 Data Flow
+## 🌊 Data Flow (Transactions)
 
 The application's data flow is designed to be unidirectional and reactive, centered around Apollo Client and custom hooks.
 
@@ -62,7 +76,74 @@ The application's data flow is designed to be unidirectional and reactive, cente
 
 7.  **Column Definition**: The appearance and behavior of each column are defined in `transaction-columns.tsx`. This file specifies how to render data for each cell, leveraging helper functions from `formatters.ts` to display addresses, amounts, and dates in a readable format.
 
-This document provides an overview of the key files and directories in the `reef-web3-history-vite` project.
+## 🖼️ Data Flow (NFTs)
+
+1. **Инициация**: пользователь кликает вкладку `NFTs` в `TransactionHistoryWithBlocks.tsx` (кнопка с `data-testid="tab-nfts"`).
+2. **Коллекции**: `NftGallery.tsx` вызывает `use-sqwid-collections-by-owner.ts` (Sqwid REST API) и показывает грид коллекций (`CollectionCard`, `data-testid="collection-card"`). Заголовок списка имеет `data-testid="collections-title"`.
+3. **Открытие коллекции**: выбор коллекции переключает локальное состояние и дергает `use-sqwid-collection.ts` для загрузки NFT внутри коллекции. Пагинация управляется локальным стейтом (`limit`, `startFrom`).
+4. **Рендер**: `NftCard.tsx` показывает карточки NFT, бейдж `xN` для количества > 1. IPFS ссылки нормализуются.
+5. **Стабильность E2E**: тесты используют только `data-testid` и явные ожидания сетевых ответов Sqwid.
+
+---
+
+## ✅ Code Review Summary
+
+* __Сильные стороны__
+  - Чёткое разделение слоёв: `components` / `hooks` / `data` / `utils` / `types`.
+  - Типобезопасность GraphQL через `graphql-generated.ts`.
+  - Табличный слой изолирован (TanStack) + адаптер-хук.
+  - E2E покрытие основного NFT-сценария, стабильные селекторы (`data-testid`).
+  - CI для Playwright на GitHub Actions.
+
+* __Риски/замечания__
+  - Дубликация логики пагинации между таблицей и NFTs (локальный стейт). Рассмотреть унификацию API/хелперов для пагинации.
+  - В `useTransferSubscription.ts` важно следить за корректностью фильтров `section_eq`/`method_eq` и `argsStr_contains` для live API; любые изменения схемы будут ломать прод.
+  - Потенциальная зависимость от нестабильности внешнего Sqwid API (тайм-ауты/скорость). Добавить ретраи/таймауты/кеширование.
+  - Обновления пакетов Polkadot/reef могут вызывать ворнинги совместимости — уже частично решено через overrides/alias в сборке, но требует мониторинга.
+
+* __Рекомендации__
+  - Вынести общие хелперы пагинации в `utils` и переиспользовать в NFTs.
+  - Добавить `data-testid` для кнопки «Back to collections» и селекта «Items per page» (для ещё более надёжных ожиданий E2E).
+  - Включить ESLint/Prettier в CI, добавить Husky + lint-staged (pre-commit) и commitlint (Conventional Commits).
+  - В `README.md` добавить бейдж статуса E2E.
+  - Рассмотреть кеширование ответов Sqwid (in-memory) на время сессии.
+
+---
+
+## 🧪 Testing Strategy
+
+* __Unit (Vitest)__
+  - Конфиг: `vitest.config.ts`.
+  - Покрытие: форматтеры, мапперы (`transfer-mapper.ts`), адаптеры, хуки.
+
+* __E2E (Playwright)__
+  - Конфиг: `playwright.config.ts` (включить trace/video/скриншоты на retry по необходимости).
+  - Тесты: `tests/e2e/nft.spec.ts`.
+  - Стабилизация: `data-testid`, `waitForLoadState('networkidle')`, `waitForResponse` для Sqwid.
+
+---
+
+## 🚀 CI/CD
+
+* __GitHub Actions__
+  - Workflow: `.github/workflows/e2e.yml` — Node 20, `npm ci`, установка браузеров, запуск E2E, артефакты отчётов при падении.
+
+* __Рекомендации__
+  - Добавить job для Unit-тестов и линтинга.
+  - Включить загрузку Playwright report всегда (для анализа), и `trace: on-first-retry`.
+
+---
+
+## 🧭 Конвенции
+
+* __TypeScript__: использовать интерфейсы, избегать enum (карты/объекты), строго типизировать GraphQL.
+* __React__: функциональные компоненты, минимизировать `useEffect` и состояние, по возможности RSC-подходы (если переход на Next.js планируется).
+* __Стили__: Tailwind + shadcn/ui, утилита `cn` в `utils/ui.ts`.
+* __Селекторы тестов__: только через `data-testid` для E2E.
+
+---
+
+Документ отражает текущее состояние проекта и рекомендации по дальнейшему развитию качества кода, тестирования и CI.
 
 ├── 📌 main.tsx (Application entry point, renders the root App component)
 ├── 📌 App.tsx (Main application component, handles routing and layout)
