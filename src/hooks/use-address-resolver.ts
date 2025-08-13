@@ -51,6 +51,25 @@ export function useAddressResolver() {
   }, [resolveAddress]);
 
   /**
+   * Resolves an address to an EVM (0x...) address if available.
+   * - For an EVM input, returns it as-is
+   * - For a Substrate input, returns mapped evmAddress or null if not mapped
+   */
+  const resolveEvmAddress = useCallback(async (address: string): Promise<string | null> => {
+    if (!isValidAddress(address)) return null;
+    const type = getAddressType(address);
+    if (type === 'evm') return address;
+    try {
+      const { data } = await getAccountByNative({ variables: { nativeAddress: address } });
+      const evm = data?.accounts?.[0]?.evmAddress ?? null;
+      return evm;
+    } catch (error) {
+      console.warn('Failed to resolve EVM address:', address, error);
+      return null;
+    }
+  }, [getAccountByNative]);
+
+  /**
    * Gets the type of address without making network calls
    * @param address - The address to check
    * @returns 'evm' | 'substrate' | 'invalid'
@@ -62,6 +81,7 @@ export function useAddressResolver() {
   return {
     resolveAddress,
     validateAddress,
+    resolveEvmAddress,
     getAddressType: getAddressTypeSync,
     isValidAddress,
   };

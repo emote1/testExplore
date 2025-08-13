@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useQuery, ApolloError } from '@apollo/client';
 import { PAGINATED_TRANSFERS_QUERY } from '../data/transfers';
 import type { TransfersFeeQueryQuery as TransfersFeeQuery, TransfersFeeQueryQueryVariables as TransfersFeeQueryVariables } from '../types/graphql-generated';
@@ -48,19 +48,6 @@ export function useTransactionDataWithBlocks(
     resolveAndSet();
   }, [accountAddress, resolveAddress]);
 
-  const queryVariables = {
-    first: limit,
-    where: {
-      OR: [
-        { from: { id_eq: resolvedAddress } },
-        { to: { id_eq: resolvedAddress } },
-      ],
-    },
-    orderBy: 'timestamp_DESC',
-  };
-
-  console.log('Executing PAGINATED_TRANSFERS_QUERY with variables:', JSON.stringify(queryVariables, null, 2));
-
   const { data, loading, error, fetchMore: apolloFetchMore } = 
     useQuery<TransfersFeeQuery, TransfersFeeQueryVariables>(PAGINATED_TRANSFERS_QUERY, {
       variables: {
@@ -77,8 +64,6 @@ export function useTransactionDataWithBlocks(
       notifyOnNetworkStatusChange: true,
     });
 
-  const previousTransfers = useRef<UiTransfer[]>([]);
-
   const uiTransfers = useMemo(() => {
     const edges = data?.transfersConnection.edges || [];
     if (edges.length === 0) {
@@ -86,7 +71,6 @@ export function useTransactionDataWithBlocks(
     }
 
     const mapped = mapTransfersToUiTransfers(edges, resolvedAddress);
-    previousTransfers.current = mapped; // Cache the latest result
     return mapped;
   }, [data, resolvedAddress]);
 

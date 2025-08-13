@@ -12,24 +12,15 @@ test.describe('NFT Gallery', () => {
       test.skip(true, 'Set E2E_USER_ADDRESS to a valid Reef EVM address before running this test');
     }
 
-    // Fill the address input (try multiple robust selectors)
+    // Fill the address input (stable test id)
     const address = userAddress!; // safe due to skip guard above
-    const addressInput = page
-      .getByRole('textbox', { name: /address|account|wallet/i })
-      .or(page.locator('input[placeholder*="address" i]'))
-      .or(page.locator('input[name*="address" i]'));
+    const addressInput = page.getByTestId('address-input');
     await addressInput.waitFor({ state: 'visible', timeout: 15000 });
     await addressInput.fill(address);
 
     // Submit: click a button or press Enter
-    const submitBtn = page
-      .getByRole('button', { name: /search|load|submit|go|apply|show/i })
-      .or(page.locator('button[type="submit"]'));
-    if (await submitBtn.isVisible().catch(() => false)) {
-      await submitBtn.click();
-    } else {
-      await addressInput.press('Enter');
-    }
+    const submitBtn = page.getByTestId('search-button');
+    await submitBtn.click();
     // Wait for data to load after submitting address
     await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => {});
     // Additionally, wait for Sqwid collections-by-owner API to resolve
@@ -60,10 +51,10 @@ test.describe('NFT Gallery', () => {
     await expect(firstCard).toBeVisible({ timeout: 30000 });
     await firstCard.click();
 
-    // After opening a collection, wait for collection toolbar to appear
+    // After opening a collection, wait for collection toolbar to appear via test ids
     await Promise.race([
-      page.getByRole('button', { name: 'Back to collections' }).waitFor({ state: 'visible', timeout: 30000 }),
-      page.getByRole('combobox', { name: 'Items per page' }).waitFor({ state: 'visible', timeout: 30000 })
+      page.getByTestId('back-to-collections').waitFor({ state: 'visible', timeout: 30000 }),
+      page.getByTestId('items-per-page').waitFor({ state: 'visible', timeout: 30000 })
     ]);
   });
 });

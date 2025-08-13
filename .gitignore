@@ -25,3 +25,12 @@ dist-ssr
 
 # Generated files
 src/types/graphql-generated.ts
+
+# Env files
+.env
+.env.e2e
+
+# Playwright artifacts
+playwright-report/
+blob-report/
+test-results/

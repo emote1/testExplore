@@ -135,6 +135,8 @@ export function NftGallery({ address }: NftGalleryProps) {
     setSelectedCollection(col);
   }
 
+
+
   if (!address && !selectedCollection) {
     return (
       <div className="text-center py-8 bg-white rounded-lg shadow">
@@ -208,6 +210,7 @@ export function NftGallery({ address }: NftGalleryProps) {
                 className="inline-flex items-center gap-1 px-2 py-1 border rounded"
                 onClick={() => setSelectedCollection(null)}
                 aria-label="Back to collections"
+                data-testid="back-to-collections"
               >
                 Collections
               </button>
@@ -235,6 +238,7 @@ export function NftGallery({ address }: NftGalleryProps) {
                 onChange={(e) => setLimit(Number(e.target.value))}
                 disabled={showLoader}
                 aria-label="Items per page"
+                data-testid="items-per-page"
               >
                 <option value={12}>12</option>
                 <option value={24}>24</option>
@@ -259,7 +263,7 @@ export function NftGallery({ address }: NftGalleryProps) {
         ) : (
           !selectedCollection ? (
             ownerCollections.length === 0 ? (
-              <div className="space-y-3">
+              <div className="space-y-3" data-testid="no-collections">
                 <p className="text-gray-500">No collections found for this address. You can open a collection by ID:</p>
                 <div className="flex items-center gap-2">
                   <input

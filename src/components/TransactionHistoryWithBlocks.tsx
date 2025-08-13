@@ -3,8 +3,9 @@ import { useTanstackTransactionAdapter } from '../hooks/useTanstackTransactionAd
 import type { UiTransfer } from '../data/transfer-mapper';
 import { useTransferSubscription } from '../hooks/useTransferSubscription';
 import { TransactionTableWithTanStack } from './TransactionTableWithTanStack';
-import { Loader2, AlertTriangle } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 import { NftGallery } from './NftGallery';
+import { isValidEvmAddressFormat, isValidSubstrateAddressFormat } from '../utils/address-helpers';
 
 interface TransactionHistoryWithBlocksProps {
   initialAddress?: string;
@@ -15,42 +16,64 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
   const [address, setAddress] = React.useState(initialAddress);
   const [submittedAddress, setSubmittedAddress] = React.useState(initialAddress);
 
-  const { table, isLoading, error, addTransaction } = useTanstackTransactionAdapter(submittedAddress);
-  const [newTransfers, setNewTransfers] = React.useState<string[]>([]);
-
-  const onNewTransfer = React.useCallback((newTransfer: UiTransfer) => {
-    if (newTransfer) {
-      addTransaction(newTransfer);
-      setNewTransfers(prev => {
-        // Only add if not already in the list
-        if (!prev.includes(newTransfer.id)) {
-          return [newTransfer.id, ...prev];
-        }
-        return prev;
-      });
-      
-      // Auto-remove highlight after 10 seconds
-      setTimeout(() => {
-        setNewTransfers(prev => prev.filter(id => id !== newTransfer.id));
-      }, 10000);
-    }
-  }, [addTransaction]);
-
-  useTransferSubscription({
-    address: submittedAddress,
-    onNewTransfer,
-    isEnabled: !!submittedAddress,
-  });
-
-  React.useEffect(() => {
-    setNewTransfers([]);
-    setViewMode('transactions'); // Reset to transactions view on new address submission
-  }, [submittedAddress]);
+  const [addressError, setAddressError] = React.useState<string | null>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmittedAddress(address);
+    const input = address.trim();
+    const isValid = isValidEvmAddressFormat(input) || isValidSubstrateAddressFormat(input);
+    if (!isValid) {
+      setAddressError('Некорректный адрес');
+      // Clear previously submitted address to avoid showing stale NFTs/transactions
+      setSubmittedAddress('');
+      return;
+    }
+    setAddressError(null);
+    setSubmittedAddress(input);
   };
+
+  // Subcomponent renders only in transactions mode to avoid running heavy hooks when viewing NFTs
+  function TransactionsView({ addr }: { addr: string }) {
+    const { table, isLoading, error } = useTanstackTransactionAdapter(addr);
+    const [newTransfers, setNewTransfers] = React.useState<string[]>([]);
+
+    const onNewTransfer = React.useCallback((newTransfer: UiTransfer) => {
+      if (!newTransfer) return;
+      // Highlight newly detected transfer; Apollo cache will bring it via next fetch/page
+      setNewTransfers(prev => {
+        if (!prev.includes(newTransfer.id)) return [newTransfer.id, ...prev];
+        return prev;
+      });
+      setTimeout(() => {
+        setNewTransfers(prev => prev.filter(id => id !== newTransfer.id));
+      }, 10000);
+    }, []);
+
+    useTransferSubscription({
+      address: addr,
+      onNewTransfer,
+      isEnabled: !!addr,
+    });
+
+    React.useEffect(() => {
+      setNewTransfers([]);
+    }, [addr]);
+
+    return (
+      <>
+        {error && (
+          <div className="flex items-center gap-4 p-4 mb-4 text-red-700 bg-red-100 rounded-lg shadow">
+            <AlertTriangle className="h-6 w-6" />
+            <div>
+              <h3 className="font-bold">Error Fetching Transactions</h3>
+              <p>{error.message}</p>
+            </div>
+          </div>
+        )}
+        <TransactionTableWithTanStack table={table} isLoading={isLoading} newTransfers={newTransfers} />
+      </>
+    );
+  }
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
@@ -67,25 +90,26 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
             onChange={(e) => setAddress(e.target.value)}
             placeholder="Enter Reef address"
             className="flex-grow px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            data-testid="address-input"
           />
           <button
             type="submit"
-            disabled={isLoading}
+            disabled={false}
             className="flex items-center justify-center px-6 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed"
+            data-testid="search-button"
           >
-            {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Search'}
+            {'Search'}
           </button>
         </form>
 
-        {error && (
-          <div className="flex items-center gap-4 p-4 mb-4 text-red-700 bg-red-100 rounded-lg shadow">
-            <AlertTriangle className="h-6 w-6" />
-            <div>
-              <h3 className="font-bold">Error Fetching Transactions</h3>
-              <p>{error.message}</p>
-            </div>
+        {addressError && (
+          <div className="flex items-center gap-4 p-3 mb-4 text-yellow-800 bg-yellow-100 rounded">
+            <AlertTriangle className="h-5 w-5" />
+            <p>{addressError}</p>
           </div>
         )}
+
+        {/* Network-error box moved into TransactionsView context */}
 
                 {submittedAddress && (
           <div className="flex mb-4 border-b">
@@ -115,7 +139,7 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
 
         {submittedAddress ? (
           viewMode === 'transactions' ? (
-            <TransactionTableWithTanStack table={table} isLoading={isLoading} newTransfers={newTransfers} />
+            <TransactionsView addr={submittedAddress} />
           ) : (
             <NftGallery address={submittedAddress} />
           )

@@ -48,7 +48,6 @@ reef-web3-history-vite/
 ├── 📂 tests/                  # Test suites
 │   └── 📂 e2e/
 │       └── nft.spec.ts       # Playwright E2E for NFTs flow
-├── 📄 vitest.config.ts        # Unit test configuration
 ├── 📄 playwright.config.ts    # Playwright configuration
 ├── 📂 .github/workflows/
 │   └── e2e.yml               # GitHub Actions workflow for Playwright
@@ -107,19 +106,20 @@ The application's data flow is designed to be unidirectional and reactive, cente
   - Включить ESLint/Prettier в CI, добавить Husky + lint-staged (pre-commit) и commitlint (Conventional Commits).
   - В `README.md` добавить бейдж статуса E2E.
   - Рассмотреть кеширование ответов Sqwid (in-memory) на время сессии.
+  
 
 ---
 
-## 🧪 Testing Strategy
+## 🧪 Стратегия тестирования
 
-* __Unit (Vitest)__
-  - Конфиг: `vitest.config.ts`.
-  - Покрытие: форматтеры, мапперы (`transfer-mapper.ts`), адаптеры, хуки.
-
-* __E2E (Playwright)__
-  - Конфиг: `playwright.config.ts` (включить trace/video/скриншоты на retry по необходимости).
-  - Тесты: `tests/e2e/nft.spec.ts`.
-  - Стабилизация: `data-testid`, `waitForLoadState('networkidle')`, `waitForResponse` для Sqwid.
+* __E2E (Playwright)__ — единственный тип тестов в проекте
+  - Конфиг: `playwright.config.ts`.
+  - Тесты: `tests/e2e/*.spec.ts` (например, `tests/e2e/nft.spec.ts`).
+  - Запуск:
+    - `pnpm test:e2e`
+    - `pnpm test:e2e:ui`
+    - `pnpm test:e2e:headed`
+  - Стабилизация: используем `data-testid`, `page.waitForLoadState('networkidle')`, `page.waitForResponse` для Sqwid.
 
 ---
 
@@ -170,7 +170,4 @@ The application's data flow is designed to be unidirectional and reactive, cente
 │   ├── formatters.ts (Functions for formatting dates, amounts, and hashes for display)
 │   ├── reefscan-helpers.ts (Utilities specific to the Reefscan API data structure)
 │   └── ui.ts (UI utility functions, e.g., `cn` for merging classnames)
-└── 📂 mocks (Testing setup)
-    ├── handlers.ts (Mock handlers for MSW)
-    ├── mock-data.ts (Mock data for testing)
-    └── server.ts (Mock server setup for tests)
+

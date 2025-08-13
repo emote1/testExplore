@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useAddressResolver } from './use-address-resolver';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 
 export interface OwnerCollection {
@@ -62,26 +63,49 @@ export function useSqwidCollectionsByOwner(address: string | null, params: UseSq
   const { limit = 24, startFrom = 0, disableCounts = false } = params;
   const [collections, setCollections] = useState<OwnerCollection[]>([]);
   const [total, setTotal] = useState<number | null>(null);
-  const queryKey = useMemo(() => ['sqwidOwnerCollections', address, startFrom, limit] as const, [address, startFrom, limit]);
+  const { resolveEvmAddress, getAddressType } = useAddressResolver();
+  const [evmAddress, setEvmAddress] = useState<string | null>(null);
+
+  // Resolve native address to EVM-mapped address (if any)
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      if (!address) {
+        setEvmAddress(null);
+        return;
+      }
+      const type = getAddressType(address);
+      if (type === 'evm') {
+        setEvmAddress(address);
+        return;
+      }
+      const evm = await resolveEvmAddress(address);
+      if (!cancelled) setEvmAddress(evm);
+    }
+    run();
+    return () => { cancelled = true; };
+  }, [address, resolveEvmAddress, getAddressType]);
+
+  const queryKey = useMemo(() => ['sqwidOwnerCollections', evmAddress, startFrom, limit] as const, [evmAddress, startFrom, limit]);
 
   const query = useQuery<ApiResponse, Error, { list: OwnerCollection[]; total: number | null }>({
     queryKey,
-    enabled: !!address,
+    enabled: !!evmAddress,
     placeholderData: keepPreviousData,
     staleTime: 2 * 60 * 1000,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     refetchOnMount: false,
     queryFn: async () => {
-      if (!address) return { collections: [], total: 0 } as ApiResponse;
+      if (!evmAddress) return { collections: [], total: 0 } as ApiResponse;
       try {
-        return await fetchCollectionsByOwner(address, limit, startFrom);
+        return await fetchCollectionsByOwner(evmAddress, limit, startFrom);
       } catch (err: any) {
         const status = err?.status ?? err?.response?.status;
         const isTransient = status === 502 || status === 503 || status === 429;
         if (isTransient) {
           await sleep(300);
-          return fetchCollectionsByOwner(address, limit, startFrom);
+          return fetchCollectionsByOwner(evmAddress!, limit, startFrom);
         }
         throw err;
       }
@@ -142,9 +166,10 @@ export function useSqwidCollectionsByOwner(address: string | null, params: UseSq
     }
     Promise.all(Array.from({ length: Math.min(concurrency, list.length) }, () => worker()));
     return () => { cancelled = true; };
-  }, [disableCounts, address, startFrom, limit, query.data]);
+  }, [disableCounts, evmAddress, startFrom, limit, query.data]);
 
-  return { collections, total, isLoading: query.isLoading || query.isFetching, error: (query.error as Error) ?? null };
+  const isResolving = !!address && !evmAddress; // show loader while mapping native->EVM
+  return { collections, total, isLoading: isResolving || query.isLoading || query.isFetching, error: (query.error as Error) ?? null };
 }
 
 // Fallback using Subsquid GraphQL: count distinct nftId for a given token (contract) id
