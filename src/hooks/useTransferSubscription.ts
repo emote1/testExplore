@@ -1,6 +1,8 @@
 import { useRef, useEffect, useMemo } from 'react';
+import { useQuery } from '@apollo/client';
 import { mapTransfersToUiTransfers, type UiTransfer } from '../data/transfer-mapper';
-import { useTransfersPollingQueryQuery, type TransferOrderByInput, type TransfersPollingQueryQuery } from '../types/graphql-generated';
+import type { TransferOrderByInput, TransfersPollingQueryQuery, TransfersPollingQueryQueryVariables } from '@/gql/graphql';
+import { TRANSFERS_POLLING_QUERY } from '../data/transfers';
 
 interface UseTransferSubscriptionProps {
   address: string | null;
@@ -38,12 +40,15 @@ export function useTransferSubscription({
     lastSeenTimestamp.current = null;
   }, [address]);
 
-  const { data, error } = useTransfersPollingQueryQuery({
-    variables: queryVariables!,
-    skip: !isEnabled || !address,
-    pollInterval: isEnabled ? 20000 : 0, // Poll every 20 seconds when enabled (reduced from 5s)
-    notifyOnNetworkStatusChange: false,
-  });
+  const { data, error } = useQuery<TransfersPollingQueryQuery, TransfersPollingQueryQueryVariables>(
+    TRANSFERS_POLLING_QUERY,
+    {
+      variables: queryVariables as TransfersPollingQueryQueryVariables,
+      skip: !isEnabled || !address || !queryVariables,
+      pollInterval: isEnabled ? 20000 : 0, // Poll every 20 seconds when enabled (reduced from 5s)
+      notifyOnNetworkStatusChange: false,
+    }
+  );
 
   useEffect(() => {
     if (error) {

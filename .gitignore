@@ -24,7 +24,7 @@ dist-ssr
 *.sw?
 
 # Generated files
-src/types/graphql-generated.ts
+# src/types/graphql-generated.ts
 
 # Env files
 .env
@@ -34,3 +34,5 @@ src/types/graphql-generated.ts
 playwright-report/
 blob-report/
 test-results/
+
+.vercel

@@ -1,11 +1,17 @@
 import React from 'react';
+import { Loader2, AlertTriangle } from 'lucide-react';
 import { useTanstackTransactionAdapter } from '../hooks/useTanstackTransactionAdapter';
 import type { UiTransfer } from '../data/transfer-mapper';
 import { useTransferSubscription } from '../hooks/useTransferSubscription';
-import { TransactionTableWithTanStack } from './TransactionTableWithTanStack';
-import { AlertTriangle } from 'lucide-react';
-import { NftGallery } from './NftGallery';
 import { isValidEvmAddressFormat, isValidSubstrateAddressFormat } from '../utils/address-helpers';
+
+const TransactionTableWithTanStack = React.lazy(() =>
+  import('./TransactionTableWithTanStack').then(m => ({ default: m.TransactionTableWithTanStack }))
+);
+
+const NftGallery = React.lazy(() =>
+  import('./NftGallery').then(m => ({ default: m.NftGallery }))
+);
 
 interface TransactionHistoryWithBlocksProps {
   initialAddress?: string;
@@ -70,7 +76,9 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
             </div>
           </div>
         )}
-        <TransactionTableWithTanStack table={table} isLoading={isLoading} newTransfers={newTransfers} />
+        <React.Suspense fallback={<div className="flex items-center justify-center p-8"><Loader2 className="h-6 w-6 animate-spin" /></div>}>
+          <TransactionTableWithTanStack table={table} isLoading={isLoading} newTransfers={newTransfers} />
+        </React.Suspense>
       </>
     );
   }
@@ -141,7 +149,9 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
           viewMode === 'transactions' ? (
             <TransactionsView addr={submittedAddress} />
           ) : (
-            <NftGallery address={submittedAddress} />
+            <React.Suspense fallback={<div className="flex items-center justify-center p-8"><Loader2 className="h-6 w-6 animate-spin" /></div>}>
+              <NftGallery address={submittedAddress} />
+            </React.Suspense>
           )
         ) : (
           <div className="text-center py-12 bg-white rounded-lg shadow">

@@ -3,7 +3,7 @@
  * Handles FIFO cache with access tracking and size management
  */
 
-import type { Transfer, PageInfo } from '../types/graphql-generated';
+import type { Transfer, PageInfo } from '@/gql/graphql';
 import { PAGINATION_CONFIG, CACHE_CONFIG } from '../constants/pagination';
 
 export interface CachedPageData {

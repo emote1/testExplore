@@ -1,37 +1,11 @@
-import {
-  ApolloClient,
-  InMemoryCache,
-  split,
-  HttpLink,
-} from '@apollo/client';
-import { getMainDefinition } from '@apollo/client/utilities';
-import { GraphQLWsLink } from '@apollo/client/link/subscriptions';
-import { createClient } from 'graphql-ws';
-import type { TransfersFeeQueryQuery } from './types/graphql-generated';
+import { ApolloClient, InMemoryCache, HttpLink } from '@apollo/client';
+import type { TransfersFeeQueryQuery } from '@/gql/graphql';
 
 const httpLink = new HttpLink({
   uri: 'https://squid.subsquid.io/reef-explorer/graphql',
 });
 
-const wsLink = new GraphQLWsLink(
-  createClient({
-    url: 'wss://squid.subsquid.io/reef-explorer/graphql',
-  })
-);
-
-const splitLink = split(
-  ({ query }) => {
-    const definition = getMainDefinition(query);
-    return (
-      definition.kind === 'OperationDefinition' &&
-      definition.operation === 'subscription'
-    );
-  },
-  wsLink,
-  httpLink
-);
-
-const cache = new InMemoryCache({
+export const cache = new InMemoryCache({
   typePolicies: {
     Query: {
       fields: {
@@ -53,6 +27,6 @@ const cache = new InMemoryCache({
 });
 
 export const apolloClient = new ApolloClient({
-  link: splitLink,
+  link: httpLink,
   cache,
 });

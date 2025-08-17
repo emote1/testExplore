@@ -2,15 +2,15 @@ import { useCallback } from 'react';
 import { useLazyQuery } from '@apollo/client';
 import { GET_ACCOUNT_BY_EVM_QUERY, GET_ACCOUNT_BY_NATIVE_QUERY } from '../data/addresses';
 import { getAddressType, isValidAddress } from '../utils/address-helpers';
-import type { GetAccountByEvmQuery, GetAccountByNativeQuery } from '../types/graphql-generated';
+import type { GetAccountByEvmQuery, GetAccountByNativeQuery } from '@/gql/graphql';
 
 /**
  * Hook for resolving and validating addresses in Reef Chain
  * Supports both EVM and Substrate (native) addresses
  */
 export function useAddressResolver() {
-  const [getAccountByEvm] = useLazyQuery<GetAccountByEvmQuery>(GET_ACCOUNT_BY_EVM_QUERY);
-  const [getAccountByNative] = useLazyQuery<GetAccountByNativeQuery>(GET_ACCOUNT_BY_NATIVE_QUERY);
+  const [getAccountByEvm, { loading: isResolvingEvm }] = useLazyQuery<GetAccountByEvmQuery>(GET_ACCOUNT_BY_EVM_QUERY);
+  const [getAccountByNative, { loading: isResolvingNative }] = useLazyQuery<GetAccountByNativeQuery>(GET_ACCOUNT_BY_NATIVE_QUERY);
 
   /**
    * Resolves an address to ensure it exists on the chain
@@ -78,11 +78,14 @@ export function useAddressResolver() {
     return getAddressType(address);
   }, []);
 
+  const isResolving = isResolvingEvm || isResolvingNative;
+
   return {
     resolveAddress,
     validateAddress,
     resolveEvmAddress,
     getAddressType: getAddressTypeSync,
     isValidAddress,
+    isResolving,
   };
 }

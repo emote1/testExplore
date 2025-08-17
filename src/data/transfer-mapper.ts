@@ -1,4 +1,4 @@
-import type { TransfersFeeQueryQuery as TransfersFeeQuery } from '../types/graphql-generated';
+import type { TransfersFeeQueryQuery as TransfersFeeQuery } from '@/gql/graphql';
 
 export interface UiTransfer {
   id: string;

@@ -1,201 +1,237 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAddressResolver } from './use-address-resolver';
-import { useQuery, keepPreviousData } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
+import { apolloClient as client } from '../apollo-client';
+import { gql } from '@apollo/client';
 
-export interface OwnerCollection {
+
+interface Collection {
   id: string;
   name: string;
-  image?: string;
-  itemCount: number; // unknown from API; default 0
+  image: string;
+  // Derived from marketplace endpoint; may be 0 if not found
+  itemCount?: number;
+  // The API also returns 'description', 'official', 'verified', etc.
+  // but we only need these for the gallery view.
 }
 
-interface ApiCollectionItem {
-  id: string;
-  data?: {
-    name?: string;
-    image?: string;
-    thumbnail?: string;
-    owner?: string;
-  };
-}
-
-interface ApiResponse {
-  collections?: ApiCollectionItem[];
-  total?: number;
-  count?: number;
-}
-
-// React Query handles caching; module-level caches removed
-
-function sanitizeName(name?: string): string {
-  if (!name) return 'Unnamed Collection';
-  return name.replace(/[\u200B-\u200D\uFEFF\u00A0]/g, ' ').replace(/\s+/g, ' ').trim() || 'Unnamed Collection';
-}
-
-function normalizeIpfs(url?: string | null): string | undefined {
-  if (!url) return undefined;
-  if (url.startsWith('ipfs://')) return `https://reef.infura-ipfs.io/ipfs/${url.slice('ipfs://'.length)}`;
-  return url;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((res) => setTimeout(res, ms));
-}
-
-async function fetchCollectionsByOwner(address: string, limit: number, startFrom: number): Promise<ApiResponse> {
-  const url = `https://sqwid-api-mainnet.reefscan.info/get/collections/owner/${address}?limit=${limit}&startFrom=${startFrom}`;
-  const res = await fetch(url);
-  if (!res.ok) {
-    const err: any = new Error(`HTTP ${res.status}`);
-    err.status = res.status;
-    throw err;
+function toIpfsUrl(ipfsUri: string | undefined): string {
+  if (!ipfsUri) return '';
+  if (ipfsUri.startsWith('ipfs://')) {
+    return `https://reef.infura-ipfs.io/ipfs/${ipfsUri.split('ipfs://')[1]}`;
   }
-  return (await res.json()) as ApiResponse;
+  return ipfsUri;
 }
 
-export interface UseSqwidCollectionsByOwnerParams {
-  limit?: number;
-  startFrom?: number;
-  disableCounts?: boolean;
+/**
+ * Fetch total number of unique items in a collection by paging the marketplace endpoint
+ * and counting distinct IDs (prefer tokenId, then itemId, then positionId, then id).
+ *
+ * Why: pagination.lowest is not a reliable total. With limit=1 it can appear as 2, etc.
+ * We follow the actual API paging: startFrom=0, then use pagination.lowest as the next cursor
+ * until no items are returned or the cursor stops progressing.
+ *
+ * RU (кратко): пагинируем по startFrom → pagination.lowest и считаем уникальные ID
+ * (tokenId | itemId | positionId | id). Если API возвращает total — используем его и
+ * прекращаем пагинацию.
+ */
+async function fetchCollectionTotal(collectionId: string): Promise<number> {
+  if (!collectionId) return 0;
+
+  const perPage = 12;
+  const maxPages = 100; // safety cap
+  let startFrom = 0;
+  let pages = 0;
+  const seen = new Set<string>();
+
+  while (pages < maxPages) {
+    const url = `https://sqwid-api-mainnet.reefscan.info/get/marketplace/by-collection/${collectionId}/0?limit=${perPage}&startFrom=${startFrom}`;
+    const res = await fetch(url, { headers: { accept: 'application/json' } });
+    if (!res.ok) {
+      // treat non-404 errors as zero to keep gallery resilient
+      if (res.status === 404) return 0;
+      break;
+    }
+    const contentType = res.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      break;
+    }
+    const json = await res.json().catch(() => ({} as any));
+    const items: any[] = Array.isArray(json?.items) ? json.items : [];
+
+    // If API provides authoritative total, prefer it and stop early
+    const apiTotal = typeof json?.total === 'number' ? json.total : undefined;
+    if (typeof apiTotal === 'number' && apiTotal >= 0) {
+      return apiTotal;
+    }
+
+    if (!items.length) {
+      break;
+    }
+
+    for (const it of items) {
+      const key = String(it?.tokenId ?? it?.itemId ?? it?.positionId ?? it?.id ?? `${startFrom}-${seen.size}`);
+      seen.add(key);
+    }
+
+    const next = typeof json?.pagination?.lowest === 'number' ? Number(json.pagination.lowest) : startFrom + perPage;
+    if (!Number.isFinite(next) || next <= startFrom) {
+      break; // cursor didn't advance; stop to avoid infinite loop
+    }
+    startFrom = next;
+    pages += 1;
+  }
+
+  return seen.size;
 }
 
-export function useSqwidCollectionsByOwner(address: string | null, params: UseSqwidCollectionsByOwnerParams = {}) {
-  const { limit = 24, startFrom = 0, disableCounts = false } = params;
-  const [collections, setCollections] = useState<OwnerCollection[]>([]);
-  const [total, setTotal] = useState<number | null>(null);
-  const { resolveEvmAddress, getAddressType } = useAddressResolver();
+async function fetchTotalsForCollections(ids: string[], concurrency = 6): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  let index = 0;
+  async function worker() {
+    while (index < ids.length) {
+      const current = index++;
+      const id = ids[current];
+      try {
+        const total = await fetchCollectionTotal(id);
+        out.set(id, total);
+      } catch {
+        out.set(id, 0);
+      }
+    }
+  }
+  const workers = Array.from({ length: Math.max(1, Math.min(concurrency, ids.length)) }, () => worker());
+  await Promise.all(workers);
+  return out;
+}
+
+async function fetchSqwidCollectionsByOwner(address: string | null): Promise<Collection[]> {
+  if (!address) {
+    return [];
+  }
+
+  const url = `https://sqwid-api-mainnet.reefscan.info/get/collections/owner/${address}`;
+  const response = await fetch(url, { headers: { accept: 'application/json' } });
+
+  if (!response.ok) {
+    if (response.status === 404) return []; // No collections found is not an error
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const contentType = response.headers.get('content-type');
+  if (!contentType || !contentType.includes('application/json')) {
+    const text = await response.text();
+    throw new Error(`Expected JSON but received ${contentType}. Response: ${text.slice(0, 100)}`);
+  }
+
+  const raw = await response.json();
+  const arr = Array.isArray(raw) ? raw : raw?.collections ?? [];
+  const base: Collection[] = (arr as any[])
+    .map((c: any) => {
+      const data = c?.data ?? {};
+      return {
+        id: c?.id ?? '',
+        name: data?.name ?? 'Unnamed Collection',
+        image: toIpfsUrl(data?.thumbnail ?? data?.image),
+      } as Collection;
+    })
+    .filter((c: Collection) => !!c.id);
+
+  // Enrich with itemCount from marketplace endpoint
+  const ids = base.map(c => c.id);
+  const totals = await fetchTotalsForCollections(ids);
+  const initial: Collection[] = base.map(c => ({ ...c, itemCount: totals.get(c.id) ?? 0 }));
+
+  // For small or missing totals, fallback to Subsquid GraphQL: count distinct nftId by collection (not by owner)
+  async function fetchDistinctCountByCollection(collectionId: string, pageSize = 300, maxPages = 10): Promise<number> {
+    if (!collectionId) return 0;
+    const seen = new Set<string>();
+    let offset = 0;
+    for (let page = 0; page < maxPages; page++) {
+      const { data } = await client.query({
+        query: gql`
+          query TokenHoldersByCollection($collectionId: String!, $limit: Int!, $offset: Int!) {
+            tokenHolders(
+              where: { token: { id_eq: $collectionId }, balance_gt: "0" }
+              limit: $limit
+              offset: $offset
+            ) {
+              nftId
+            }
+          }
+        `,
+        variables: { collectionId, limit: pageSize, offset },
+        fetchPolicy: 'network-only',
+      });
+      const batch = (data as any)?.tokenHolders ?? [];
+      if (!Array.isArray(batch) || batch.length === 0) break;
+      for (const row of batch) {
+        const id = row?.nftId;
+        if (id === null || id === undefined) continue;
+        seen.add(String(id));
+      }
+      offset += batch.length;
+      if (batch.length < pageSize) break;
+      if (seen.size > 5000) break; // safety cap
+    }
+    return seen.size;
+  }
+
+  async function fetchDistinctCounts(ids: string[], concurrency = 4): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    const targets = ids.slice();
+    let index = 0;
+    async function worker() {
+      while (index < targets.length) {
+        const current = index++;
+        const id = targets[current];
+        try {
+          const n = await fetchDistinctCountByCollection(id);
+          out.set(id, n);
+        } catch {
+          out.set(id, 0);
+        }
+      }
+    }
+    const workers = Array.from({ length: Math.max(1, Math.min(concurrency, targets.length)) }, () => worker());
+    await Promise.all(workers);
+    return out;
+  }
+
+  const smallIds = initial.filter(c => (c.itemCount ?? 0) <= 2).map(c => c.id);
+  if (smallIds.length === 0) return initial;
+  const distinct = await fetchDistinctCounts(smallIds);
+  const merged: Collection[] = initial.map(c => {
+    const d = distinct.get(c.id) ?? 0;
+    const itemCount = Math.max(c.itemCount ?? 0, d);
+    return { ...c, itemCount };
+  });
+  return merged;
+}
+
+export function useSqwidCollectionsByOwner(address: string | null) {
+  const { resolveEvmAddress, isResolving: isEvmResolving } = useAddressResolver();
   const [evmAddress, setEvmAddress] = useState<string | null>(null);
 
-  // Resolve native address to EVM-mapped address (if any)
   useEffect(() => {
-    let cancelled = false;
-    async function run() {
+    const resolve = async () => {
       if (!address) {
         setEvmAddress(null);
         return;
       }
-      const type = getAddressType(address);
-      if (type === 'evm') {
-        setEvmAddress(address);
-        return;
-      }
-      const evm = await resolveEvmAddress(address);
-      if (!cancelled) setEvmAddress(evm);
-    }
-    run();
-    return () => { cancelled = true; };
-  }, [address, resolveEvmAddress, getAddressType]);
+      const resolved = await resolveEvmAddress(address);
+      setEvmAddress(resolved);
+    };
+    resolve();
+  }, [address, resolveEvmAddress]);
 
-  const queryKey = useMemo(() => ['sqwidOwnerCollections', evmAddress, startFrom, limit] as const, [evmAddress, startFrom, limit]);
+  const queryKey = useMemo(() => ['sqwid-collections', evmAddress] as const, [evmAddress]);
 
-  const query = useQuery<ApiResponse, Error, { list: OwnerCollection[]; total: number | null }>({
+  const { data: collections = [], isLoading, error } = useQuery<Collection[], Error>({
     queryKey,
-    enabled: !!evmAddress,
-    placeholderData: keepPreviousData,
-    staleTime: 2 * 60 * 1000,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-    refetchOnMount: false,
-    queryFn: async () => {
-      if (!evmAddress) return { collections: [], total: 0 } as ApiResponse;
-      try {
-        return await fetchCollectionsByOwner(evmAddress, limit, startFrom);
-      } catch (err: any) {
-        const status = err?.status ?? err?.response?.status;
-        const isTransient = status === 502 || status === 503 || status === 429;
-        if (isTransient) {
-          await sleep(300);
-          return fetchCollectionsByOwner(evmAddress!, limit, startFrom);
-        }
-        throw err;
-      }
-    },
-    select: (response: ApiResponse) => {
-      const list: OwnerCollection[] = (response.collections ?? []).map((c) => ({
-        id: c.id,
-        name: sanitizeName(c.data?.name),
-        image: normalizeIpfs(c.data?.thumbnail || c.data?.image),
-        itemCount: 0,
-      }));
-      const t = typeof response.total === 'number' ? response.total : (typeof response.count === 'number' ? response.count : null);
-      return { list, total: t };
-    },
+    queryFn: () => fetchSqwidCollectionsByOwner(evmAddress),
+    enabled: !!evmAddress && !isEvmResolving, // Enable query only when we have the EVM address
   });
 
-  useEffect(() => {
-    setCollections(query.data?.list ?? []);
-    setTotal(query.data?.total ?? null);
-  }, [query.data]);
-
-  useEffect(() => {
-    if (disableCounts) return;
-    const baseList = query.data?.list ?? [];
-    if (!baseList.length) return;
-    let cancelled = false;
-    const list = baseList;
-    const concurrency = 6;
-    let idx = 0;
-    const countCache = new Map<string, number>();
-    async function fetchCountOnce(colId: string): Promise<number> {
-      if (countCache.has(colId)) return countCache.get(colId)!;
-      try {
-        const url = `https://sqwid-api-mainnet.reefscan.info/get/marketplace/by-collection/${colId}/0?limit=12&startFrom=0`;
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(String(res.status));
-        const data = await res.json();
-        let total = typeof data?.pagination?.lowest === 'number' && data.pagination.lowest > 0
-          ? data.pagination.lowest
-          : (typeof data?.total === 'number' ? data.total : 0);
-        if (!total || total <= 2) {
-          total = await countDistinctNftsViaSubsquid(colId);
-        }
-        countCache.set(colId, total);
-        return total;
-      } catch {
-        return 0;
-      }
-    }
-    async function worker() {
-      while (!cancelled && idx < list.length) {
-        const current = idx++;
-        const col = list[current];
-        const count = await fetchCountOnce(col.id);
-        if (cancelled) return;
-        setCollections((prev) => prev.map((c) => (c.id === col.id ? { ...c, itemCount: count } : c)));
-      }
-    }
-    Promise.all(Array.from({ length: Math.min(concurrency, list.length) }, () => worker()));
-    return () => { cancelled = true; };
-  }, [disableCounts, evmAddress, startFrom, limit, query.data]);
-
-  const isResolving = !!address && !evmAddress; // show loader while mapping native->EVM
-  return { collections, total, isLoading: isResolving || query.isLoading || query.isFetching, error: (query.error as Error) ?? null };
+  return { collections, isLoading: isLoading || isEvmResolving, error };
 }
-
-// Fallback using Subsquid GraphQL: count distinct nftId for a given token (contract) id
-async function countDistinctNftsViaSubsquid(tokenId: string): Promise<number> {
-  const endpoint = 'https://squid.subsquid.io/reef-explorer/graphql';
-  const query = `query DistinctNfts($tokenId: String!, $limit: Int!, $offset: Int!) {
-    transfers(where: { token: { id_eq: $tokenId }, type_in: [ERC1155, ERC721] }, orderBy: timestamp_DESC, limit: $limit, offset: $offset) {
-      nftId
-    }
-  }`;
-  const limit = 500;
-  let offset = 0;
-  const seen = new Set<string>();
-  for (let page = 0; page < 30; page++) { // up to 15k rows
-    const body = { query, variables: { tokenId, limit, offset } };
-    const res = await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-    if (!res.ok) break;
-    const json = await res.json();
-    const rows = json?.data?.transfers ?? [];
-    for (const r of rows) {
-      if (r?.nftId != null) seen.add(String(r.nftId));
-    }
-    if (rows.length < limit) break;
-    offset += limit;
-  }
-  return seen.size;
-}
-
-// removed head-based helper in favor of accurate paged counting

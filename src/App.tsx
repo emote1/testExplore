@@ -1,7 +1,11 @@
+import React from 'react';
 import { ApolloProvider } from '@apollo/client';
 import { apolloClient } from './apollo-client';
+import { Loader2 } from 'lucide-react';
 
-import { TransactionHistoryWithBlocks } from './components/TransactionHistoryWithBlocks';
+const TransactionHistoryWithBlocks = React.lazy(() =>
+  import('./components/TransactionHistoryWithBlocks').then(m => ({ default: m.TransactionHistoryWithBlocks }))
+);
 
 
 
@@ -14,9 +18,9 @@ function App() {
         <div className="p-6">
           <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <main className="flex-grow container mx-auto px-4 sm:px-6 lg:px-8 py-8">
-              
-
+              <React.Suspense fallback={<div className="flex items-center justify-center p-8"><Loader2 className="h-6 w-6 animate-spin" /></div>}>
                 <TransactionHistoryWithBlocks />
+              </React.Suspense>
             </main>
           </div>
         </div>

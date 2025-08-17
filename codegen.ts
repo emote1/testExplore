@@ -1,25 +1,22 @@
-
 import type { CodegenConfig } from '@graphql-codegen/cli';
 
 const config: CodegenConfig = {
   overwrite: true,
   schema: 'https://squid.subsquid.io/reef-explorer/graphql',
-    documents: ['src/**/*.ts', '!src/types/graphql-generated.ts'],
+  documents: ['src/**/*.{ts,tsx}', '!src/gql/**/*'],
   generates: {
-    'src/types/graphql-generated.ts': {
-      plugins: [
-        'typescript',
-        'typescript-operations',
-        'typescript-react-apollo'
-      ],
+    'src/gql/': {
+      preset: 'client',
+      presetConfig: {
+        gqlTagName: 'graphql',
+      },
       config: {
-        withHooks: true,
-        withComponent: false,
-        withHOC: false,
         enumsAsTypes: true,
+        useTypeImports: true,
       },
     },
   },
+  ignoreNoDocuments: true,
 };
 
 export default config;

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useQuery, ApolloError } from '@apollo/client';
 import { PAGINATED_TRANSFERS_QUERY } from '../data/transfers';
-import type { TransfersFeeQueryQuery as TransfersFeeQuery, TransfersFeeQueryQueryVariables as TransfersFeeQueryVariables } from '../types/graphql-generated';
+import type { TransfersFeeQueryQuery as TransfersFeeQuery, TransfersFeeQueryQueryVariables as TransfersFeeQueryVariables } from '@/gql/graphql';
 import { mapTransfersToUiTransfers, type UiTransfer } from '../data/transfer-mapper';
 import { useAddressResolver } from './use-address-resolver';
 

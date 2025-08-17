@@ -30,6 +30,7 @@
   "exclude": [
     "src/setupTests.ts",
     "src/mocks/**",
+    "src/test-utils/**",
     "**/*.test.*",
     "**/*.spec.*"
   ],

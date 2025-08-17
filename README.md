@@ -61,6 +61,28 @@ In the project directory, you can run:
 - `npm run build`: Builds the app for production.
 - `npm test`: Runs the test suite.
 
+## Performance Tuning: NFT Metadata Fetch Concurrency
+
+- VITE_PREFETCH_MAX_WORKERS (default 16) — limits concurrent prefetch batches across contracts (tokenURI/uri discovery).
+- VITE_FETCH_CONCURRENCY (default 12) — limits concurrent metadata JSON fetch workers.
+
+Notes:
+- Restart the dev server after changing env variables.
+- Values must be positive integers; invalid values fall back to defaults.
+
+Examples (PowerShell):
+```powershell
+npx cross-env VITE_PREFETCH_MAX_WORKERS=16 VITE_FETCH_CONCURRENCY=12 npm run dev
+```
+Or for current session only:
+```powershell
+$env:VITE_PREFETCH_MAX_WORKERS='8'; $env:VITE_FETCH_CONCURRENCY='8'; npm run dev
+```
+
+Recommendations:
+- Fast RPC/REST: 16/12
+- Cautious or limited providers: 8/8
+
 ## Custom Hooks Documentation
 
 ### `usePaginationAndSorting`

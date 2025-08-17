@@ -1,21 +1,39 @@
-import { gql } from '@apollo/client';
+import { graphql } from '@/gql';
 
-export const NFT_IDS_BY_ACCOUNT_QUERY = gql`
-  query NftIdsByAccountQuery($address: String!, $limit: Int!) {
-    transfers(
+export const NFTS_BY_OWNER_QUERY = graphql(`
+  query NftsByOwner($owner: String!) {
+    tokenHolders(
       where: { 
-        OR: [{ from: { id_eq: $address } }, { to: { id_eq: $address } }],
-        type_eq: ERC1155 
-      },
-            limit: $limit,
-      orderBy: timestamp_DESC
+        signer: { evmAddress_eq: $owner },
+        balance_gt: "0",
+        token: { type_in: [ERC721, ERC1155] }
+      }
+      limit: 300
     ) {
       id
+      balance
+      type
       nftId
       token {
-        id # This is the contract address
+        id
+        type
       }
     }
   }
-`;
+`);
 
+// Paginated variant used by hooks to avoid large responses
+export const NFTS_BY_OWNER_PAGED_QUERY = graphql(`
+  query NftsByOwnerPaged($owner: String!, $limit: Int!, $offset: Int!) {
+    tokenHolders(
+      where: { signer: { evmAddress_eq: $owner }, balance_gt: "0", token: { type_in: [ERC721, ERC1155] } }
+      limit: $limit
+      offset: $offset
+    ) {
+      id
+      balance
+      nftId
+      token { id type }
+    }
+  }
+`);
