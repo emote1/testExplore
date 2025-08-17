@@ -3,6 +3,7 @@ interface NftImageProps {
   imageUrl: string | null;
   name: string;
   className?: string;
+  onClick?: () => void;
 }
 
 function toCidPath(url: string): string | null {
@@ -24,7 +25,7 @@ function buildCandidates(url: string): string[] {
   return gateways.map((g) => `${g}${cidPath}`);
 }
 
-export function NftImage({ imageUrl, name, className }: NftImageProps) {
+export function NftImage({ imageUrl, name, className, onClick }: NftImageProps) {
   const fallbackBox = (
     <div className="h-10 w-10 rounded-md bg-gray-100 text-xs flex items-center justify-center text-gray-500">No img</div>
   );
@@ -33,14 +34,13 @@ export function NftImage({ imageUrl, name, className }: NftImageProps) {
   const candidates = buildCandidates(imageUrl);
   const [idx, setIdx] = React.useState(0);
   const src = candidates[idx] ?? imageUrl;
+  const cn = `${className ?? 'h-10 w-10 rounded-md object-cover'}${onClick ? ' cursor-pointer' : ''}`;
 
   function onError() {
     setIdx((i) => (i + 1 < candidates.length ? i + 1 : i));
   }
 
   return (
-    <a href={src} target="_blank" rel="noopener noreferrer">
-      <img src={src} alt={name} onError={onError} className={className ?? 'h-10 w-10 rounded-md object-cover'} loading="lazy" />
-    </a>
+    <img src={src} alt={name} onError={onError} onClick={onClick} className={cn} loading="lazy" />
   );
 }
