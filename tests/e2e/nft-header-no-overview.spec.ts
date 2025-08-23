@@ -24,8 +24,12 @@ test.describe('NFT Gallery header', () => {
     await nftsTab.click();
 
     // Wait for owner collections to load (Sqwid API) and ensure overview is displayed
-    await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => {});
-    await page.waitForResponse((resp) => /collections\/owner|get\/collections\/owner/i.test(resp.url()) && resp.ok(), { timeout: 30000 }).catch(() => {});
+    await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => undefined);
+    await page.waitForResponse((resp) => /collections\/owner|get\/collections\/owner/i.test(resp.url()) && resp.ok(), { timeout: 30000 }).catch(() => undefined);
+    // Switch to Collections overview (default overview tab is 'video')
+    const collectionsTab = page.getByTestId('tab-collections');
+    await expect(collectionsTab).toBeVisible({ timeout: 15000 });
+    await collectionsTab.click();
     await expect(page.getByTestId('collections-title')).toBeVisible({ timeout: 30000 });
 
     // Header should not contain the word 'Overview' in overview state

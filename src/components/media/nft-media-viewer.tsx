@@ -1,5 +1,5 @@
 import React from 'react';
-import { buildCandidates } from '../utils/ipfs';
+import { buildCandidates } from '../../utils/ipfs';
 
 interface NftMediaViewerProps {
   src?: string | null;
@@ -64,6 +64,7 @@ export function NftMediaViewer({ src, poster, mime, name, className }: NftMediaV
       <video
         ref={vidRef}
         className={className ?? 'max-w-full max-h-[80vh] rounded-md bg-black'}
+        data-testid="viewer-video"
         controls
         autoPlay
         loop

@@ -22,12 +22,12 @@ test.describe('NFT Gallery', () => {
     const submitBtn = page.getByTestId('search-button');
     await submitBtn.click();
     // Wait for data to load after submitting address
-    await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => {});
+    await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => undefined);
     // Additionally, wait for Sqwid collections-by-owner API to resolve
     await page.waitForResponse(
       (resp) => /collections\/owner|get\/collections\/owner/i.test(resp.url()) && resp.ok(),
       { timeout: 30000 }
-    ).catch(() => {});
+    ).catch(() => undefined);
 
     // Navigate to NFTs tab via test id
     const nftsTab = page.getByTestId('tab-nfts');
@@ -36,11 +36,16 @@ test.describe('NFT Gallery', () => {
     await expect(nftsTab).toBeEnabled();
     await nftsTab.click();
     // Wait for NFTs tab content to load
-    await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => {});
+    await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => undefined);
     await page.waitForResponse(
       (resp) => /collections\/owner|get\/collections\/owner/i.test(resp.url()) && resp.ok(),
       { timeout: 30000 }
-    ).catch(() => {});
+    ).catch(() => undefined);
+
+    // Switch to Collections overview (default overview tab is 'video')
+    const collectionsTab = page.getByTestId('tab-collections');
+    await expect(collectionsTab).toBeVisible({ timeout: 15000 });
+    await collectionsTab.click();
 
     // Collections title should be visible
     await expect(page.getByTestId('collections-title')).toBeVisible({ timeout: 20000 });

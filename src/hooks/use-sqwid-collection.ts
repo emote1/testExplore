@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { useQuery, keepPreviousData } from '@tanstack/react-query';
+import { useInfiniteQuery } from '@tanstack/react-query';
+import { normalizeIpfs } from '../utils/ipfs';
 
 export interface CollectionNft {
   id: string;
@@ -14,7 +15,6 @@ export interface CollectionNft {
 export interface UseSqwidCollectionParams {
   collectionId: string | null;
   limit?: number;
-  startFrom?: number;
 }
 
 interface ApiItem {
@@ -24,7 +24,11 @@ interface ApiItem {
   positionId?: string | number;
   name?: string;
   image?: string;
+  thumbnail?: string;
+  media?: string;
   amount?: number;
+  mimetype?: string;
+  state?: { amount?: number | string };
   meta?: {
     name?: string;
     image?: string;
@@ -39,22 +43,16 @@ interface ApiItem {
 interface ApiResponse {
   items?: ApiItem[];
   pagination?: { lowest?: number; limit?: number };
-  total?: number;
+  total?: number | null;
 }
 
-function toIpfsUrl(ipfsUri: string | undefined): string | undefined {
-  if (!ipfsUri) return undefined;
-  if (ipfsUri.startsWith('ipfs://')) {
-    return `https://reef.infura-ipfs.io/ipfs/${ipfsUri.split('ipfs://')[1]}`;
-  }
-  return ipfsUri;
-}
+// IPFS URL normalization is handled by utils/ipfs
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function fetchCollectionPage(collectionId: string, limit: number, startFrom: number, signal?: AbortSignal): Promise<ApiResponse> {
+async function fetchCollectionPage(collectionId: string, limit: number, startFrom: number, signal?: AbortSignal): Promise<ApiResponse & { __cursor: number }> {
   const url = `https://sqwid-api-mainnet.reefscan.info/get/marketplace/by-collection/${collectionId}/0?limit=${limit}&startFrom=${startFrom}`;
   const res = await fetch(url, { headers: { accept: 'application/json' }, signal });
   if (!res.ok) {
@@ -68,61 +66,113 @@ async function fetchCollectionPage(collectionId: string, limit: number, startFro
     throw new Error(`Expected JSON but received ${contentType}. Response: ${text.slice(0, 100)}`);
   }
 
-  return res.json();
+  const json = (await res.json()) as ApiResponse;
+  return Object.assign(json, { __cursor: startFrom });
 }
 
-export function useSqwidCollection(params: UseSqwidCollectionParams) {
-  const { collectionId, limit = 12, startFrom = 0 } = params;
-  const queryKey = useMemo(() => ['sqwidCollection', collectionId, startFrom, limit] as const, [collectionId, startFrom, limit]);
+export function useSqwidCollectionInfinite(params: UseSqwidCollectionParams) {
+  const { collectionId, limit = 12 } = params;
+  const queryKey = useMemo(() => ['sqwidCollectionInfinite', collectionId, limit] as const, [collectionId, limit]);
 
-  const query = useQuery<ApiResponse, Error, { nfts: CollectionNft[]; total: number | null }>({
+  const query = useInfiniteQuery<
+    (ApiResponse & { __cursor: number; __nfts: CollectionNft[]; __total: number | null }),
+    Error
+  >({
     queryKey,
     enabled: !!collectionId,
-    placeholderData: keepPreviousData,
     staleTime: 2 * 60 * 1000,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
-    refetchOnMount: false,
-    queryFn: async ({ signal }) => {
-      if (!collectionId) return { items: [], pagination: { lowest: 0, limit } } as ApiResponse;
+    getNextPageParam: (lastPage, _pages) => {
+      const currentCursor = lastPage.__cursor ?? 0;
+      const next = typeof lastPage?.pagination?.lowest === 'number' ? Number(lastPage.pagination.lowest) : currentCursor + limit;
+      const itemsLen = Array.isArray(lastPage.items) ? lastPage.items.length : 0;
+      // If no items or cursor didn't advance, stop
+      if (itemsLen === 0 || !Number.isFinite(next) || next <= currentCursor) return undefined;
+      // If API gives total, stop when next would exceed total
+      const total = typeof lastPage.total === 'number' ? lastPage.total : undefined;
+      if (typeof total === 'number' && next >= total) return undefined;
+      return next;
+    },
+    initialPageParam: 0,
+    queryFn: async ({ pageParam, signal }) => {
+      if (!collectionId) return { items: [], pagination: { lowest: 0, limit }, total: null, __cursor: 0, __nfts: [], __total: null } as ApiResponse & { __cursor: number; __nfts: CollectionNft[]; __total: number | null };
+      const startFrom = typeof pageParam === 'number' ? pageParam : 0;
       try {
-        return await fetchCollectionPage(collectionId, limit, startFrom, signal);
-      } catch (err: any) {
-        const status = err?.status ?? err?.response?.status;
+        const response = await fetchCollectionPage(collectionId, limit, startFrom, signal);
+        const items = (response.items ?? []).map((it: ApiItem) => {
+          const name = it.meta?.name ?? it.name;
+          const rawImage = it.meta?.image ?? it.image ?? it.meta?.thumbnail;
+          const rawMedia = it.meta?.media ?? it.meta?.animation_url ?? it.media;
+          const rawThumb = it.meta?.thumbnail ?? it.thumbnail;
+          const mimetype = it.meta?.mimetype ?? it.meta?.mimeType ?? it.mimetype;
+          const isVideo = typeof mimetype === 'string' && mimetype.startsWith('video/');
+          const image = isVideo ? normalizeIpfs(rawThumb) : normalizeIpfs(rawImage);
+          const media = normalizeIpfs(rawMedia ?? (isVideo ? rawImage : undefined));
+          const thumbnail = normalizeIpfs(rawThumb);
+          const keyPart = (it.tokenId ?? it.itemId ?? it.positionId ?? it.id ?? `${startFrom}`).toString();
+          const id = `${collectionId}-${keyPart}`;
+          const rawAmt = it.amount ?? it.state?.amount;
+          const parsed = typeof rawAmt === 'string' ? Number(rawAmt) : rawAmt;
+          const amount = typeof parsed === 'number' && !Number.isNaN(parsed) ? parsed : undefined;
+          return { id, name, image, media, thumbnail, mimetype, amount } as CollectionNft;
+        });
+        const computedTotal = typeof response.total === 'number' ? response.total : (typeof response.pagination?.lowest === 'number' ? response.pagination.lowest : null);
+        return Object.assign(response, { __cursor: startFrom, __nfts: items, __total: computedTotal });
+      } catch (err: unknown) {
+        const maybe = err as { status?: number; response?: { status?: number } } | undefined;
+        const status = maybe?.status ?? maybe?.response?.status;
         const isTransient = status === 502 || status === 503 || status === 429;
         if (isTransient) {
           await sleep(300);
-          return fetchCollectionPage(collectionId, limit, startFrom, signal);
+          const response = await fetchCollectionPage(collectionId, limit, startFrom, signal);
+          const items = (response.items ?? []).map((it: ApiItem) => {
+            const name = it.meta?.name ?? it.name;
+            const rawImage = it.meta?.image ?? it.image ?? it.meta?.thumbnail;
+            const rawMedia = it.meta?.media ?? it.meta?.animation_url ?? it.media;
+            const rawThumb = it.meta?.thumbnail ?? it.thumbnail;
+            const mimetype = it.meta?.mimetype ?? it.meta?.mimeType ?? it.mimetype;
+            const isVideo = typeof mimetype === 'string' && mimetype.startsWith('video/');
+            const image = isVideo ? normalizeIpfs(rawThumb) : normalizeIpfs(rawImage);
+            const media = normalizeIpfs(rawMedia ?? (isVideo ? rawImage : undefined));
+            const thumbnail = normalizeIpfs(rawThumb);
+            const keyPart = (it.tokenId ?? it.itemId ?? it.positionId ?? it.id ?? `${startFrom}`).toString();
+            const id = `${collectionId}-${keyPart}`;
+            const rawAmt = it.amount ?? it.state?.amount;
+            const parsed = typeof rawAmt === 'string' ? Number(rawAmt) : rawAmt;
+            const amount = typeof parsed === 'number' && !Number.isNaN(parsed) ? parsed : undefined;
+            return { id, name, image, media, thumbnail, mimetype, amount } as CollectionNft;
+          });
+          const computedTotal = typeof response.total === 'number' ? response.total : (typeof response.pagination?.lowest === 'number' ? response.pagination.lowest : null);
+          return Object.assign(response, { __cursor: startFrom, __nfts: items, __total: computedTotal });
         }
-        throw err;
+        throw err as Error;
       }
-    },
-    select: (response: ApiResponse) => {
-      const items = (response.items ?? []).map((it: ApiItem) => {
-        const name = it.meta?.name ?? it.name;
-        const rawImage = it.meta?.image ?? it.image ?? it.meta?.thumbnail;
-        const rawMedia = it.meta?.media ?? (it.meta as any)?.animation_url ?? (it as any).media;
-        const rawThumb = it.meta?.thumbnail ?? (it as any).thumbnail ?? (it.meta as any)?.image_preview;
-        const image = toIpfsUrl(rawImage);
-        const media = toIpfsUrl(rawMedia as any);
-        const thumbnail = toIpfsUrl(rawThumb as any);
-        const keyPart = (it.tokenId ?? it.itemId ?? it.positionId ?? it.id ?? `${startFrom}`).toString();
-        const id = `${collectionId}-${keyPart}`;
-        const rawAmt: any = (it as any).amount ?? (it as any).state?.amount;
-        const parsed = typeof rawAmt === 'string' ? Number(rawAmt) : rawAmt;
-        const amount = typeof parsed === 'number' && !Number.isNaN(parsed) ? parsed : undefined;
-        const mimetype = (it.meta as any)?.mimetype ?? (it.meta as any)?.mimeType ?? (it as any).mimetype;
-        return { id, name, image, media, thumbnail, mimetype, amount } as CollectionNft;
-      });
-      const computedTotal = typeof response.total === 'number' ? response.total : (typeof response.pagination?.lowest === 'number' ? response.pagination.lowest : null);
-      return { nfts: items, total: computedTotal };
     },
   });
 
+  const nfts = (query.data?.pages ?? []).flatMap((p) => p.__nfts);
+  // Dedupe by id while preserving order (API might repeat items across cursors)
+  const seen = new Set<string>();
+  const deduped: CollectionNft[] = [];
+  for (const it of nfts) {
+    if (seen.has(it.id)) continue;
+    seen.add(it.id);
+    deduped.push(it);
+  }
+  const total = (query.data?.pages ?? []).reduce<number | null>((acc, p) => {
+    if (acc !== null) return acc;
+    return typeof p.__total === 'number' ? p.__total : null;
+  }, null);
+
   return {
-    nfts: query.data?.nfts ?? [],
-    total: query.data?.total ?? null,
-    isLoading: query.isLoading || query.isFetching,
+    nfts: deduped,
+    total,
+    isLoading: query.isLoading,
+    isFetching: query.isFetching,
+    isFetchingNextPage: query.isFetchingNextPage,
+    hasNextPage: !!query.hasNextPage,
+    fetchNextPage: query.fetchNextPage,
     error: (query.error as Error) ?? null,
   };
 }

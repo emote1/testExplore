@@ -71,7 +71,7 @@ export function useTanstackTransactionAdapter(
   }, [
     pagination.pageIndex,
     pagination.pageSize,
-    initialTransactions?.length,
+    initialTransactions,
     hasNextPage,
     isLoading,
     fetchMore,

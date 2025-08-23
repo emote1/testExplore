@@ -3,6 +3,7 @@ import { useAddressResolver } from './use-address-resolver';
 import { useQuery } from '@tanstack/react-query';
 import { apolloClient as client } from '../apollo-client';
 import { gql } from '@apollo/client';
+import { normalizeIpfs } from '../utils/ipfs';
 
 
 interface Collection {
@@ -15,13 +16,6 @@ interface Collection {
   // but we only need these for the gallery view.
 }
 
-function toIpfsUrl(ipfsUri: string | undefined): string {
-  if (!ipfsUri) return '';
-  if (ipfsUri.startsWith('ipfs://')) {
-    return `https://reef.infura-ipfs.io/ipfs/${ipfsUri.split('ipfs://')[1]}`;
-  }
-  return ipfsUri;
-}
 
 /**
  * Fetch total number of unique items in a collection by paging the marketplace endpoint
@@ -56,11 +50,13 @@ async function fetchCollectionTotal(collectionId: string): Promise<number> {
     if (!contentType || !contentType.includes('application/json')) {
       break;
     }
-    const json = await res.json().catch(() => ({} as any));
-    const items: any[] = Array.isArray(json?.items) ? json.items : [];
+    type ItemsContainer = { items?: unknown[]; total?: number; pagination?: { lowest?: number } };
+    interface MarketplaceItem { tokenId?: string | number; itemId?: string | number; positionId?: string | number; id?: string | number }
+    const json: ItemsContainer = await res.json().catch(() => ({} as ItemsContainer));
+    const items: MarketplaceItem[] = Array.isArray(json.items) ? (json.items as MarketplaceItem[]) : [];
 
     // If API provides authoritative total, prefer it and stop early
-    const apiTotal = typeof json?.total === 'number' ? json.total : undefined;
+    const apiTotal = typeof json.total === 'number' ? json.total : undefined;
     if (typeof apiTotal === 'number' && apiTotal >= 0) {
       return apiTotal;
     }
@@ -124,18 +120,25 @@ async function fetchSqwidCollectionsByOwner(address: string | null): Promise<Col
     throw new Error(`Expected JSON but received ${contentType}. Response: ${text.slice(0, 100)}`);
   }
 
-  const raw = await response.json();
-  const arr = Array.isArray(raw) ? raw : raw?.collections ?? [];
-  const base: Collection[] = (arr as any[])
-    .map((c: any) => {
+  const raw: unknown = await response.json();
+  type RawCollectionsEnvelope = { collections?: unknown[] };
+  interface RawCollection { id?: string; data?: { name?: string; thumbnail?: string; image?: string } }
+  const arrUnknown: unknown[] = Array.isArray(raw)
+    ? (raw as unknown[])
+    : (typeof raw === 'object' && raw && Array.isArray((raw as RawCollectionsEnvelope).collections)
+        ? ((raw as RawCollectionsEnvelope).collections as unknown[])
+        : []);
+  const baseSource = arrUnknown as RawCollection[];
+  const base: Collection[] = baseSource
+    .map((c) => {
       const data = c?.data ?? {};
       return {
         id: c?.id ?? '',
         name: data?.name ?? 'Unnamed Collection',
-        image: toIpfsUrl(data?.thumbnail ?? data?.image),
-      } as Collection;
+        image: normalizeIpfs(data?.thumbnail ?? data?.image) ?? '',
+      };
     })
-    .filter((c: Collection) => !!c.id);
+    .filter((c) => !!c.id);
 
   // Enrich with itemCount from marketplace endpoint
   const ids = base.map(c => c.id);
@@ -148,7 +151,9 @@ async function fetchSqwidCollectionsByOwner(address: string | null): Promise<Col
     const seen = new Set<string>();
     let offset = 0;
     for (let page = 0; page < maxPages; page++) {
-      const { data } = await client.query({
+      interface TokenHoldersByCollectionRow { nftId?: string | number | null }
+      interface TokenHoldersByCollectionData { tokenHolders: TokenHoldersByCollectionRow[] }
+      const result = await client.query<TokenHoldersByCollectionData>({
         query: gql`
           query TokenHoldersByCollection($collectionId: String!, $limit: Int!, $offset: Int!) {
             tokenHolders(
@@ -163,8 +168,8 @@ async function fetchSqwidCollectionsByOwner(address: string | null): Promise<Col
         variables: { collectionId, limit: pageSize, offset },
         fetchPolicy: 'network-only',
       });
-      const batch = (data as any)?.tokenHolders ?? [];
-      if (!Array.isArray(batch) || batch.length === 0) break;
+      const batch = Array.isArray(result.data?.tokenHolders) ? result.data.tokenHolders : [];
+      if (batch.length === 0) break;
       for (const row of batch) {
         const id = row?.nftId;
         if (id === null || id === undefined) continue;
