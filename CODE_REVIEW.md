@@ -40,10 +40,16 @@ reef-web3-history-vite/
 │   │   └── tanstack-table.d.ts           # TanStack Table type extensions
 │   │
 │   └── 📂 utils/              # General helper functions
-│       ├── address-helpers.ts            # Address validation and formatting
-│       ├── error-handler.ts              # Centralized error handling
-│       ├── formatters.ts                 # Display formatting for dates, amounts, etc.
-│       └── ui.ts                         # UI utility functions (e.g., `cn`)
+│       ├── abi.ts                         # ABI helpers: toHex, decodeAbiString, ERC1155 id template
+│       ├── data-url.ts                    # Parse data:application/json (base64/URL-encoded)
+│       ├── number.ts                      # Numeric helpers (toU64)
+│       ├── object.ts                      # Path getters: get, getString, getNumber
+│       ├── time.ts                        # Time helpers (sleep)
+│       ├── url.ts                         # URL heuristics (isLikelyRpcEndpoint)
+│       ├── address-helpers.ts             # Address validation and formatting
+│       ├── error-handler.ts               # Centralized error handling
+│       ├── formatters.ts                  # Display formatting for dates, amounts, etc.
+│       └── ui.ts                          # UI utility functions (e.g., `cn`)
 │
 ├── 📂 tests/                  # Test suites
 │   └── 📂 e2e/
@@ -112,13 +118,18 @@ The application's data flow is designed to be unidirectional and reactive, cente
 
 ## 🧪 Стратегия тестирования
 
-* __E2E (Playwright)__ — единственный тип тестов в проекте
+* __Unit (Vitest)__ — модульные тесты для утилит и небольших функций
+  - Конфиг: `vitest.config.ts`.
+  - Пути: `tests/unit/**/*.{spec,test}.ts?(x)`, также поддерживаются `src/**/*.{spec,test}.ts?(x)`.
+  - Запуск: `npm run test:unit` (или `npm run test:unit:watch`).
+
+* __E2E (Playwright)__ — интеграционные сценарии UI
   - Конфиг: `playwright.config.ts`.
   - Тесты: `tests/e2e/*.spec.ts` (например, `tests/e2e/nft.spec.ts`).
   - Запуск:
-    - `pnpm test:e2e`
-    - `pnpm test:e2e:ui`
-    - `pnpm test:e2e:headed`
+    - `npm run test:e2e`
+    - `npm run test:e2e:ui`
+    - `npm run test:e2e:headed`
   - Стабилизация: используем `data-testid`, `page.waitForLoadState('networkidle')`, `page.waitForResponse` для Sqwid.
 
 ---
@@ -186,9 +197,15 @@ The application's data flow is designed to be unidirectional and reactive, cente
 │   ├── graphql-generated.ts (Auto-generated types and hooks from GraphQL Codegen - **DO NOT EDIT MANUALLY**)
 │   └── tanstack-table.d.ts (Type declarations to extend TanStack Table functionality)
 ├── 📂 utils (General helper functions)
+│   ├── abi.ts (ABI helpers: toHex, decodeAbiString, ERC1155 id template)
 │   ├── address-helpers.ts (Utilities for handling addresses)
+│   ├── data-url.ts (Parse data:application/json payloads)
 │   ├── error-handler.ts (Centralized error handling logic)
 │   ├── formatters.ts (Functions for formatting dates, amounts, and hashes for display)
+│   ├── number.ts (Numeric helpers, e.g., toU64)
+│   ├── object.ts (Object path getters: get, getString, getNumber)
 │   ├── reefscan-helpers.ts (Utilities specific to the Reefscan API data structure)
+│   ├── time.ts (Time helpers, e.g., sleep)
+│   ├── url.ts (URL heuristics like isLikelyRpcEndpoint)
 │   └── ui.ts (UI utility functions, e.g., `cn` for merging classnames)
 

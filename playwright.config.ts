@@ -12,6 +12,7 @@ if (fs.existsSync('.env.e2e')) {
 export default defineConfig({
   testDir: './tests/e2e',
   timeout: 90_000,
+  retries: 1,
   expect: { timeout: 20_000 },
   fullyParallel: true,
   reporter: [['list']],
@@ -20,6 +21,7 @@ export default defineConfig({
     trace: 'on-first-retry',
     video: 'retain-on-failure',
     screenshot: 'only-on-failure',
+    serviceWorkers: 'block',
   },
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },

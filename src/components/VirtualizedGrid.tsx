@@ -295,7 +295,15 @@ export function VirtualizedGrid<T>(props: VirtualizedGridProps<T>) {
   const gapPx = gap;
 
   return (
-    <div ref={containerRef} className={className} data-testid={testId} style={{ position: 'relative' }} aria-busy={isFetching}
+    <div
+      ref={containerRef}
+      className={className}
+      data-testid={testId}
+      style={{ position: 'relative' }}
+      aria-busy={isFetching}
+      data-total-items={items.length}
+      data-row-count={rowCount}
+      data-visible-row-count={visibleRowCount}
     >
       {(() => {
         const containerHeight = Math.max(0, totalSize - gapPx);

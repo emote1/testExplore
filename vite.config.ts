@@ -18,8 +18,10 @@ export default defineConfig(async () => {
         runtimeCaching: [
           {
             // Cache IPFS content with stale-while-revalidate
-            // Support both path-based gateways (https://host/ipfs/<cid>/...) and subdomain gateways (https://<cid>.ipfs.<host>/...)
-            urlPattern: /^https:\/\/(?:[^/]+\/ipfs\/.*|[a-z0-9]+\.ipfs\.[^/]+\/.*)$/i,
+            // Support both path-based gateways (http/https://host/ipfs/<cid>/...)
+            // and subdomain gateways (http/https://<cid>.ipfs.<host>/...)
+            // Allow uppercase letters in subdomain CIDs for broader compatibility.
+            urlPattern: /^https?:\/\/(?:[^/]+\/ipfs\/.*|[A-Za-z0-9]+\.ipfs\.[^/]+\/.*)$/,
             handler: 'StaleWhileRevalidate',
             options: {
               cacheName: 'ipfs',
@@ -27,7 +29,9 @@ export default defineConfig(async () => {
                 maxEntries: 400,
                 maxAgeSeconds: 7 * 24 * 60 * 60, // 7 days
               },
-              cacheableResponse: { statuses: [0, 200, 206] },
+              // Avoid caching 206 (partial content) to reduce ERR_CACHE_OPERATION_NOT_SUPPORTED
+              // for video range requests from gateways.
+              cacheableResponse: { statuses: [0, 200] },
             },
           },
         ],

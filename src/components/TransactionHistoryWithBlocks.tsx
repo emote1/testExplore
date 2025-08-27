@@ -24,6 +24,17 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
 
   const [addressError, setAddressError] = React.useState<string | null>(null);
 
+  // Enable owner-based infinite NFTs mode for E2E via URL flag: ?infiniteOwner=1
+  const enableOwnerInfiniteFlag = React.useMemo(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const raw = params.get('infiniteOwner') ?? params.get('ownerInfinite');
+      return raw === '1' || raw === 'true' || raw === 'yes';
+    } catch {
+      return false;
+    }
+  }, []);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const input = address.trim();
@@ -150,7 +161,7 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
             <TransactionsView addr={submittedAddress} />
           ) : (
             <React.Suspense fallback={<div className="flex items-center justify-center p-8"><Loader2 className="h-6 w-6 animate-spin" /></div>}>
-              <NftGallery address={submittedAddress} />
+              <NftGallery address={submittedAddress} enableOwnerInfinite={enableOwnerInfiniteFlag} />
             </React.Suspense>
           )
         ) : (

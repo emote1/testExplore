@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { normalizeIpfs } from '../utils/ipfs';
+import { sleep } from '../utils/time';
 
 export interface CollectionNft {
   id: string;
@@ -47,10 +48,6 @@ interface ApiResponse {
 }
 
 // IPFS URL normalization is handled by utils/ipfs
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 async function fetchCollectionPage(collectionId: string, limit: number, startFrom: number, signal?: AbortSignal): Promise<ApiResponse & { __cursor: number }> {
   const url = `https://sqwid-api-mainnet.reefscan.info/get/marketplace/by-collection/${collectionId}/0?limit=${limit}&startFrom=${startFrom}`;

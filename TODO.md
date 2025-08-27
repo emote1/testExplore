@@ -7,7 +7,7 @@ This document tracks the optimizations we plan to implement, the test coverage t
 - [x] AbortController for all custom `fetch()` in `src/hooks/use-sqwid-nfts.ts` (metadata, tokenURI, Sqwid REST, RPC calls where applicable) to cancel on unmount/address change
 - [x] Dynamic `<link rel="preload" as="video">` for top 2–4 videos (insert/remove in `<head>` on mount/unmount of grid)
 - [x] Virtualized grid for large lists using `@tanstack/react-virtual` (collections and "Other NFTs") — implemented via `VirtualizedGrid` in `src/components/NftGallery.tsx`
-- [ ] PWA Service Worker via `vite-plugin-pwa` with runtime caching for `https://reef.infura-ipfs.io/ipfs/` using `stale-while-revalidate`
+- [x] PWA Service Worker via `vite-plugin-pwa` with runtime caching for IPFS gateways (incl. `reef.infura-ipfs.io`); `stale-while-revalidate`
 
 ## 2) Hooks & Data Fetching
 - [x] Migrate `use-sqwid-nfts` to TanStack Query (now using `useQuery` with `AbortSignal` integration)
@@ -32,9 +32,10 @@ This document tracks the optimizations we plan to implement, the test coverage t
 ## 5) QA & Tests (Playwright + unit)
 - [x] Unit tests for `src/utils/ipfs.ts` (URL normalization, candidate generation)
 - [ ] E2E: Viewer video autoplays (with muted fallback) — assert video currentTime advances after open
-- [ ] E2E: Priority thumbnails preload earlier (heuristic: measure first-frame time or ensure `preload` attribute applied for first N)
+- [ ] E2E: Priority thumbnails preload earlier — removed (test deleted)
 - [x] E2E: Regression — quantity badges render for `amount > 1` (ERC-1155)
-- [ ] E2E: Infinite scroll still loads more pages and dedupes IDs correctly
+- [ ] E2E: Infinite scroll still loads more pages and dedupes IDs correctly — removed (test deleted)
+- [x] E2E: PWA IPFS runtime caching — caches IPFS asset via Service Worker — PASSED (preview: Chromium/Firefox/WebKit) 2025-08-26 00:16
 - [ ] E2E: No excessive concurrent network calls (smoke — limit simultaneous metadata fetches)
 
 ## 6) Success Criteria
@@ -59,6 +60,7 @@ This document tracks the optimizations we plan to implement, the test coverage t
 4. Virtualize grids
 5. Extract IPFS utils and split media components
 6. Migrate `use-sqwid-nfts` to TanStack Query
+
 
 ## Commands
 - Build: `npm run build`

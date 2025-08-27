@@ -4,6 +4,8 @@ import { useQuery } from '@tanstack/react-query';
 import { apolloClient as client } from '../apollo-client';
 import { gql } from '@apollo/client';
 import { normalizeIpfs } from '../utils/ipfs';
+import { TtlCache } from '../data/ttl-cache';
+import type { TokenHoldersByCollectionQuery, TokenHoldersByCollectionQueryVariables } from '@/gql/graphql';
 
 
 interface Collection {
@@ -16,6 +18,35 @@ interface Collection {
   // but we only need these for the gallery view.
 }
 
+// Module-level TTL caches and in-flight dedupe
+const COLLECTIONS_BY_OWNER_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+const COLLECTION_TOTALS_TTL_MS = 24 * 60 * 60 * 1000; // 1 day
+
+const collectionsByOwnerTtl = new TtlCache<Collection[]>({
+  namespace: 'reef:collectionsByOwner',
+  defaultTtlMs: COLLECTIONS_BY_OWNER_TTL_MS,
+  persist: true,
+  maxSize: 5000,
+});
+
+const collectionTotalsTtl = new TtlCache<number>({
+  namespace: 'reef:collectionTotals',
+  defaultTtlMs: COLLECTION_TOTALS_TTL_MS,
+  persist: true,
+  maxSize: 20000,
+});
+
+const totalsInflight = new Map<string, Promise<number>>();
+
+export function clearSqwidCollectionsCaches(): void {
+  collectionsByOwnerTtl.clear();
+  collectionTotalsTtl.clear();
+}
+
+export function pruneSqwidCollectionsCaches(): void {
+  collectionsByOwnerTtl.pruneExpired();
+  collectionTotalsTtl.pruneExpired();
+}
 
 /**
  * Fetch total number of unique items in a collection by paging the marketplace endpoint
@@ -29,59 +60,79 @@ interface Collection {
  * (tokenId | itemId | positionId | id). Если API возвращает total — используем его и
  * прекращаем пагинацию.
  */
-async function fetchCollectionTotal(collectionId: string): Promise<number> {
+async function fetchCollectionTotal(collectionId: string, signal?: AbortSignal): Promise<number> {
   if (!collectionId) return 0;
+  const cached = collectionTotalsTtl.get(collectionId);
+  if (typeof cached === 'number') return cached;
 
-  const perPage = 12;
-  const maxPages = 100; // safety cap
-  let startFrom = 0;
-  let pages = 0;
-  const seen = new Set<string>();
+  const existing = totalsInflight.get(collectionId);
+  if (existing) return existing;
 
-  while (pages < maxPages) {
-    const url = `https://sqwid-api-mainnet.reefscan.info/get/marketplace/by-collection/${collectionId}/0?limit=${perPage}&startFrom=${startFrom}`;
-    const res = await fetch(url, { headers: { accept: 'application/json' } });
-    if (!res.ok) {
-      // treat non-404 errors as zero to keep gallery resilient
-      if (res.status === 404) return 0;
-      break;
-    }
-    const contentType = res.headers.get('content-type');
-    if (!contentType || !contentType.includes('application/json')) {
-      break;
-    }
-    type ItemsContainer = { items?: unknown[]; total?: number; pagination?: { lowest?: number } };
-    interface MarketplaceItem { tokenId?: string | number; itemId?: string | number; positionId?: string | number; id?: string | number }
-    const json: ItemsContainer = await res.json().catch(() => ({} as ItemsContainer));
-    const items: MarketplaceItem[] = Array.isArray(json.items) ? (json.items as MarketplaceItem[]) : [];
+  const task = (async () => {
+    const perPage = 12;
+    const maxPages = 100; // safety cap
+    let startFrom = 0;
+    let pages = 0;
+    const seen = new Set<string>();
 
-    // If API provides authoritative total, prefer it and stop early
-    const apiTotal = typeof json.total === 'number' ? json.total : undefined;
-    if (typeof apiTotal === 'number' && apiTotal >= 0) {
-      return apiTotal;
+    while (pages < maxPages) {
+      const url = `https://sqwid-api-mainnet.reefscan.info/get/marketplace/by-collection/${collectionId}/0?limit=${perPage}&startFrom=${startFrom}`;
+      const res = await fetch(url, { headers: { accept: 'application/json' }, signal });
+      if (!res.ok) {
+        // treat non-404 errors as zero to keep gallery resilient
+        if (res.status === 404) {
+          collectionTotalsTtl.set(collectionId, 0);
+          return 0;
+        }
+        break;
+      }
+      const contentType = res.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        break;
+      }
+      type ItemsContainer = { items?: unknown[]; total?: number; pagination?: { lowest?: number } };
+      interface MarketplaceItem { tokenId?: string | number; itemId?: string | number; positionId?: string | number; id?: string | number }
+      const json: ItemsContainer = await res.json().catch(() => ({} as ItemsContainer));
+      const items: MarketplaceItem[] = Array.isArray(json.items) ? (json.items as MarketplaceItem[]) : [];
+
+      // If API provides authoritative total, prefer it and stop early
+      const apiTotal = typeof json.total === 'number' ? json.total : undefined;
+      if (typeof apiTotal === 'number' && apiTotal >= 0) {
+        collectionTotalsTtl.set(collectionId, apiTotal);
+        return apiTotal;
+      }
+
+      if (!items.length) {
+        break;
+      }
+
+      for (const it of items) {
+        const key = String(it?.tokenId ?? it?.itemId ?? it?.positionId ?? it?.id ?? `${startFrom}-${seen.size}`);
+        seen.add(key);
+      }
+
+      const next = typeof json?.pagination?.lowest === 'number' ? Number(json.pagination.lowest) : startFrom + perPage;
+      if (!Number.isFinite(next) || next <= startFrom) {
+        break; // cursor didn't advance; stop to avoid infinite loop
+      }
+      startFrom = next;
+      pages += 1;
     }
 
-    if (!items.length) {
-      break;
-    }
+    const total = seen.size;
+    collectionTotalsTtl.set(collectionId, total);
+    return total;
+  })();
 
-    for (const it of items) {
-      const key = String(it?.tokenId ?? it?.itemId ?? it?.positionId ?? it?.id ?? `${startFrom}-${seen.size}`);
-      seen.add(key);
-    }
-
-    const next = typeof json?.pagination?.lowest === 'number' ? Number(json.pagination.lowest) : startFrom + perPage;
-    if (!Number.isFinite(next) || next <= startFrom) {
-      break; // cursor didn't advance; stop to avoid infinite loop
-    }
-    startFrom = next;
-    pages += 1;
+  totalsInflight.set(collectionId, task);
+  try {
+    return await task;
+  } finally {
+    totalsInflight.delete(collectionId);
   }
-
-  return seen.size;
 }
 
-async function fetchTotalsForCollections(ids: string[], concurrency = 6): Promise<Map<string, number>> {
+async function fetchTotalsForCollections(ids: string[], concurrency = 6, signal?: AbortSignal): Promise<Map<string, number>> {
   const out = new Map<string, number>();
   let index = 0;
   async function worker() {
@@ -89,7 +140,8 @@ async function fetchTotalsForCollections(ids: string[], concurrency = 6): Promis
       const current = index++;
       const id = ids[current];
       try {
-        const total = await fetchCollectionTotal(id);
+        const cached = collectionTotalsTtl.get(id);
+        const total = typeof cached === 'number' ? cached : await fetchCollectionTotal(id, signal);
         out.set(id, total);
       } catch {
         out.set(id, 0);
@@ -101,13 +153,16 @@ async function fetchTotalsForCollections(ids: string[], concurrency = 6): Promis
   return out;
 }
 
-async function fetchSqwidCollectionsByOwner(address: string | null): Promise<Collection[]> {
-  if (!address) {
+async function fetchSqwidCollectionsByOwner(evmAddress: string | null, signal?: AbortSignal): Promise<Collection[]> {
+  if (!evmAddress) {
     return [];
   }
 
-  const url = `https://sqwid-api-mainnet.reefscan.info/get/collections/owner/${address}`;
-  const response = await fetch(url, { headers: { accept: 'application/json' } });
+  const cachedOwner = collectionsByOwnerTtl.get(evmAddress);
+  if (Array.isArray(cachedOwner)) return cachedOwner;
+
+  const url = `https://sqwid-api-mainnet.reefscan.info/get/collections/owner/${evmAddress}`;
+  const response = await fetch(url, { headers: { accept: 'application/json' }, signal });
 
   if (!response.ok) {
     if (response.status === 404) return []; // No collections found is not an error
@@ -142,18 +197,16 @@ async function fetchSqwidCollectionsByOwner(address: string | null): Promise<Col
 
   // Enrich with itemCount from marketplace endpoint
   const ids = base.map(c => c.id);
-  const totals = await fetchTotalsForCollections(ids);
+  const totals = await fetchTotalsForCollections(ids, 6, signal);
   const initial: Collection[] = base.map(c => ({ ...c, itemCount: totals.get(c.id) ?? 0 }));
 
   // For small or missing totals, fallback to Subsquid GraphQL: count distinct nftId by collection (not by owner)
-  async function fetchDistinctCountByCollection(collectionId: string, pageSize = 300, maxPages = 10): Promise<number> {
+  async function fetchDistinctCountByCollection(collectionId: string, pageSize = 300, maxPages = 10, signal?: AbortSignal): Promise<number> {
     if (!collectionId) return 0;
     const seen = new Set<string>();
     let offset = 0;
     for (let page = 0; page < maxPages; page++) {
-      interface TokenHoldersByCollectionRow { nftId?: string | number | null }
-      interface TokenHoldersByCollectionData { tokenHolders: TokenHoldersByCollectionRow[] }
-      const result = await client.query<TokenHoldersByCollectionData>({
+      const result = await client.query<TokenHoldersByCollectionQuery, TokenHoldersByCollectionQueryVariables>({
         query: gql`
           query TokenHoldersByCollection($collectionId: String!, $limit: Int!, $offset: Int!) {
             tokenHolders(
@@ -167,6 +220,7 @@ async function fetchSqwidCollectionsByOwner(address: string | null): Promise<Col
         `,
         variables: { collectionId, limit: pageSize, offset },
         fetchPolicy: 'network-only',
+        context: { fetchOptions: { signal } },
       });
       const batch = Array.isArray(result.data?.tokenHolders) ? result.data.tokenHolders : [];
       if (batch.length === 0) break;
@@ -182,7 +236,7 @@ async function fetchSqwidCollectionsByOwner(address: string | null): Promise<Col
     return seen.size;
   }
 
-  async function fetchDistinctCounts(ids: string[], concurrency = 4): Promise<Map<string, number>> {
+  async function fetchDistinctCounts(ids: string[], concurrency = 4, signal?: AbortSignal): Promise<Map<string, number>> {
     const out = new Map<string, number>();
     const targets = ids.slice();
     let index = 0;
@@ -191,7 +245,7 @@ async function fetchSqwidCollectionsByOwner(address: string | null): Promise<Col
         const current = index++;
         const id = targets[current];
         try {
-          const n = await fetchDistinctCountByCollection(id);
+          const n = await fetchDistinctCountByCollection(id, 300, 10, signal);
           out.set(id, n);
         } catch {
           out.set(id, 0);
@@ -204,13 +258,17 @@ async function fetchSqwidCollectionsByOwner(address: string | null): Promise<Col
   }
 
   const smallIds = initial.filter(c => (c.itemCount ?? 0) <= 2).map(c => c.id);
-  if (smallIds.length === 0) return initial;
-  const distinct = await fetchDistinctCounts(smallIds);
+  if (smallIds.length === 0) {
+    collectionsByOwnerTtl.set(evmAddress, initial);
+    return initial;
+  }
+  const distinct = await fetchDistinctCounts(smallIds, 4, signal);
   const merged: Collection[] = initial.map(c => {
     const d = distinct.get(c.id) ?? 0;
     const itemCount = Math.max(c.itemCount ?? 0, d);
     return { ...c, itemCount };
   });
+  collectionsByOwnerTtl.set(evmAddress, merged);
   return merged;
 }
 
@@ -234,7 +292,7 @@ export function useSqwidCollectionsByOwner(address: string | null) {
 
   const { data: collections = [], isLoading, error } = useQuery<Collection[], Error>({
     queryKey,
-    queryFn: () => fetchSqwidCollectionsByOwner(evmAddress),
+    queryFn: ({ signal }) => fetchSqwidCollectionsByOwner(evmAddress, signal),
     enabled: !!evmAddress && !isEvmResolving, // Enable query only when we have the EVM address
   });
 

@@ -2,6 +2,7 @@ import React from 'react';
 import { Loader2, AlertTriangle } from 'lucide-react';
 import { Nft, Collection, useSqwidNfts } from '../hooks/use-sqwid-nfts';
 import { useSqwidCollectionInfinite } from '../hooks/use-sqwid-collection';
+import { useSqwidNftsInfinite } from '../hooks/use-sqwid-nfts-infinite';
 import { NftImage } from './NftImage';
 import { useSqwidCollectionsByOwner } from '../hooks/use-sqwid-collections-by-owner';
 // owned-count via Subsquid is removed; no useNftsByOwner import
@@ -15,6 +16,7 @@ import { VirtualizedGrid } from './VirtualizedGrid';
 
 interface NftGalleryProps {
   address: string | null;
+  enableOwnerInfinite?: boolean;
 }
 
 // Minimal NFT shape used for grouping/aggregation within this component
@@ -46,6 +48,15 @@ function PreloadTopVideos({ nfts, count = 4 }: { nfts: Nft[]; count?: number }) 
       link.rel = 'preload';
       link.as = 'video';
       link.href = href;
+      try {
+        const u = new URL(href, window.location.href);
+        if (u.origin !== window.location.origin) {
+          // Align with <video crossOrigin="anonymous"> to enable reuse
+          link.crossOrigin = 'anonymous';
+        }
+      } catch {}
+      // Avoid leaking referrer to gateways
+      link.setAttribute('referrerpolicy', 'no-referrer');
       head.appendChild(link);
       created.push(link);
     }
@@ -181,15 +192,34 @@ function CollectionCard({ col, onClick }: { col: Collection; onClick: (c: Collec
   );
 }
 
-export function NftGallery({ address }: NftGalleryProps) {
+export function NftGallery({ address, enableOwnerInfinite = false }: NftGalleryProps) {
   const [selectedCollection, setSelectedCollection] = React.useState<Collection | null>(null);
   const [viewer, setViewer] = React.useState<{ src: string; poster?: string; mime?: string; name?: string } | null>(null);
   const { collections: ownerCollections, isLoading: isOwnerLoading, error: ownerError } = useSqwidCollectionsByOwner(address);
   const [limit, setLimit] = React.useState<number>(12);
   const [collectionIdInput, setCollectionIdInput] = React.useState<string>("");
   const [isOpening, setIsOpening] = React.useState<boolean>(false);
-  // Removed GraphQL owned-count request; rely on Sqwid REST only
-  const { nfts: fallbackNfts, isLoading: isFallbackLoading } = useSqwidNfts(address);
+  // Removed GraphQL owned-count request; rely on Sqwid REST only or infinite hook
+  // Owner-infinite page size override via URL (for E2E): ?ownerLimit=24 or ?infiniteLimit=24
+  const ownerInfPageSize = React.useMemo(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const raw = params.get('ownerLimit') ?? params.get('infiniteLimit');
+      const n = raw ? Number(raw) : NaN;
+      if (!Number.isFinite(n)) return 48;
+      return Math.min(96, Math.max(8, Math.floor(n)));
+    } catch {
+      return 48;
+    }
+  }, []);
+  const {
+    nfts: infiniteNfts,
+    isLoading: isOwnerInfLoading,
+    isFetchingNextPage: isOwnerInfFetchingNext,
+    hasNextPage: ownerHasNextPage,
+    fetchNextPage: fetchOwnerNextPage,
+  } = useSqwidNftsInfinite({ owner: enableOwnerInfinite ? address : null, limit: ownerInfPageSize });
+  const { nfts: fallbackNfts, isLoading: isFallbackLoading } = useSqwidNfts(enableOwnerInfinite ? null : address);
   const { resolveEvmAddress, getAddressType, isResolving: isAddrResolving } = useAddressResolver();
   const [resolvedEvm, setResolvedEvm] = React.useState<string | null | undefined>(undefined);
   const pagingRef = React.useRef<boolean>(false);
@@ -327,8 +357,9 @@ export function NftGallery({ address }: NftGalleryProps) {
     const ownerCols = Array.isArray(ownerCollections) ? ownerCollections : [];
     const ownerColIdSet = new Set(ownerCols.map(c => (c.id || '').toLowerCase()));
 
-    // Build "Other NFTs" from Sqwid REST fallback only
-    const nftsWithoutCollectionRaw = (Array.isArray(fallbackNfts) ? fallbackNfts : []).filter((it: Nft) => {
+    // Build "Other NFTs" from owner NFTs source (infinite or fallback)
+    const sourceNfts = enableOwnerInfinite ? infiniteNfts : fallbackNfts;
+    const nftsWithoutCollectionRaw = (Array.isArray(sourceNfts) ? sourceNfts : []).filter((it: Nft) => {
       const explicit = it?.collection?.id as string | undefined;
       const derived = (!explicit && typeof it?.id === 'string' && it.id.includes('-')) ? it.id.split('-')[0] : undefined;
       const colId = explicit ?? derived;
@@ -482,7 +513,8 @@ export function NftGallery({ address }: NftGalleryProps) {
     );
   }
 
-  if (isOwnerLoading || isFallbackLoading) {
+  const isOwnerNftsLoading = enableOwnerInfinite ? isOwnerInfLoading : isFallbackLoading;
+  if (isOwnerLoading || isOwnerNftsLoading) {
     return (
       <div className="flex items-center justify-center p-8" role="status" aria-live="polite" aria-busy="true">
         <Loader2 className="h-6 w-6 animate-spin" />
@@ -708,8 +740,14 @@ export function NftGallery({ address }: NftGalleryProps) {
                   gap={16}
                   overscan={8}
                   maxRows={videoRows}
-                  isFetching={revealVideo}
+                  isFetching={enableOwnerInfinite ? isOwnerInfFetchingNext : revealVideo}
                   onEndReached={() => {
+                    if (enableOwnerInfinite) {
+                      if (isOwnerInfFetchingNext) return;
+                      if (!ownerHasNextPage) return;
+                      void fetchOwnerNextPage();
+                      return;
+                    }
                     if (revealVideo) return;
                     // Defer state updates to avoid setState during VirtualizedGrid render
                     requestAnimationFrame(() => {
@@ -763,8 +801,14 @@ export function NftGallery({ address }: NftGalleryProps) {
                   gap={16}
                   overscan={8}
                   maxRows={otherRows}
-                  isFetching={revealOther}
+                  isFetching={enableOwnerInfinite ? isOwnerInfFetchingNext : revealOther}
                   onEndReached={() => {
+                    if (enableOwnerInfinite) {
+                      if (isOwnerInfFetchingNext) return;
+                      if (!ownerHasNextPage) return;
+                      void fetchOwnerNextPage();
+                      return;
+                    }
                     if (revealOther) return;
                     // Defer state updates to avoid setState during VirtualizedGrid render
                     requestAnimationFrame(() => {
@@ -792,11 +836,20 @@ export function NftGallery({ address }: NftGalleryProps) {
       </div>
 
       {viewer ? (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setViewer(null)}>
-          <div className="relative bg-white rounded-md p-3 max-w-[90vw] max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+          data-testid="viewer-overlay"
+          onClick={() => setViewer(null)}
+        >
+          <div
+            className="relative bg-white rounded-md p-3 max-w-[90vw] max-h-[90vh] overflow-auto"
+            data-testid="viewer-content"
+            onClick={(e) => e.stopPropagation()}
+          >
             <button
               type="button"
               className="absolute top-2 right-2 px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
+              data-testid="viewer-close"
               onClick={() => setViewer(null)}
               aria-label="Close"
             >
