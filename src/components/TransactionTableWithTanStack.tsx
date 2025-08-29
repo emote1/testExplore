@@ -14,14 +14,17 @@ interface TransactionTableWithTanStackProps {
 
 export function TransactionTableWithTanStack({ table, isLoading, isFetching, newTransfers = [] }: TransactionTableWithTanStackProps) {
   return (
-    <div className="p-4 bg-white rounded-lg shadow-md">
-      <div className="overflow-x-auto">
-        <table className="divide-y divide-gray-200">
+    <div className="p-4 bg-white rounded-lg shadow-md overflow-hidden">
+      <div className="overflow-x-auto md:overflow-x-visible">
+        <table className="w-full table-fixed divide-y divide-gray-200">
           <thead className="bg-gray-50">
             {table.getHeaderGroups().map(headerGroup => (
               <tr key={headerGroup.id}>
                 {headerGroup.headers.map(header => (
-                  <th key={header.id} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th
+                    key={header.id}
+                    className={`px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider ${header.column.id === 'actions' ? 'w-8 text-center px-1' : ''} ${header.column.id === 'timestamp' ? 'w-52 md:w-60' : ''} ${header.column.id === 'feeAmount' ? 'w-20 text-right px-1' : ''}`}
+                  >
                     {header.isPlaceholder
                       ? null
                       : flexRender(
@@ -47,8 +50,21 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
                 {table.getRowModel().rows.map(row => (
                   <tr key={row.id} className={newTransfers.includes(row.original.id) ? 'bg-blue-100' : ''}>
                     {row.getVisibleCells().map(cell => (
-                      <td key={cell.id} className="px-6 py-4 whitespace-nowrap">
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      <td
+                        key={cell.id}
+                        className={
+                          cell.column.id === 'actions' ? 'px-1 py-3 text-center w-8' :
+                          cell.column.id === 'timestamp' ? 'px-2 py-3 whitespace-nowrap' :
+                          cell.column.id === 'feeAmount' ? 'px-1 py-3 text-right' :
+                          (cell.column.id === 'from' || cell.column.id === 'to') ? 'px-3 py-3' :
+                          'px-4 py-3'
+                        }
+                      >
+                        {cell.column.id === 'actions'
+                          ? flexRender(cell.column.columnDef.cell, cell.getContext())
+                          : (cell.column.id === 'from' || cell.column.id === 'to')
+                            ? <div className="truncate">{flexRender(cell.column.columnDef.cell, cell.getContext())}</div>
+                            : flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
                     ))}
                   </tr>

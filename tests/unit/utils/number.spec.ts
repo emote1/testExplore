@@ -23,7 +23,6 @@ describe('utils/number toU64', () => {
   it('handles other primitives via Number()', () => {
     expect(toU64(true)).toBe(1);
     // Objects and symbols become NaN -> fallback
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect(toU64({} as any, 9)).toBe(9);
   });
 });

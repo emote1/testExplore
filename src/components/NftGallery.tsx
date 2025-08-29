@@ -54,7 +54,7 @@ function PreloadTopVideos({ nfts, count = 4 }: { nfts: Nft[]; count?: number }) 
           // Align with <video crossOrigin="anonymous"> to enable reuse
           link.crossOrigin = 'anonymous';
         }
-      } catch {}
+      } catch { /* ignore invalid URL */ }
       // Avoid leaking referrer to gateways
       link.setAttribute('referrerpolicy', 'no-referrer');
       head.appendChild(link);
@@ -241,14 +241,14 @@ export function NftGallery({ address, enableOwnerInfinite = false }: NftGalleryP
   const [scrollGateActive, setScrollGateActive] = React.useState<boolean>(false);
   const gateTimeoutRef = React.useRef<number | null>(null);
   const prevOverflowRef = React.useRef<string | null>(null);
-  const isVideoGridActive = !!selectedCollection ? (collectionFilter === 'video') : (overviewTab === 'video');
+  const isVideoGridActive = selectedCollection ? (collectionFilter === 'video') : (overviewTab === 'video');
 
   const resetGate = React.useCallback(() => {
     gateIdsRef.current = new Set();
     gateReadyRef.current = new Set();
     setScrollGateActive(false);
     if (gateTimeoutRef.current) {
-      try { window.clearTimeout(gateTimeoutRef.current); } catch {}
+      try { window.clearTimeout(gateTimeoutRef.current); } catch { /* ignore */ }
       gateTimeoutRef.current = null;
     }
   }, []);
@@ -286,7 +286,7 @@ export function NftGallery({ address, enableOwnerInfinite = false }: NftGalleryP
         setScrollGateActive(false);
         gateTimeoutRef.current = null;
       }, 2500);
-    } catch {}
+    } catch { /* ignore setTimeout errors */ }
   }
 
   function registerGateRowId(id: string) {
@@ -314,7 +314,7 @@ export function NftGallery({ address, enableOwnerInfinite = false }: NftGalleryP
       if (ids.size > 0 && ready.size >= ids.size) {
         setScrollGateActive(false);
         if (gateTimeoutRef.current) {
-          try { window.clearTimeout(gateTimeoutRef.current); } catch {}
+          try { window.clearTimeout(gateTimeoutRef.current); } catch { /* ignore */ }
           gateTimeoutRef.current = null;
         }
       }
@@ -392,7 +392,7 @@ export function NftGallery({ address, enableOwnerInfinite = false }: NftGalleryP
     });
 
     return { nftsWithoutCollection, collectionsWithCount: collectionsWithItemCount };
-  }, [fallbackNfts, ownerCollections]);
+  }, [fallbackNfts, ownerCollections, enableOwnerInfinite, infiniteNfts]);
 
   const videoNfts = React.useMemo(() => nftsWithoutCollection.filter(isVideoNft), [nftsWithoutCollection]);
   const otherNonVideoNfts = React.useMemo(() => nftsWithoutCollection.filter(n => !isVideoNft(n)), [nftsWithoutCollection]);
@@ -441,7 +441,7 @@ export function NftGallery({ address, enableOwnerInfinite = false }: NftGalleryP
       window.addEventListener('keydown', onKey);
       return () => window.removeEventListener('keydown', onKey);
     }
-    return () => {};
+    return () => { /* no cleanup when viewer not open */ };
   }, [viewer]);
 
   // Derived data above via useMemo; no effect needed to set state
@@ -457,18 +457,19 @@ export function NftGallery({ address, enableOwnerInfinite = false }: NftGalleryP
   } = useSqwidCollectionInfinite({ collectionId: selectedCollection?.id ?? null, limit });
 
   const isCollectionLoading = isCollectionLoadingBase || (collectionPageNfts.length === 0 && isCollectionFetching);
-  const displayedNfts: Nft[] = selectedCollection
-    ? collectionPageNfts.map((it) => ({
-        id: it.id,
-        name: it.name ?? 'Unnamed NFT',
-        image: it.image,
-        media: it.media,
-        thumbnail: it.thumbnail,
-        mimetype: it.mimetype,
-        amount: it.amount,
-        collection: selectedCollection ? { id: selectedCollection.id, name: selectedCollection.name, itemCount: selectedCollection.itemCount } : undefined,
-      }))
-    : [];
+  const displayedNfts: Nft[] = React.useMemo(() => {
+    if (!selectedCollection) return [];
+    return collectionPageNfts.map((it) => ({
+      id: it.id,
+      name: it.name ?? 'Unnamed NFT',
+      image: it.image,
+      media: it.media,
+      thumbnail: it.thumbnail,
+      mimetype: it.mimetype,
+      amount: it.amount,
+      collection: { id: selectedCollection.id, name: selectedCollection.name, itemCount: selectedCollection.itemCount },
+    }));
+  }, [selectedCollection, collectionPageNfts]);
   const displayedFiltered: Nft[] = React.useMemo(() => {
     return collectionFilter === 'video' ? displayedNfts.filter(isVideoNft) : displayedNfts;
   }, [displayedNfts, collectionFilter]);
@@ -684,26 +685,23 @@ export function NftGallery({ address, enableOwnerInfinite = false }: NftGalleryP
                           key={nft.id}
                           nft={nft}
                           onPreview={openViewer}
-                          priority={Boolean(info?.near) || idx < 6}
+                          priority={(info?.near ?? false) || idx < 4}
                           onThumbReady={withinGate && isVideoGridActive ? onGateThumbReady : undefined}
                         />
                       );
                     }}
-                    className="w-full"
-                    testId="nft-grid"
-                    offsetTop={0}
                   />
                   {scrollGateActive ? (
-                    <>
-                      {/* Overlay customization: adjust opacity/blur/colors via classNames below. Text comes from OVERLAY_TEXT. */}
-                      <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 backdrop-blur-[1px] pointer-events-auto" role="status" aria-live="polite" aria-busy="true" data-testid="row-gate-overlay">
-                        <div className="flex items-center gap-3 text-gray-700 rounded-full bg-white/90 shadow px-4 py-2">
-                          <Loader2 className="h-6 w-6 animate-spin" />
-                          <span className="text-sm">{OVERLAY_TEXT}</span>
-                        </div>
+                  <>
+                    {/* Overlay customization: adjust opacity/blur/colors via classNames below. Text comes from OVERLAY_TEXT. */}
+                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 backdrop-blur-[1px] pointer-events-auto" role="status" aria-live="polite" aria-busy="true" data-testid="row-gate-overlay">
+                      <div className="flex items-center gap-3 text-gray-700 rounded-full bg-white/90 shadow px-4 py-2">
+                        <Loader2 className="h-6 w-6 animate-spin" />
+                        <span className="text-sm">{OVERLAY_TEXT}</span>
                       </div>
-                    </>
-                  ) : null}
+                    </div>
+                  </>
+                ) : null}
                 </div>
                 {isFetchingNextPage ? (
                   <div className="flex justify-center py-2 text-sm text-gray-500">Loading more...</div>
@@ -764,7 +762,7 @@ export function NftGallery({ address, enableOwnerInfinite = false }: NftGalleryP
                         key={nft.id}
                         nft={nft}
                         onPreview={openViewer}
-                        priority={Boolean(info?.near) || idx < 4}
+                        priority={(info?.near ?? false) || idx < 4}
                         onThumbReady={withinGate && isVideoGridActive ? onGateThumbReady : undefined}
                       />
                     );
@@ -818,7 +816,7 @@ export function NftGallery({ address, enableOwnerInfinite = false }: NftGalleryP
                     });
                   }}
                   renderItem={(nft, idx, info) => (
-                    <NftCard key={nft.id} nft={nft} onPreview={openViewer} priority={Boolean(info?.near) || idx < 4} />
+                    <NftCard key={nft.id} nft={nft} onPreview={openViewer} priority={(info?.near ?? false) || idx < 4} />
                   )}
                   className="w-full"
                   testId="other-nfts-grid"

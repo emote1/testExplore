@@ -5,7 +5,6 @@ function toBase64(s: string): string {
   // Node or browser env: rely on Buffer if present
   const B = (globalThis as any).Buffer as typeof Buffer | undefined;
   if (B) return B.from(s, 'utf-8').toString('base64');
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const btoaFn = (globalThis as any).btoa as ((s: string) => string) | undefined;
   if (btoaFn) return btoaFn(s);
   throw new Error('No base64 encoder in this environment');

@@ -45,7 +45,7 @@ export function useSqwidNftsInfinite(params: UseSqwidNftsInfiniteParams) {
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     initialPageParam: 0,
-    getNextPageParam: (lastPage, _pages) => {
+    getNextPageParam: (lastPage) => {
       // If we got fewer than limit pairs, stop; otherwise advance offset by number of pairs fetched
       const got = lastPage.__pairs.length;
       if (got < limit) return undefined;

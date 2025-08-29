@@ -59,8 +59,8 @@ export function NftVideoThumb({ src, poster, name, className, onClick, priority,
     setShowPoster(!!posterUrl && !posterFailed);
     const el = vidRef.current;
     if (!el) return;
-    try { el.pause(); } catch {}
-    try { el.currentTime = seekRef.current; } catch {}
+    try { el.pause(); } catch { /* ignore: pausing preview video not critical */ }
+    try { el.currentTime = seekRef.current; } catch { /* ignore: seeking can fail on some browsers */ }
   }, [posterUrl, posterFailed]);
 
   React.useEffect(() => {
@@ -74,8 +74,8 @@ export function NftVideoThumb({ src, poster, name, className, onClick, priority,
     const el = vidRef.current;
     if (!el) return;
     if (!isHovering) {
-      try { el.pause(); } catch {}
-      try { el.currentTime = seekRef.current; } catch {}
+      try { el.pause(); } catch { /* ignore */ }
+      try { el.currentTime = seekRef.current; } catch { /* ignore */ }
     }
   }, [isVisible, isHovering]);
 
@@ -158,17 +158,17 @@ export function NftVideoThumb({ src, poster, name, className, onClick, priority,
           const d = Number.isFinite(el.duration) ? el.duration : undefined;
           const t = d ? Math.min(1, Math.max(0.2, d * 0.1)) : 0.5;
           seekRef.current = t;
-          try { el.currentTime = t; } catch {}
+          try { el.currentTime = t; } catch { /* ignore: some platforms block programmatic seek pre-play */ }
         }}
         onLoadedData={() => {
           const el = vidRef.current;
           if (!el) return;
           try {
             if (el.currentTime < seekRef.current - 0.01) el.currentTime = seekRef.current;
-          } catch {}
+          } catch { /* ignore: best-effort to pre-seek */ }
           if (!isHovering) {
-            try { el.pause(); } catch {}
-            try { el.currentTime = seekRef.current; } catch {}
+            try { el.pause(); } catch { /* ignore */ }
+            try { el.currentTime = seekRef.current; } catch { /* ignore */ }
           } else {
             // If we initiated hover before src was set, ensure playback starts now.
             el.muted = true;
@@ -177,7 +177,7 @@ export function NftVideoThumb({ src, poster, name, className, onClick, priority,
             if (p && typeof p.catch === 'function') p.catch(() => undefined);
           }
           if (!hasValidPoster || posterFailed) {
-            try { el.removeAttribute('poster'); } catch {}
+            try { el.removeAttribute('poster'); } catch { /* ignore */ }
           }
           fireReady();
         }}
@@ -202,8 +202,8 @@ export function NftVideoThumb({ src, poster, name, className, onClick, priority,
               } else {
                 setIsHovering(false);
                 setShowPoster(!!posterUrl);
-                try { el.pause(); } catch {}
-                try { el.currentTime = seekRef.current; } catch {}
+                try { el.pause(); } catch { /* ignore */ }
+                try { el.currentTime = seekRef.current; } catch { /* ignore */ }
               }
             }
           }

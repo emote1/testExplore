@@ -80,7 +80,7 @@ export function useSqwidCollectionInfinite(params: UseSqwidCollectionParams) {
     staleTime: 2 * 60 * 1000,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
-    getNextPageParam: (lastPage, _pages) => {
+    getNextPageParam: (lastPage) => {
       const currentCursor = lastPage.__cursor ?? 0;
       const next = typeof lastPage?.pagination?.lowest === 'number' ? Number(lastPage.pagination.lowest) : currentCursor + limit;
       const itemsLen = Array.isArray(lastPage.items) ? lastPage.items.length : 0;

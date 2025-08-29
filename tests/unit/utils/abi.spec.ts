@@ -2,7 +2,6 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { toHex, decodeAbiString, applyErc1155Template } from '../../../src/utils/abi';
 
 // Ensure TextDecoder exists in Node environments where not global
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 import { TextDecoder as NodeTextDecoder } from 'util';
 

@@ -94,12 +94,14 @@ export function VirtualizedGrid<T>(props: VirtualizedGridProps<T>) {
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
-    window.addEventListener('resize', update);
+    const onResize: EventListener = () => update();
+    const onScrollUpdate: EventListener = () => update();
+    window.addEventListener('resize', onResize);
     // Keep absolute-top recalculated on scroll in case layout above changes
-    window.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('scroll', onScrollUpdate, { passive: true });
     // Track whether the user has actually scrolled past baseline to prevent instant auto-reveal
     initialScrollYRef.current = window.scrollY;
-    const onScrollFlag = () => {
+    const onScrollFlag: EventListener = () => {
       if (!hasUserScrolledRef.current) {
         const dy = Math.abs(window.scrollY - initialScrollYRef.current);
         const need = getScrollDeltaNeeded();
@@ -109,9 +111,9 @@ export function VirtualizedGrid<T>(props: VirtualizedGridProps<T>) {
     window.addEventListener('scroll', onScrollFlag, { passive: true });
     return () => {
       ro.disconnect();
-      window.removeEventListener('resize', update as any);
-      window.removeEventListener('scroll', update as any);
-      window.removeEventListener('scroll', onScrollFlag as any);
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('scroll', onScrollUpdate);
+      window.removeEventListener('scroll', onScrollFlag);
     };
   }, []);
 
@@ -167,7 +169,7 @@ export function VirtualizedGrid<T>(props: VirtualizedGridProps<T>) {
       try {
         const h = el.getBoundingClientRect().height;
         if (h && h > 0) setMeasuredRowHeight(prev => (prev === h ? prev : h));
-      } catch {}
+      } catch { /* ignore measurement errors */ }
     };
     read();
     const ro = new ResizeObserver(read);
@@ -207,7 +209,6 @@ export function VirtualizedGrid<T>(props: VirtualizedGridProps<T>) {
     } else {
       if (last.index >= rowCount - 1) onEndReached();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [virtualRows, rowCount, visibleRowCount, onEndReached, isFetching, maxRows, effectiveScrollMargin, fireEndReached]);
 
   // Removed window near-bottom polling in favor of IntersectionObserver + virtual rows triggers
@@ -219,24 +220,24 @@ export function VirtualizedGrid<T>(props: VirtualizedGridProps<T>) {
     if (!limited) return;
     let prevBodyOverflow: string | null = null;
     const keys = new Set(['PageDown', 'End', 'ArrowDown', 'ArrowUp', 'Space', ' ']);
-    const prevent = (e: Event) => { e.preventDefault(); e.stopPropagation(); };
+    const prevent: EventListener = (e) => { e.preventDefault(); e.stopPropagation(); };
     const preventKeys = (e: KeyboardEvent) => { if (keys.has(e.key)) { e.preventDefault(); e.stopPropagation(); } };
-    if (isFetching && !!onEndReached) {
-      window.addEventListener('wheel', prevent as any, { passive: false });
-      window.addEventListener('touchmove', prevent as any, { passive: false });
-      window.addEventListener('keydown', preventKeys as any, true);
+    if (isFetching && onEndReached) {
+      window.addEventListener('wheel', prevent, { passive: false });
+      window.addEventListener('touchmove', prevent, { passive: false });
+      window.addEventListener('keydown', preventKeys, true);
       try {
         prevBodyOverflow = document.body.style.overflow;
         document.body.style.overflow = 'hidden';
-      } catch {}
+      } catch { /* ignore DOM access errors */ }
     }
     return () => {
-      window.removeEventListener('wheel', prevent as any);
-      window.removeEventListener('touchmove', prevent as any);
-      window.removeEventListener('keydown', preventKeys as any, true);
+      window.removeEventListener('wheel', prevent);
+      window.removeEventListener('touchmove', prevent);
+      window.removeEventListener('keydown', preventKeys, true);
       try {
         if (prevBodyOverflow !== null) document.body.style.overflow = prevBodyOverflow;
-      } catch {}
+      } catch { /* ignore DOM access errors */ }
     };
   }, [isFetching, maxRows, onEndReached]);
 
@@ -260,7 +261,7 @@ export function VirtualizedGrid<T>(props: VirtualizedGridProps<T>) {
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [onEndReached, isFetching, visibleRowCount, rowCount, maxRows]);
+  }, [onEndReached, isFetching, visibleRowCount, rowCount, maxRows, fireEndReached]);
 
   // Debounced loader show (120ms) + keep visible minimum 300ms to reduce flicker
   React.useEffect(() => {
@@ -269,11 +270,11 @@ export function VirtualizedGrid<T>(props: VirtualizedGridProps<T>) {
     if (!limited || !hasHidden) { setShowLoader(false); return; }
     const minMs = 300;
     const debounceMs = 120;
-    let showTimer: any | null = null;
-    let hideTimer: any | null = null;
-    const now = () => (typeof performance !== 'undefined' && (performance as any).now) ? performance.now() : Date.now();
+    let showTimer: number | null = null;
+    let hideTimer: number | null = null;
+    const now = () => (typeof performance !== 'undefined' && typeof performance.now === 'function') ? performance.now() : Date.now();
     if (isFetching) {
-      showTimer = setTimeout(() => {
+      showTimer = window.setTimeout(() => {
         loaderStartRef.current = now();
         setShowLoader(true);
       }, debounceMs);
@@ -281,14 +282,14 @@ export function VirtualizedGrid<T>(props: VirtualizedGridProps<T>) {
       // Cancel pending show if any and hide with minimum visibility window
       const elapsed = now() - (loaderStartRef.current || 0);
       if (showLoader && elapsed < minMs) {
-        hideTimer = setTimeout(() => setShowLoader(false), minMs - elapsed);
+        hideTimer = window.setTimeout(() => setShowLoader(false), minMs - elapsed);
       } else {
         setShowLoader(false);
       }
     }
     return () => {
-      if (showTimer) clearTimeout(showTimer);
-      if (hideTimer) clearTimeout(hideTimer);
+      if (showTimer) window.clearTimeout(showTimer);
+      if (hideTimer) window.clearTimeout(hideTimer);
     };
   }, [isFetching, maxRows, visibleRowCount, rowCount, showLoader]);
 

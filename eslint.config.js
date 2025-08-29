@@ -37,4 +37,13 @@ export default tseslint.config(
       'react-refresh/only-export-components': 'off',
     },
   },
+  {
+    files: ['tests/**/*.{ts,tsx}'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+      'no-empty': 'off',
+      '@typescript-eslint/ban-ts-comment': 'off',
+      'react-hooks/exhaustive-deps': 'off',
+    },
+  },
 )

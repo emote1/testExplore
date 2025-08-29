@@ -7,7 +7,10 @@ export const PAGINATION_CONFIG = {
   UI_TRANSACTIONS_PER_PAGE: 10,
   
   /** Number of items to fetch per API request */
-  API_FETCH_PAGE_SIZE: 50,
+  API_FETCH_PAGE_SIZE: 30,
+  
+  /** Number of items to fetch per polling subscription request */
+  SUBSCRIPTION_FETCH_SIZE: 10,
   
   /** Number of transactions to fetch per block for optimization */
   BLOCK_FETCH_SIZE: 50,

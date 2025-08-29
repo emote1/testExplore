@@ -32,15 +32,16 @@ export function useTanstackTransactionAdapter(
     error,
     fetchMore,
     hasMore: hasNextPage,
-    totalCount,
   } = useTransactionDataWithBlocks(address, PAGINATION_CONFIG.API_FETCH_PAGE_SIZE);
 
   // Apollo cache is the single source of truth; pages are merged by typePolicies
 
   const pageCount = useMemo(() => {
-    if (totalCount === 0) return 0;
-    return Math.ceil(totalCount / pagination.pageSize);
-  }, [totalCount, pagination.pageSize]);
+    const itemsLoaded = (initialTransactions || []).length;
+    if (itemsLoaded === 0) return hasNextPage ? 2 : 0;
+    const pagesLoaded = Math.ceil(itemsLoaded / pagination.pageSize);
+    return hasNextPage ? pagesLoaded + 1 : pagesLoaded;
+  }, [initialTransactions, pagination.pageSize, hasNextPage]);
 
   const dataForCurrentPage = useMemo(() => {
     const { pageIndex, pageSize } = pagination;

@@ -70,8 +70,11 @@ export function formatTokenAmount(
 
   try {
     const amount = BigInt(amountStr);
-    const divisor = BigInt(10 ** decimals);
-    const numericValue = parseFloat(`${amount / divisor}.${(amount % divisor).toString().padStart(decimals, '0')}`);
+    // IMPORTANT: use BigInt exponentiation to avoid RangeError from BigInt(10 ** decimals)
+    const divisor = 10n ** BigInt(decimals);
+    const integerPart = amount / divisor;
+    const fractionalPart = (amount % divisor).toString().padStart(decimals, '0');
+    const numericValue = parseFloat(`${integerPart}.${fractionalPart}`);
 
     let formattingOptions: Intl.NumberFormatOptions;
 

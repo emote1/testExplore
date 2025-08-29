@@ -1,4 +1,5 @@
-import type { TransfersFeeQueryQuery as TransfersFeeQuery } from '@/gql/graphql';
+// Use minimal shapes instead of tight GraphQL-generated types so both
+// paginated and polling queries can reuse the mapper without type friction.
 
 export interface UiTransfer {
   id: string;
@@ -20,41 +21,75 @@ export interface UiTransfer {
   feeAmount: string;
 }
 
-// Type helpers from generated types
-type TransferEdge = TransfersFeeQuery['transfersConnection']['edges'][0];
-type Transfer = NonNullable<TransferEdge>['node'];
+interface TransferLikeToken {
+  id: string;
+  name: string;
+  contractData?: unknown;
+}
 
+interface TransferLike {
+  id: string;
+  amount: string;
+  timestamp: string;
+  success: boolean;
+  type: string;
+  signedData?: any;
+  extrinsicHash?: string | null;
+  from: { id: string };
+  to: { id: string };
+  token: TransferLikeToken;
+}
+
+type TransferEdge = { node: TransferLike };
+type Transfer = TransferLike;
+
+
+// Cache token metadata derived from contractData to avoid repeated JSON.parse
+const tokenMetaCache = new Map<string, { name: string; decimals: number }>();
 
 const resolveTransferDirection = (
   transfer: Transfer,
   userAddress: string,
 ): 'INCOMING' | 'OUTGOING' => (transfer.from.id.toLowerCase() === userAddress.toLowerCase() ? 'OUTGOING' : 'INCOMING');
 
-const parseTokenData = (transfer: Transfer): { name: string; decimals: number } => {
+function parseTokenData(transfer: Transfer): { name: string; decimals: number } {
   if (transfer.type === 'ERC721' || transfer.type === 'ERC1155') {
     return { name: 'NFT', decimals: 0 };
   }
 
-  if (transfer.token.name === 'REEF' || !transfer.token.contractData) {
-    return { name: 'REEF', decimals: 18 };
+  // If token is REEF, short-circuit
+  if (transfer.token.name === 'REEF') return { name: 'REEF', decimals: 18 };
+
+  // Try cache first
+  const cached = tokenMetaCache.get(transfer.token.id);
+  if (cached) return cached;
+
+  // contractData may be omitted from some queries to reduce payload size
+  const contractDataRaw = (transfer.token as unknown as { contractData?: unknown })?.contractData;
+  if (!contractDataRaw) {
+    // Fallback to provided token name with default decimals
+    return { name: transfer.token.name, decimals: 18 };
   }
 
   try {
     // contractData can be a stringified JSON, so we need to parse it safely.
-    const contractData = typeof transfer.token.contractData === 'string' 
-      ? JSON.parse(transfer.token.contractData)
-      : transfer.token.contractData;
+    const contractData = typeof contractDataRaw === 'string' 
+      ? JSON.parse(contractDataRaw)
+      : contractDataRaw as any;
 
-    return {
+    const meta = {
       name: contractData?.symbol || transfer.token.name,
       decimals: contractData?.decimals ?? 18,
     };
+    // Cache only when we had contractData to avoid caching placeholders
+    tokenMetaCache.set(transfer.token.id, meta);
+    return meta;
   } catch (error) {
-    console.error('Failed to parse contractData:', transfer.token.contractData, error);
+    console.error('Failed to parse contractData:', contractDataRaw, error);
     // Fallback to default values if parsing fails
     return { name: transfer.token.name, decimals: 18 };
   }
-};
+}
 
 
 
@@ -74,6 +109,9 @@ export function mapTransfersToUiTransfers(
       const transfer = edge.node;
       const { name: tokenName, decimals: tokenDecimals } = parseTokenData(transfer);
       const isNft = transfer.type === 'ERC721' || transfer.type === 'ERC1155';
+      // Try to get fee from inline signedData (provided by squid similar to Reefscan)
+      // signedData is a JSON scalar; use loose typing
+      const partialFee = (transfer as unknown as { signedData?: any })?.signedData?.fee?.partialFee as string | undefined;
 
       return {
         id: transfer.id,
@@ -92,7 +130,7 @@ export function mapTransfersToUiTransfers(
         success: transfer.success,
 
         extrinsicHash: transfer.extrinsicHash || '',
-        feeAmount: '0',
+        feeAmount: partialFee ?? '0',
       };
     })
     .filter((transfer): transfer is UiTransfer => transfer !== null);
