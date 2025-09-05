@@ -1,11 +1,12 @@
 import type { CellContext, HeaderContext } from '@tanstack/react-table';
 import type { UiTransfer } from '../data/transfer-mapper';
-import { formatTimestamp, formatTokenAmount } from '../utils/formatters';
+import { formatTimestamp, formatTokenAmount, formatTimestampFull } from '../utils/formatters';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { ExternalLink } from './ui/external-link';
 import { ArrowUpDown } from 'lucide-react';
 import { AddressDisplay } from './AddressDisplay';
+import { Tooltip, TooltipTrigger, TooltipProvider, TooltipContent } from './ui/tooltip';
 
 export function TypeCell(ctx: CellContext<UiTransfer, unknown>) {
   const { row } = ctx;
@@ -32,7 +33,21 @@ export function TimestampHeader(ctx: HeaderContext<UiTransfer, unknown>) {
 }
 
 export function TimestampCell(ctx: CellContext<UiTransfer, unknown>) {
-  return <>{formatTimestamp(ctx.row.getValue('timestamp') as string)}</>;
+  const ts = ctx.row.getValue('timestamp') as string;
+  const display = formatTimestamp(ts);
+  const full = formatTimestampFull(ts);
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="cursor-help">{display}</span>
+        </TooltipTrigger>
+        <TooltipContent>
+          <span>{full}</span>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
 }
 
 export function FromCell(ctx: CellContext<UiTransfer, unknown>) {

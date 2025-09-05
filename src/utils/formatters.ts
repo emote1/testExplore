@@ -1,7 +1,35 @@
 // src/utils/formatters.ts
 
-export function formatTimestamp(timestamp: string, locale = 'en-US'): string {
-  const date = new Date(timestamp);
+export function parseTimestampToDate(input: string | number | Date): Date | null {
+  // Already a Date
+  if (input instanceof Date) {
+    return isNaN(input.getTime()) ? null : input;
+  }
+  // Numeric input
+  if (typeof input === 'number') {
+    // Heuristic: < 1e12 => seconds, otherwise milliseconds
+    const ms = input < 1_000_000_000_000 ? input * 1000 : input;
+    const d = new Date(ms);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  // String input
+  const s = (input ?? '').toString().trim();
+  if (!s) return null;
+  // Pure digits => epoch seconds or milliseconds
+  if (/^\d+$/.test(s)) {
+    const n = Number(s);
+    if (!Number.isFinite(n)) return null;
+    const ms = n < 1_000_000_000_000 ? n * 1000 : n;
+    const d = new Date(ms);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  // Fallback to native Date parser (ISO 8601 expected)
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+export function formatTimestamp(timestamp: string | number | Date, locale = 'en-US'): string {
+  const date = parseTimestampToDate(timestamp);
   const options: Intl.DateTimeFormatOptions = {
     year: 'numeric',
     month: '2-digit',
@@ -9,17 +37,21 @@ export function formatTimestamp(timestamp: string, locale = 'en-US'): string {
     hour: '2-digit',
     minute: '2-digit',
   };
+  if (!date) return 'Invalid Date';
+  return date.toLocaleString(locale, options);
+}
 
-  if (isNaN(date.getTime())) {
-    const numericTimestamp = parseInt(timestamp, 10);
-    if (!isNaN(numericTimestamp)) {
-      const numericDate = new Date(numericTimestamp);
-      if (!isNaN(numericDate.getTime())) {
-        return numericDate.toLocaleString(locale, options);
-      }
-    }
-    return 'Invalid Date';
-  }
+export function formatTimestampFull(timestamp: string | number | Date, locale = 'en-US'): string {
+  const date = parseTimestampToDate(timestamp);
+  const options: Intl.DateTimeFormatOptions = {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  };
+  if (!date) return 'Invalid Date';
   return date.toLocaleString(locale, options);
 }
 

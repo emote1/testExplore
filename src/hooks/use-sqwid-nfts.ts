@@ -11,7 +11,7 @@ import { parseDataUrlJson } from '../utils/data-url';
 import { toHex, decodeAbiString, applyErc1155Template } from '../utils/abi';
 import { isLikelyRpcEndpoint } from '../utils/url';
 import { isValidEvmAddressFormat } from '../utils/address-helpers';
-import type { NftsByOwnerPagedQuery, NftsByOwnerPagedQueryVariables } from '@/gql/graphql';
+import type { NftsByOwnerPagedQuery, NftsByOwnerPagedQueryVariables, ContractType } from '@/gql/graphql';
 
 // Define the types for better type-checking
 interface NftAttribute {
@@ -52,6 +52,28 @@ interface SqwidMeta {
   amount?: number;
 }
 
+// GraphQL result typing helpers
+type TokenHolderNode = NftsByOwnerPagedQuery['tokenHolders'][number];
+type TokenType = Extract<ContractType, 'ERC721' | 'ERC1155'>;
+
+interface UniquePair {
+  contractAddress: string;
+  nftId: string | number;
+  tokenType?: TokenType;
+  ownedAmount?: number;
+}
+
+function toUniquePair(t: TokenHolderNode): UniquePair | null {
+  const contractId = t?.token?.id ?? undefined;
+  const nftIdRaw = t?.nftId as unknown;
+  const nftId = typeof nftIdRaw === 'string' || typeof nftIdRaw === 'number' ? nftIdRaw : undefined;
+  const typeRaw = (t?.token?.type ?? undefined) as ContractType | null | undefined;
+  const tokenType: TokenType | undefined = typeRaw === 'ERC721' || typeRaw === 'ERC1155' ? typeRaw : undefined;
+  const ownedAmount = toU64(t?.balance as unknown, 0);
+  if (!contractId || (nftId === undefined || nftId === null)) return null;
+  return { contractAddress: contractId, nftId, tokenType, ownedAmount };
+}
+
 // Module-level TTL caches (singletons shared across hook instances)
 const TOKEN_URI_TTL_MS = 2 * 24 * 60 * 60 * 1000; // 2 days
 const SQWID_META_TTL_MS = 24 * 60 * 60 * 1000; // 1 day
@@ -70,14 +92,33 @@ const sqwidMetaTtl = new TtlCache<SqwidMeta>({
   maxSize: 20000,
 });
 
+// EVM head/block caches (TTL-based) to avoid per-token RPCs
+const HEAD_TTL_MS = 60000; // 60s
+const headTtl = new TtlCache<string>({
+  namespace: 'reef:finalizedHead',
+  defaultTtlMs: HEAD_TTL_MS,
+  persist: false,
+  maxSize: 4,
+});
+const blockTtl = new TtlCache<unknown>({
+  namespace: 'reef:block',
+  defaultTtlMs: HEAD_TTL_MS,
+  persist: false,
+  maxSize: 64,
+});
+
 export function clearSqwidNftCaches(): void {
   tokenUriTtl.clear();
   sqwidMetaTtl.clear();
+  headTtl.clear();
+  blockTtl.clear();
 }
 
 export function pruneSqwidNftCaches(): void {
   tokenUriTtl.pruneExpired();
   sqwidMetaTtl.pruneExpired();
+  headTtl.pruneExpired();
+  blockTtl.pruneExpired();
 }
 
 // Cross-hook in-flight de-duplication maps (module-level singletons)
@@ -124,11 +165,7 @@ let reefEvmCallDisabled = false; // disabled when endpoint is Ethereum-like
 // If eth_call keeps failing or returning 0x, disable it to avoid unnecessary requests
 const ETH_CALL_FAIL_THRESHOLD = 3;
 let ethCallFailCount = 0;
-// Cache for finalized head and blocks to avoid per-token RPCs
-let cachedHead: string | null = null;
-let cachedHeadTs = 0;
-const HEAD_TTL_MS = 60000;
-const blockCache = new Map<string, unknown>();
+// In-flight promises for finalized head and blocks (dedupe concurrent requests)
 let headPending: Promise<string | null> | null = null;
 const blockPending = new Map<string, Promise<unknown | null>>();
 
@@ -297,8 +334,8 @@ function writeTokenUriCache(contractAddress: string, nftId: string | number, uri
 // Substrate: get the latest finalized block hash to use as `at` parameter
 async function getFinalizedHead(): Promise<string | null> {
   try {
-    const now = Date.now();
-    if (cachedHead && (now - cachedHeadTs) < HEAD_TTL_MS) return cachedHead;
+    const cached = headTtl.get('finalized');
+    if (cached) return cached;
     if (headPending) return await headPending;
     headPending = (async () => {
       try {
@@ -312,8 +349,7 @@ async function getFinalizedHead(): Promise<string | null> {
         const head = json?.result as string | undefined;
         const ok = typeof head === 'string' && head.startsWith('0x');
         if (ok) {
-          cachedHead = head!;
-          cachedHeadTs = Date.now();
+          headTtl.set('finalized', head!);
           return head!;
         }
         return null;
@@ -332,7 +368,10 @@ async function getFinalizedHead(): Promise<string | null> {
 // Substrate: get the full block object for a given block hash
 async function getBlock(at: string): Promise<unknown | null> {
   try {
-    if (blockCache.has(at)) return blockCache.get(at);
+    {
+      const cached = blockTtl.get(at);
+      if (cached) return cached;
+    }
     if (blockPending.has(at)) return await blockPending.get(at)!;
     const pending = (async () => {
       try {
@@ -353,7 +392,7 @@ async function getBlock(at: string): Promise<unknown | null> {
             block = (r as unknown) ?? null;
           }
         }
-        if (block) blockCache.set(at, block);
+        if (block) blockTtl.set(at, block);
         return block ?? null;
       } catch {
         return null;
@@ -572,7 +611,7 @@ async function reefEvmCallBatch(to: string, datas: string[]): Promise<(string | 
 
 // decodeAbiString and applyErc1155Template moved to src/utils/abi
 
-async function resolveTokenURI(contractAddress: string, nftId: string | number, tokenType?: string): Promise<string | null> {
+async function resolveTokenURI(contractAddress: string, nftId: string | number, tokenType?: TokenType): Promise<string | null> {
   if (!isValidEvmAddressFormat(contractAddress)) return null;
   const cached = readTokenUriCache(contractAddress, nftId);
   if (cached) return cached;
@@ -654,7 +693,7 @@ async function getSqwidMeta(contractAddress: string, nftId: string | number): Pr
   }
 }
 
-async function fetchMetadataOnce(contractAddress: string, nftId: string | number, tokenType?: string): Promise<Nft | null> {
+async function fetchMetadataOnce(contractAddress: string, nftId: string | number, tokenType?: TokenType): Promise<Nft | null> {
   const key = `${contractAddress}-${nftId}`;
   if (inflight.has(key)) return inflight.get(key)!;
 
@@ -743,7 +782,7 @@ async function fetchMetadataOnce(contractAddress: string, nftId: string | number
   }
 }
 
-async function fetchMetadataWithRetry(contractAddress: string, nftId: string | number, tokenType?: string, retries = 2): Promise<Nft | null> {
+async function fetchMetadataWithRetry(contractAddress: string, nftId: string | number, tokenType?: TokenType, retries = 2): Promise<Nft | null> {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       return await fetchMetadataOnce(contractAddress, nftId, tokenType);
@@ -793,7 +832,7 @@ export const useSqwidNfts = (address: string | null) => {
         const pageSize = 100; // keep each response small
         const maxPairs = 300;  // safety cap to avoid hammering downstream metadata API
         const seen = new Set<string>();
-        const uniquePairs: { contractAddress: string; nftId: string | number; tokenType?: string; ownedAmount?: number }[] = [];
+        const uniquePairs: UniquePair[] = [];
         let offset = 0;
         for (let page = 0; page < 10; page++) {
           const { data } = await client.query<NftsByOwnerPagedQuery, NftsByOwnerPagedQueryVariables>({
@@ -802,20 +841,16 @@ export const useSqwidNfts = (address: string | null) => {
             fetchPolicy: 'network-only',
             context: { fetchOptions: { signal: getAbortSignal() } },
           });
-          const batch = Array.isArray(data?.tokenHolders) ? data!.tokenHolders : [];
+          const batch: TokenHolderNode[] = Array.isArray(data?.tokenHolders) ? data!.tokenHolders : [];
           if (!Array.isArray(batch) || batch.length === 0) break;
 
           for (const t of batch) {
-            const contractId = t?.token?.id ?? undefined;
-            const nftIdRaw = t?.nftId as unknown;
-            const nftId = typeof nftIdRaw === 'string' || typeof nftIdRaw === 'number' ? nftIdRaw : undefined;
-            const tokenType = (t?.token?.type ?? undefined) as unknown as string | undefined;
-            const ownedAmount = toU64(t?.balance as unknown, 0);
-            if (!contractId || (nftId === undefined || nftId === null)) continue;
-            const key = `${contractId}::${nftId}`;
+            const pair = toUniquePair(t);
+            if (!pair) continue;
+            const key = `${pair.contractAddress}::${pair.nftId}`;
             if (!seen.has(key)) {
               seen.add(key);
-              uniquePairs.push({ contractAddress: contractId, nftId, tokenType, ownedAmount });
+              uniquePairs.push(pair);
             }
             if (uniquePairs.length >= maxPairs) break;
           }
@@ -834,7 +869,7 @@ export const useSqwidNfts = (address: string | null) => {
         await checkReefEvmSupport();
 
         try {
-          const byContract = new Map<string, { nftId: string | number; tokenType?: string }[]>();
+          const byContract = new Map<string, { nftId: string | number; tokenType?: TokenType }[]>();
           for (const p of uniquePairs) {
             const list = byContract.get(p.contractAddress) ?? [];
             list.push({ nftId: p.nftId, tokenType: p.tokenType });
@@ -931,6 +966,6 @@ export const useSqwidNfts = (address: string | null) => {
 };
 
 // Exported helper to reuse metadata resolution with retries in other hooks
-export async function fetchNftMetadata(contractAddress: string, nftId: string | number, tokenType?: string): Promise<Nft | null> {
+export async function fetchNftMetadata(contractAddress: string, nftId: string | number, tokenType?: TokenType): Promise<Nft | null> {
   return fetchMetadataWithRetry(contractAddress, nftId, tokenType);
 }

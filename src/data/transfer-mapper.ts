@@ -1,3 +1,4 @@
+import { getNumber, getString } from '@/utils/object';
 // Use minimal shapes instead of tight GraphQL-generated types so both
 // paginated and polling queries can reuse the mapper without type friction.
 
@@ -33,7 +34,7 @@ interface TransferLike {
   timestamp: string;
   success: boolean;
   type: string;
-  signedData?: any;
+  signedData?: unknown;
   extrinsicHash?: string | null;
   from: { id: string };
   to: { id: string };
@@ -65,7 +66,7 @@ function parseTokenData(transfer: Transfer): { name: string; decimals: number } 
   if (cached) return cached;
 
   // contractData may be omitted from some queries to reduce payload size
-  const contractDataRaw = (transfer.token as unknown as { contractData?: unknown })?.contractData;
+  const contractDataRaw = transfer.token.contractData;
   if (!contractDataRaw) {
     // Fallback to provided token name with default decimals
     return { name: transfer.token.name, decimals: 18 };
@@ -73,13 +74,13 @@ function parseTokenData(transfer: Transfer): { name: string; decimals: number } 
 
   try {
     // contractData can be a stringified JSON, so we need to parse it safely.
-    const contractData = typeof contractDataRaw === 'string' 
+    const contractData: unknown = typeof contractDataRaw === 'string' 
       ? JSON.parse(contractDataRaw)
-      : contractDataRaw as any;
+      : contractDataRaw;
 
     const meta = {
-      name: contractData?.symbol || transfer.token.name,
-      decimals: contractData?.decimals ?? 18,
+      name: getString(contractData, ['symbol']) || transfer.token.name,
+      decimals: getNumber(contractData, ['decimals']) ?? 18,
     };
     // Cache only when we had contractData to avoid caching placeholders
     tokenMetaCache.set(transfer.token.id, meta);
@@ -111,7 +112,7 @@ export function mapTransfersToUiTransfers(
       const isNft = transfer.type === 'ERC721' || transfer.type === 'ERC1155';
       // Try to get fee from inline signedData (provided by squid similar to Reefscan)
       // signedData is a JSON scalar; use loose typing
-      const partialFee = (transfer as unknown as { signedData?: any })?.signedData?.fee?.partialFee as string | undefined;
+      const partialFee = getString(transfer, ['signedData', 'fee', 'partialFee']);
 
       return {
         id: transfer.id,

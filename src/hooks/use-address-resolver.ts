@@ -3,11 +3,16 @@ import { useLazyQuery } from '@apollo/client';
 import { GET_ACCOUNT_BY_EVM_QUERY, GET_ACCOUNT_BY_NATIVE_QUERY } from '../data/addresses';
 import { getAddressType, isValidAddress } from '../utils/address-helpers';
 import type { GetAccountByEvmQuery, GetAccountByNativeQuery } from '@/gql/graphql';
+import { createLruCache } from '@/utils/lru';
 
 /**
  * Hook for resolving and validating addresses in Reef Chain
  * Supports both EVM and Substrate (native) addresses
  */
+// Module-level caches (shared across hook instances)
+const nativeIdCache = createLruCache<string, string | null>({ max: 512, ttlMs: 10 * 60 * 1000 });
+const evmAddrCache = createLruCache<string, string | null>({ max: 512, ttlMs: 10 * 60 * 1000 });
+
 export function useAddressResolver() {
   const [getAccountByEvm, { loading: isResolvingEvm }] = useLazyQuery<GetAccountByEvmQuery>(GET_ACCOUNT_BY_EVM_QUERY);
   const [getAccountByNative, { loading: isResolvingNative }] = useLazyQuery<GetAccountByNativeQuery>(GET_ACCOUNT_BY_NATIVE_QUERY);
@@ -25,12 +30,18 @@ export function useAddressResolver() {
     const addressType = getAddressType(address);
     
     try {
+      const cached = nativeIdCache.get(address);
+      if (cached !== undefined) return cached;
       if (addressType === 'evm') {
         const { data } = await getAccountByEvm({ variables: { evmAddress: address } });
-        return data?.accounts?.[0]?.id || null;
+        const value = data?.accounts?.[0]?.id || null;
+        nativeIdCache.set(address, value);
+        return value;
       } else if (addressType === 'substrate') {
         const { data } = await getAccountByNative({ variables: { nativeAddress: address } });
-        return data?.accounts?.[0]?.id || null;
+        const value = data?.accounts?.[0]?.id || null;
+        nativeIdCache.set(address, value);
+        return value;
       }
     } catch (error) {
       console.warn('Failed to resolve address:', address, error);
@@ -60,8 +71,11 @@ export function useAddressResolver() {
     const type = getAddressType(address);
     if (type === 'evm') return address;
     try {
+      const cached = evmAddrCache.get(address);
+      if (cached !== undefined) return cached;
       const { data } = await getAccountByNative({ variables: { nativeAddress: address } });
       const evm = data?.accounts?.[0]?.evmAddress ?? null;
+      evmAddrCache.set(address, evm);
       return evm;
     } catch (error) {
       console.warn('Failed to resolve EVM address:', address, error);

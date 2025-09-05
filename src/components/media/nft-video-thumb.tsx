@@ -11,9 +11,10 @@ interface NftVideoThumbProps {
   onClick?: () => void;
   priority?: boolean;
   onReady?: () => void;
+  suspended?: boolean;
 }
 
-export function NftVideoThumb({ src, poster, name, className, onClick, priority, onReady }: NftVideoThumbProps) {
+export function NftVideoThumb({ src, poster, name, className, onClick, priority, onReady, suspended }: NftVideoThumbProps) {
   const srcCandidates = buildCandidates(src);
   const posterCandidates = buildCandidates(poster);
   const [idx, setIdx] = React.useState(0);
@@ -38,11 +39,12 @@ export function NftVideoThumb({ src, poster, name, className, onClick, priority,
   const hasValidPoster = !!poster0 && !posterLooksVideo;
   const posterUrl = hasValidPoster ? poster0 : undefined;
   const [forceLoad, setForceLoad] = React.useState(false);
-  const shouldLoad = !!priority || inView || forceLoad;
+  const shouldLoad = !suspended && (!!priority || inView || forceLoad);
   const [posterFailed, setPosterFailed] = React.useState(false);
   const [showPoster, setShowPoster] = React.useState<boolean>(!!posterUrl);
 
   const startHover = React.useCallback(() => {
+    if (suspended) return;
     setForceLoad(true);
     setIsHovering(true);
     setShowPoster(false);
@@ -52,7 +54,7 @@ export function NftVideoThumb({ src, poster, name, className, onClick, priority,
     ensureExclusive(el);
     const p = el.play();
     if (p && typeof p.catch === 'function') p.catch(() => undefined);
-  }, [ensureExclusive]);
+  }, [ensureExclusive, suspended]);
 
   const endHover = React.useCallback(() => {
     setIsHovering(false);
@@ -68,6 +70,21 @@ export function NftVideoThumb({ src, poster, name, className, onClick, priority,
     if (el) register(el);
     return () => { if (el) unregister(el); };
   }, [register, unregister]);
+
+  // When suspended, cancel any network and keep poster visible
+  React.useEffect(() => {
+    const el = vidRef.current;
+    if (!el) return;
+    if (suspended) {
+      try { el.pause(); } catch {}
+      try { el.removeAttribute('src'); } catch {}
+      try { (el as any).preload = 'none'; } catch {}
+      try { el.load(); } catch {}
+      setShowPoster(!!posterUrl && !posterFailed);
+      setIsHovering(false);
+      setForceLoad(false);
+    }
+  }, [suspended, posterUrl, posterFailed]);
 
   // Do not autoplay based on visibility; only play on hover/tap. Always pause when not hovering.
   React.useEffect(() => {
@@ -143,7 +160,7 @@ export function NftVideoThumb({ src, poster, name, className, onClick, priority,
         crossOrigin="anonymous"
         muted
         playsInline
-        loop={isHovering}
+        loop={isHovering && !suspended}
         controls={false}
         disablePictureInPicture
         aria-label={name ?? 'NFT video preview'}
@@ -183,6 +200,7 @@ export function NftVideoThumb({ src, poster, name, className, onClick, priority,
         }}
         
         onTouchEnd={(e) => {
+          if (suspended) { e.preventDefault(); e.stopPropagation(); return; }
           const el = vidRef.current;
           const now = Date.now();
           const dblTap = now - (lastTapRef.current || 0) < 300;

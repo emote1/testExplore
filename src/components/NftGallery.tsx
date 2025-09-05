@@ -84,7 +84,7 @@ function isVideoNft(nft: Nft): boolean {
   return looksVideoUrl(mediaUrl) || looksVideoUrl(imageUrl);
 }
 
-function NftCard({ nft, onPreview, priority, onThumbReady }: { nft: Nft; onPreview: (n: Nft) => void; priority?: boolean; onThumbReady?: (id: string) => void }) {
+function NftCard({ nft, onPreview, priority, onThumbReady, suspended }: { nft: Nft; onPreview: (n: Nft) => void; priority?: boolean; onThumbReady?: (id: string) => void; suspended?: boolean }) {
   if (nft.error) {
     return (
       <div className="border rounded-lg p-4 flex flex-col items-center justify-center bg-gray-50 aspect-square" data-testid="nft-card" data-nft-id={nft.id}>
@@ -124,6 +124,7 @@ function NftCard({ nft, onPreview, priority, onThumbReady }: { nft: Nft; onPrevi
             priority={priority}
             onClick={() => onPreview(nft)}
             onReady={onThumbReady ? (() => onThumbReady(nft.id)) : undefined}
+            suspended={suspended}
           />
         ) : (
           <NftImage
@@ -163,6 +164,51 @@ function NftCardSkeleton() {
       <div className="p-3 space-y-2">
         <Skeleton className="h-4 w-3/4" />
         <Skeleton className="h-3 w-1/3" />
+      </div>
+    </div>
+  );
+}
+
+function CollectionOpenPanel({ collectionIdInput, onChangeInput, onOpen, isOpening, showHelpLink = true, onChangeAddress, 'data-testid': dataTestId }: { collectionIdInput: string; onChangeInput: (v: string) => void; onOpen: (id: string) => void; isOpening: boolean; showHelpLink?: boolean; onChangeAddress: () => void; 'data-testid'?: string; }) {
+  return (
+    <div className="mt-4 space-y-2" data-testid={dataTestId ?? 'collection-open-panel'}>
+      <label className="text-sm font-medium text-gray-700" htmlFor="collectionId">Open a collection by ID</label>
+      <div className="flex gap-2">
+        <input
+          id="collectionId"
+          aria-label="Collection ID"
+          placeholder="Enter collection ID (e.g., Jz41NjucSzaXUQ45Hjk1)"
+          className="flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          value={collectionIdInput}
+          onChange={(e) => onChangeInput(e.target.value.trim())}
+        />
+        <button
+          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          type="button"
+          onClick={() => onOpen(collectionIdInput)}
+          disabled={!collectionIdInput || isOpening}
+        >
+          {isOpening ? 'Opening...' : 'Open'}
+        </button>
+      </div>
+      <div className="mt-2 flex items-center gap-4 text-xs text-gray-600">
+        {showHelpLink ? (
+          <a
+            className="underline hover:text-gray-800"
+            href="https://www.youtube.com/watch?v=jdgVZP0v30w"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            What’s EVM mapping?
+          </a>
+        ) : null}
+        <button
+          type="button"
+          className="inline-flex items-center rounded-lg border border-blue-400 px-3 py-1 text-xs font-medium text-blue-700 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 underline"
+          onClick={onChangeAddress}
+        >
+          Change address
+        </button>
       </div>
     </div>
   );
@@ -220,8 +266,7 @@ export function NftGallery({ address, enableOwnerInfinite = false }: NftGalleryP
     fetchNextPage: fetchOwnerNextPage,
   } = useSqwidNftsInfinite({ owner: enableOwnerInfinite ? address : null, limit: ownerInfPageSize });
   const { nfts: fallbackNfts, isLoading: isFallbackLoading } = useSqwidNfts(enableOwnerInfinite ? null : address);
-  const { resolveEvmAddress, getAddressType, isResolving: isAddrResolving } = useAddressResolver();
-  const [resolvedEvm, setResolvedEvm] = React.useState<string | null | undefined>(undefined);
+  const { getAddressType } = useAddressResolver();
   const pagingRef = React.useRef<boolean>(false);
   // Overview Tabs & row-chunked reveal
   const [overviewTab, setOverviewTab] = React.useState<'collections' | 'video' | 'other'>('video');
@@ -326,27 +371,7 @@ export function NftGallery({ address, enableOwnerInfinite = false }: NftGalleryP
     setOtherRows(ROWS_CHUNK);
   }, [address]);
 
-  React.useEffect(() => {
-    let canceled = false;
-    if (!address) {
-      setResolvedEvm(undefined);
-      return () => { canceled = true; };
-    }
-    const type = getAddressType(address);
-    if (type === 'evm') {
-      setResolvedEvm(address);
-      return () => { canceled = true; };
-    }
-    (async () => {
-      try {
-        const evm = await resolveEvmAddress(address);
-        if (!canceled) setResolvedEvm(evm);
-      } catch {
-        if (!canceled) setResolvedEvm(null);
-      }
-    })();
-    return () => { canceled = true; };
-  }, [address, getAddressType, resolveEvmAddress]);
+  // No EVM mapping resolution needed for empty-state copy anymore
   // NOTE (RU): Подсчёт без GraphQL-owned
   // - Полностью отказались от запроса Subsquid на owned-count; ориентируемся на Sqwid REST.
   // - Шапка коллекции: берём useSqwidCollection.total, иначе selectedCollection.itemCount,
@@ -424,14 +449,49 @@ export function NftGallery({ address, enableOwnerInfinite = false }: NftGalleryP
   }, [viewportWidth]);
 
   function openViewer(nft: Nft) {
+    // Prewarm media and poster to reduce first-load latency
+    function prewarmMedia(raw?: string | null) {
+      if (!raw) return;
+      try {
+        const url = normalizeIpfs(raw) ?? raw;
+        const head = document.head;
+        if (!head) return;
+        let origin: string | null = null;
+        try { const u = new URL(url, window.location.href); origin = u.origin; } catch { /* ignore invalid */ }
+        const links: HTMLLinkElement[] = [];
+        if (origin) {
+          try {
+            const preconnect = document.createElement('link');
+            preconnect.rel = 'preconnect';
+            preconnect.href = origin;
+            preconnect.crossOrigin = 'anonymous';
+            head.appendChild(preconnect); links.push(preconnect);
+          } catch { /* ignore */ }
+          try {
+            const dns = document.createElement('link');
+            dns.rel = 'dns-prefetch';
+            dns.href = origin;
+            head.appendChild(dns); links.push(dns);
+          } catch { /* ignore */ }
+        }
+        try {
+          window.setTimeout(() => { for (const el of links) { try { el.remove(); } catch { /* ignore */ } } }, 15000);
+        } catch { /* ignore */ }
+      } catch { /* ignore */ }
+    }
     const srcRaw = nft.media ?? nft.image;
     if (!srcRaw) return;
     const posterRaw = nft.thumbnail ?? nft.image;
+    // Kick off prewarm immediately (does not block viewer open)
+    prewarmMedia(srcRaw);
+    prewarmMedia(posterRaw);
     const src = normalizeIpfs(srcRaw) ?? srcRaw;
     const poster = normalizeIpfs(posterRaw) ?? posterRaw;
     const mime = nft.mimetype;
     setViewer({ src, poster, mime, name: nft.name });
   }
+
+  // Thumbnails network suspension is now driven by a "suspended" prop, see NftVideoThumb
 
   React.useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -493,6 +553,17 @@ export function NftGallery({ address, enableOwnerInfinite = false }: NftGalleryP
     setSelectedCollection(col);
   }
 
+  function focusAddressInput() {
+    try {
+      const el = document.querySelector('[data-testid="address-input"]') as HTMLInputElement | null;
+      if (el) {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        el.focus();
+        try { el.select(); } catch { /* ignore */ }
+      }
+    } catch { /* ignore */ }
+  }
+
   if (!address) {
     return (
       <div className="text-center py-8 bg-white rounded-lg shadow">
@@ -501,18 +572,9 @@ export function NftGallery({ address, enableOwnerInfinite = false }: NftGalleryP
     );
   }
 
-  const isSubstrate = address ? getAddressType(address) === 'substrate' : false;
-  if (isSubstrate && !isAddrResolving && resolvedEvm === null) {
-    return (
-      <div className="flex items-center gap-3 p-4 mb-4 text-blue-800 bg-blue-100 rounded-lg" data-testid="nft-requires-evm">
-        <AlertTriangle className="h-5 w-5" />
-        <div>
-          <p>No NFTs available: the provided address is not EVM-mapped.</p>
-          <p>Bind an EVM address in your Reef wallet to view NFTs.</p>
-        </div>
-      </div>
-    );
-  }
+  // Show an explanatory note for any non-EVM input (covers addresses that are not 0x-format
+  // but might still pass backend validation and land in empty state UI).
+  const isNonEvmInput = address ? getAddressType(address) !== 'evm' : false;
 
   const isOwnerNftsLoading = enableOwnerInfinite ? isOwnerInfLoading : isFallbackLoading;
   if (isOwnerLoading || isOwnerNftsLoading) {
@@ -543,24 +605,23 @@ export function NftGallery({ address, enableOwnerInfinite = false }: NftGalleryP
 
   if (!selectedCollection && totalItems === 0) {
     return (
-      <div className="bg-white rounded-lg shadow p-4">
-        <p className="text-gray-500">No collections or NFTs found for this address. You can open a collection by ID:</p>
-        <div className="flex items-center gap-2 mt-2">
-          <input
-            className="border rounded px-2 py-1 text-sm w-full"
-            placeholder="Paste Collection ID (e.g. Jz14NjucSzaXUQ45Hjk1)"
-            value={collectionIdInput}
-            onChange={(e) => setCollectionIdInput(e.target.value.trim())}
-          />
-          <button
-            type="button"
-            className="px-3 py-1 border rounded disabled:opacity-50"
-            onClick={() => openCollectionById(collectionIdInput)}
-            disabled={!collectionIdInput || isOpening}
-          >
-            {isOpening ? 'Opening...' : 'Open'}
-          </button>
-        </div>
+      <div className="rounded-xl border border-gray-200 bg-white p-4 shadow">
+        <h3 className="text-base font-semibold text-gray-900">No NFTs found for this address</h3>
+        {isNonEvmInput ? (
+          <p className="mt-1 text-sm text-gray-600" data-testid="nft-non-evm-note">
+            This Reef address isn’t mapped to an EVM account, so we can’t show EVM-based NFTs.
+          </p>
+        ) : null}
+
+        <CollectionOpenPanel
+          collectionIdInput={collectionIdInput}
+          onChangeInput={(v) => setCollectionIdInput(v)}
+          onOpen={openCollectionById}
+          isOpening={isOpening}
+          showHelpLink={true}
+          onChangeAddress={focusAddressInput}
+          data-testid="empty-open-panel"
+        />
       </div>
     );
   }
@@ -653,7 +714,7 @@ export function NftGallery({ address, enableOwnerInfinite = false }: NftGalleryP
           </div>
         ) : selectedCollection ? (
           <>
-            <PreloadTopVideos nfts={displayedFiltered} count={4} />
+            {!viewer ? <PreloadTopVideos nfts={displayedFiltered} count={4} /> : null}
             {displayedFiltered.length === 0 && isCollectionLoading ? (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
                 {Array.from({ length: limit }).map((_, i) => <NftCardSkeleton key={`sk-${i}`} />)}
@@ -687,6 +748,7 @@ export function NftGallery({ address, enableOwnerInfinite = false }: NftGalleryP
                           onPreview={openViewer}
                           priority={(info?.near ?? false) || idx < 4}
                           onThumbReady={withinGate && isVideoGridActive ? onGateThumbReady : undefined}
+                          suspended={!!viewer}
                         />
                       );
                     }}
@@ -728,6 +790,22 @@ export function NftGallery({ address, enableOwnerInfinite = false }: NftGalleryP
                 />
               </div>
             )}
+            {overviewTab === 'collections' && collectionsWithCount.length === 0 && (
+              <div>
+                <div className="text-sm text-gray-600" data-testid="no-collections-note">
+                  No collections found for this address.
+                </div>
+                <CollectionOpenPanel
+                  collectionIdInput={collectionIdInput}
+                  onChangeInput={(v) => setCollectionIdInput(v)}
+                  onOpen={openCollectionById}
+                  isOpening={isOpening}
+                  showHelpLink={false}
+                  onChangeAddress={focusAddressInput}
+                  data-testid="no-collections-open-panel"
+                />
+              </div>
+            )}
             {overviewTab === 'video' && videoNfts.length > 0 && (
               <div className="relative">
                 <h3 className="text-md font-semibold mb-2">Video NFTs ({videoNfts.length})</h3>
@@ -764,6 +842,7 @@ export function NftGallery({ address, enableOwnerInfinite = false }: NftGalleryP
                         onPreview={openViewer}
                         priority={(info?.near ?? false) || idx < 4}
                         onThumbReady={withinGate && isVideoGridActive ? onGateThumbReady : undefined}
+                        suspended={!!viewer}
                       />
                     );
                   }}
@@ -835,25 +914,36 @@ export function NftGallery({ address, enableOwnerInfinite = false }: NftGalleryP
 
       {viewer ? (
         <div
-          className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
           data-testid="viewer-overlay"
           onClick={() => setViewer(null)}
         >
           <div
-            className="relative bg-white rounded-md p-3 max-w-[90vw] max-h-[90vh] overflow-auto"
+            className="relative bg-white rounded-2xl shadow-2xl ring-1 ring-black/10 p-4 md:p-6 max-w-[min(92vw,860px)] max-h-[88vh] overflow-auto"
             data-testid="viewer-content"
             onClick={(e) => e.stopPropagation()}
           >
             <button
               type="button"
-              className="absolute top-2 right-2 px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
+              className="absolute top-3 right-3 px-3 py-1.5 text-xs rounded-full bg-gray-900/80 text-white hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-white/40"
               data-testid="viewer-close"
               onClick={() => setViewer(null)}
               aria-label="Close"
             >
               Close
             </button>
-            <NftMediaViewer src={viewer.src} poster={viewer.poster ?? null} mime={viewer.mime ?? null} name={viewer.name ?? null} />
+            {viewer.name ? (
+              <div className="mb-3 pr-14">
+                <h3 className="text-sm font-medium text-gray-900 truncate">{viewer.name}</h3>
+              </div>
+            ) : null}
+            <NftMediaViewer
+              src={viewer.src}
+              poster={viewer.poster ?? null}
+              mime={viewer.mime ?? null}
+              name={viewer.name ?? null}
+              className="block mx-auto w-full h-auto max-w-[560px] sm:max-w-[640px] md:max-w-[720px] lg:max-w-[800px] max-h-[70vh] rounded-xl shadow-lg bg-black"
+            />
           </div>
         </div>
       ) : null}

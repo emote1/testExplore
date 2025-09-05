@@ -3,7 +3,7 @@ import { useInfiniteQuery } from '@tanstack/react-query';
 import { apolloClient as client } from '../apollo-client';
 import { useAddressResolver } from './use-address-resolver';
 import { NFTS_BY_OWNER_PAGED_QUERY } from '../data/nfts';
-import type { NftsByOwnerPagedQuery, NftsByOwnerPagedQueryVariables } from '@/gql/graphql';
+import type { NftsByOwnerPagedQuery, NftsByOwnerPagedQueryVariables, ContractType } from '@/gql/graphql';
 import { normalizeIpfs } from '../utils/ipfs';
 import { toU64 } from '../utils/number';
 import { fetchNftMetadata, setAbortSignal, type Nft } from './use-sqwid-nfts';
@@ -14,9 +14,11 @@ export interface UseSqwidNftsInfiniteParams {
   limit?: number; // GraphQL page size
 }
 
+type TokenType = Extract<ContractType, 'ERC721' | 'ERC1155'>;
+
 interface PageResult {
   __offset: number;
-  __pairs: { contractAddress: string; nftId: string | number; tokenType?: string; amount?: number }[];
+  __pairs: { contractAddress: string; nftId: string | number; tokenType?: TokenType; amount?: number }[];
   __nfts: Nft[];
 }
 
@@ -93,12 +95,13 @@ export function useSqwidNftsInfinite(params: UseSqwidNftsInfiniteParams) {
 
         // 2) Map to unique (contract, token) pairs and preserve owned amount
         const seen = new Set<string>();
-        const pairs: { contractAddress: string; nftId: string | number; tokenType?: string; amount?: number }[] = [];
+        const pairs: { contractAddress: string; nftId: string | number; tokenType?: TokenType; amount?: number }[] = [];
         for (const t of holders) {
           const contractId = t?.token?.id ?? undefined;
           const nftIdRaw = t?.nftId as unknown;
           const nftId = typeof nftIdRaw === 'string' || typeof nftIdRaw === 'number' ? nftIdRaw : undefined;
-          const tokenType = (t?.token?.type ?? undefined) as unknown as string | undefined;
+          const typeRaw = (t?.token?.type ?? undefined) as ContractType | null | undefined;
+          const tokenType: TokenType | undefined = typeRaw === 'ERC721' || typeRaw === 'ERC1155' ? typeRaw : undefined;
           const ownedAmount = toU64(t?.balance as unknown, 0);
           if (!contractId || (nftId === undefined || nftId === null)) continue;
           const key = `${contractId}::${nftId}`;

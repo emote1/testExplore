@@ -61,8 +61,65 @@ This document tracks the optimizations we plan to implement, the test coverage t
 5. Extract IPFS utils and split media components
 6. Migrate `use-sqwid-nfts` to TanStack Query
 
-
 ## Commands
 - Build: `npm run build`
 - Lint: `npm run lint`
 - E2E: `npm run test:e2e`
+
+## 8) Transactions: Real-time, Pagination & UX
+
+### Completed
+- [x] Support EVM addresses in polling and pagination (OR by native id and EVM address) — hooks: `src/hooks/useTransferSubscription.ts`, `src/hooks/use-transaction-data-with-blocks.ts`
+- [x] Responsive table layout (timestamp visible, fee compact, narrow actions)
+
+### Quick Wins (prioritized)
+- [x] Unified address filter builder `buildTransferWhereFilter()` in `src/utils/transfer-query.ts`; reuse in both hooks
+- [x] Add secondary sort key `id_DESC` to `orderBy` for stability on equal timestamps
+- [x] New-row highlight with auto-fade (non-intrusive UX cue)
+
+### Reliability & Correctness
+- [x] Pause polling when tab hidden (`visibilitychange`), resume on visible
+- [x] Cap the set of seen transfer IDs to last N=200 per address; reset on address change
+- [x] Centralize timestamp formatting and show full value in tooltip/title
+- [x] Enforce stable client-side sorting (`timestamp_DESC,id_DESC`) after mapping to ensure deterministic order
+- [x] UI-level deduplication by `id` after sorting to guard against cache merge races
+
+### Performance & UX
+- [x] Virtualize table rows with `@tanstack/react-virtual` (large lists)
+- [x] Apollo field policy for `transfersConnection` (`keyArgs: ['where','orderBy']`, merge unique by `node.id`) + prepend new items via cache update (no full refetch)
+- [x] LRU cache (with TTL) in `use-address-resolver.ts` to avoid repeated address resolution calls
+- [x] Handle virtual shift on subscription prepend on page 1: auto-reanchor to current first id; deep pages remain stable (no auto-reanchor)
+- [ ] Show “New X items” banner on page 1 (deferred)
+### Architecture & Code Structure
+- [x] Extract `transfer-new-items` detector util to avoid duplication between hooks
+- [x] Consolidate GraphQL `Transfer` fragments in `src/data/transfers.ts` and reuse in queries
+- [x] Harmonize fetch policies (initial: `cache-and-network`; polling: `network-only`)
+
+### QA & Tests
+- [ ] E2E: EVM polling — enter 0x address, tick, new row appears on page 1
+- [x] Unit: `buildTransferWhereFilter()` cases (native-only, evm-only, both)
+
+### Pagination & Caching Plan (MVP)
+ - [x] Adapter: ensureLoaded — sequential `fetchMore()` until `(pageIndex+1)*UI_SIZE` loaded; cap by `PAGINATION_CONFIG.MAX_SEQUENTIAL_FETCH_PAGES`; guard concurrent calls.
+ - [x] Idle prefetch: when tab visible and idle, prefetch next API page (use `requestIdleCallback` with `setTimeout` fallback).
+ - [x] Pause on hidden tab: skip idle prefetch if `document.hidden`.
+  - [ ] Page count: estimate from loaded items + `hasNextPage`; freeze when end reached.
+  - [x] Handle virtual shift on subscription prepend on page 1: auto-reanchor to current first id; deep pages remain stable (no auto-reanchor).
+  - [ ] Show “New X items” banner on page 1 (deferred).
+
+ ### Pagination Stability & Parity (follow‑ups)
+ - [x] Apollo typePolicy merge for `transfersConnection` (first page): prepend + dedupe into existing edges instead of full replace, to preserve already appended pages and maintain total ordering during network refresh (`fetchPolicy: cache-and-network`). Keep/merge `pageInfo.endCursor` sensibly (prefer existing when longer list is present). Implemented in `src/apollo-client.ts`.
+ - [ ] Anchor stability on deep pages: do not re‑anchor when `anchorFirstId` disappears (e.g., first page refresh trims it). Keep anchor until user explicitly reveals new items or returns to page 1. This prevents offset jumps between consecutive pages.
+ - [ ] Expose `hasExactTotal` from adapter and update UI: hide “last” quick chip when total is unknown; render “Page X of ~Y”.
+ - [ ] Extract `useIdlePrefetchNextPage(fetchMore)` small hook; unit‑test scheduling/visibility guards.
+ - [ ] Update URL (`?page=<index>`) via `history.replaceState` on page changes for shareable deep links.
+
+### QA & Tests — ordering and Reefscan parity
+ - [ ] Unit: synthetic list to validate merged connection remains strictly non‑increasing by `timestamp_DESC,id_DESC` across all edges after first‑page refresh + appends.
+ - [ ] E2E: deep navigation N→N+1 keeps non‑increasing timestamps (assert last row of page N >= first row of page N+1).
+ - [ ] E2E: deep jump (e.g., page 12→13) does not show newer dates on the next page.
+ - [ ] E2E: no duplicate transfer IDs across pagination boundaries and after subscription updates (first-page prepend).
+ - [ ] Parity check vs Reefscan for the reported address: verify filters (native id OR EVM) and ordering match; record any missing extrinsics or differing semantics (e.g., fee-only events, internal transfers). Document findings in `UPDATE_STATUS.md`.
+
+### Backend/API (if available)
+- [ ] Expose fee directly in transfer query to remove extra extrinsic-fee batch fetch

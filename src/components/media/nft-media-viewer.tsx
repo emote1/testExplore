@@ -32,10 +32,31 @@ export function NftMediaViewer({ src, poster, mime, name, className }: NftMediaV
   const [imgIdx, setImgIdx] = React.useState(0);
   const vidRef = React.useRef<HTMLVideoElement | null>(null);
   const [mutedAuto, setMutedAuto] = React.useState(false);
+  const [ratio, setRatio] = React.useState<number | null>(null);
+  const [showPoster, setShowPoster] = React.useState(false);
+  const [snapshotUrl, setSnapshotUrl] = React.useState<string | null>(null);
+
+  function restoreAndPlay() {
+    const el = vidRef.current;
+    if (!el) return;
+    if (!el.getAttribute('src') && videoSrc) {
+      try { el.setAttribute('src', videoSrc); } catch {}
+      try { el.load(); } catch {}
+    }
+    setShowPoster(false);
+    setSnapshotUrl(null);
+    try {
+      const p = el.play();
+      if (p && typeof (p as any).catch === 'function') (p as any).catch(() => undefined);
+    } catch { /* ignore play errors */ }
+  }
 
   React.useEffect(() => {
     setVideoFailed(false);
     setImgIdx(0);
+    setRatio(null);
+    setShowPoster(false);
+    setSnapshotUrl(null);
   }, [src, mime]);
 
   // IPFS candidates via shared helper
@@ -61,19 +82,62 @@ export function NftMediaViewer({ src, poster, mime, name, className }: NftMediaV
   // Prefer video if explicit or if type unknown; fall back to image on error
   if (!videoFailed && (kindHint === 'video' || kindHint == null)) {
     return (
-      <video
-        ref={vidRef}
-        className={className ?? 'max-w-full max-h-[80vh] rounded-md bg-black'}
-        data-testid="viewer-video"
-        controls
-        autoPlay
-        loop
-        preload="auto"
-        playsInline
-        muted={mutedAuto}
-        poster={posterSrc}
-        aria-label={name ?? 'NFT video'}
-        src={videoSrc}
+      <div className={className ?? 'max-w-full max-h-[80vh] rounded-md bg-black'} style={{ aspectRatio: ratio ?? '16 / 9', minHeight: 200, position: 'relative' }}>
+        <button
+          type="button"
+          aria-label="Replay"
+          title="Replay"
+          onClick={restoreAndPlay}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); restoreAndPlay(); } }}
+          className="absolute inset-0 z-10"
+          style={{ opacity: showPoster ? 1 : 0, pointerEvents: showPoster ? 'auto' : 'none', transition: 'opacity 150ms ease', background: 'transparent' }}
+        >
+          {posterSrc || snapshotUrl ? (
+            <img
+              src={snapshotUrl ?? posterSrc}
+              alt={name ?? 'NFT poster'}
+              className="w-full h-full object-contain rounded-md"
+              draggable={false}
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <div className="px-3 py-1 rounded-full bg-white/80 text-gray-800 text-sm shadow">Replay</div>
+            </div>
+          )}
+        </button>
+        <video
+          ref={vidRef}
+          className={'w-full h-full rounded-md bg-black'}
+          data-testid="viewer-video"
+          crossOrigin="anonymous"
+          controls={!showPoster}
+          autoPlay
+          preload="metadata"
+          playsInline
+          muted={mutedAuto}
+          poster={posterSrc}
+          aria-label={name ?? 'NFT video'}
+          src={videoSrc}
+          onLoadedMetadata={() => {
+            const el = vidRef.current;
+            if (!el) return;
+            const vw = el.videoWidth;
+            const vh = el.videoHeight;
+            if (vw > 0 && vh > 0) setRatio(vw / vh);
+          }}
+        onClick={restoreAndPlay}
+        onPlay={() => {
+          const el = vidRef.current;
+          if (!el) return;
+          if (!el.getAttribute('src') && videoSrc) {
+            try { el.setAttribute('src', videoSrc); } catch {}
+            try { el.load(); } catch {}
+            const p = el.play();
+            if (p && typeof p.catch === 'function') p.catch(() => undefined);
+          }
+          setShowPoster(false);
+          setSnapshotUrl(null);
+        }}
         onLoadedData={() => {
           const el = vidRef.current;
           if (!el) return;
@@ -88,6 +152,35 @@ export function NftMediaViewer({ src, poster, mime, name, className }: NftMediaV
             });
           }
         }}
+        onEnded={() => {
+          const el = vidRef.current;
+          if (!el) return;
+          // Try to capture last frame as data URL to show as overlay
+          try {
+            const vw = el.videoWidth;
+            const vh = el.videoHeight;
+            if (vw > 0 && vh > 0) {
+              const canvas = document.createElement('canvas');
+              canvas.width = vw; canvas.height = vh;
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                ctx.drawImage(el, 0, 0, vw, vh);
+                try {
+                  const url = canvas.toDataURL('image/webp', 0.85);
+                  if (url && url.startsWith('data:image')) setSnapshotUrl(url);
+                } catch { /* canvas may be tainted by CORS; ignore */ }
+              }
+            }
+          } catch { /* ignore snapshot errors */ }
+          try { el.pause(); } catch {}
+          try { el.autoplay = false; } catch {}
+          try { el.loop = false; } catch {}
+          try { (el as any).preload = 'none'; } catch {}
+          try { el.currentTime = 0; } catch {}
+          try { el.removeAttribute('src'); } catch {}
+          try { el.load(); } catch {}
+          setShowPoster(true);
+        }}
         onError={() => {
           setVidIdx((i) => {
             const next = i + 1;
@@ -96,9 +189,10 @@ export function NftMediaViewer({ src, poster, mime, name, className }: NftMediaV
             return i;
           });
         }}
-      >
-        Your browser does not support the video tag.
-      </video>
+        >
+          Your browser does not support the video tag.
+        </video>
+      </div>
     );
   }
 

@@ -40,36 +40,38 @@ export const BULK_EXTRINSIC_FEES_QUERY = graphql(`
   }
 `);
 
+// --- Reusable fragments for transfers ---
+export const TRANSFER_COMMON_FIELDS = graphql(`
+  fragment TransferCommonFields on Transfer {
+    id
+    amount
+    timestamp
+    success
+    type
+    signedData
+    extrinsicHash
+    from { id }
+    to { id }
+    token { id name }
+  }
+`);
+
 export const PAGINATED_TRANSFERS_QUERY = graphql(`
   query TransfersFeeQuery($first: Int!, $after: String, $where: TransferWhereInput, $orderBy: [TransferOrderByInput!]!) {
     transfersConnection(orderBy: $orderBy, first: $first, after: $after, where: $where) {
       edges {
         node {
-          id
-          amount
-          timestamp
-          success
-          type
-          signedData
-          extrinsicHash
-          from {
-            id
-          }
-          to {
-            id
-          }
+          ...TransferCommonFields
           token {
-            id
-            name
             contractData
           }
-
         }
       }
       pageInfo {
         hasNextPage
         endCursor
       }
+      totalCount
     }
   }
 `);
@@ -94,23 +96,7 @@ export const NFT_TOKEN_ID_QUERY = graphql(`
 export const TRANSFERS_POLLING_QUERY = graphql(`
   query TransfersPollingQuery($where: TransferWhereInput, $orderBy: [TransferOrderByInput!], $offset: Int, $limit: Int) {
     transfers(where: $where, orderBy: $orderBy, offset: $offset, limit: $limit) {
-      id
-      amount
-      timestamp
-      success
-      type
-      signedData
-      extrinsicHash
-      from {
-        id
-      }
-      to {
-        id
-      }
-      token {
-        id
-        name
-      }
+      ...TransferCommonFields
     }
   }
 `);

@@ -165,17 +165,25 @@ async function fetchSqwidCollectionsByOwner(evmAddress: string | null, signal?: 
   const response = await fetch(url, { headers: { accept: 'application/json' }, signal });
 
   if (!response.ok) {
-    if (response.status === 404) return []; // No collections found is not an error
-    throw new Error(`HTTP error! status: ${response.status}`);
+    // Gracefully degrade: treat any non-2xx (including 404) as "no collections"
+    if (evmAddress) collectionsByOwnerTtl.set(evmAddress, []);
+    return [];
   }
 
   const contentType = response.headers.get('content-type');
   if (!contentType || !contentType.includes('application/json')) {
-    const text = await response.text();
-    throw new Error(`Expected JSON but received ${contentType}. Response: ${text.slice(0, 100)}`);
+    // Unexpected content type; assume empty result instead of surfacing an error
+    if (evmAddress) collectionsByOwnerTtl.set(evmAddress, []);
+    return [];
   }
 
-  const raw: unknown = await response.json();
+  let raw: unknown;
+  try {
+    raw = await response.json();
+  } catch {
+    if (evmAddress) collectionsByOwnerTtl.set(evmAddress, []);
+    return [];
+  }
   type RawCollectionsEnvelope = { collections?: unknown[] };
   interface RawCollection { id?: string; data?: { name?: string; thumbnail?: string; image?: string } }
   const arrUnknown: unknown[] = Array.isArray(raw)

@@ -20,6 +20,15 @@ export const PAGINATION_CONFIG = {
   
   /** Maximum number of pages to scan sequentially */
   MAX_SEQUENTIAL_FETCH_PAGES: 20,
+
+  /** Number of UI pages to load ahead in non-fast mode (ladder/pipeline size) */
+  NON_FAST_LADDER_UI_PAGES: 3,
+
+  /** Enable fast mode for deep page jumps using offset/limit window fetches */
+  ENABLE_FAST_OFFSET_MODE: true,
+
+  /** Start using fast offset mode when page index is >= this threshold */
+  FAST_OFFSET_MODE_THRESHOLD_PAGES: 50,
   
   /** Maximum items for optimized last page fetch */
   MAX_OPTIMIZED_FETCH_COUNT: 50,
@@ -29,6 +38,13 @@ export const PAGINATION_CONFIG = {
   
   /** Polling interval in milliseconds */
   POLLING_INTERVAL_MS: 30000, // 30 seconds by default, less frequent than before
+
+  /**
+   * Use manual cache prepend in subscription instead of refetching the first page.
+   * When true, `useTransferSubscription` will update Apollo cache directly via updateQuery,
+   * dedupe by id and cap to API_FETCH_PAGE_SIZE. When false, it will refetch the first page.
+   */
+  SUB_PREPEND_WITHOUT_REFETCH: true,
 } as const;
 
 export const API_CONFIG = {
