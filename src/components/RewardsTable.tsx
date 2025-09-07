@@ -1,8 +1,12 @@
+import { useState, lazy, Suspense } from 'react';
 import { Loader2, Award } from 'lucide-react';
 import { useStakingRewards } from '@/hooks/useStakingRewards';
 import { formatTimestamp, formatTimestampFull, formatTokenAmount } from '@/utils/formatters';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 import { ExternalLink } from './ui/external-link';
+import { useReefPrice } from '@/hooks/use-reef-price';
+import { Button } from './ui/button';
+const RewardsChartLazy = lazy(() => import('./RewardsChart').then((m) => ({ default: m.RewardsChart })));
 
 interface RewardsTableProps {
   address: string;
@@ -10,6 +14,8 @@ interface RewardsTableProps {
 
 export function RewardsTable({ address }: RewardsTableProps) {
   const { rewards, loading, error, pageIndex, pageCount, setPageIndex, totalCount } = useStakingRewards(address, 25);
+  const { price } = useReefPrice();
+  const [showChart, setShowChart] = useState(false);
 
   return (
     <div className="relative p-4 bg-white rounded-lg shadow-md overflow-hidden">
@@ -19,11 +25,22 @@ export function RewardsTable({ address }: RewardsTableProps) {
           <span className="font-semibold">Staking Rewards</span>
           <span className="text-sm text-gray-500">{totalCount ? `${totalCount} total` : ''}</span>
         </div>
+        <div className="flex items-center gap-2">
+          <Button variant={showChart ? 'default' : 'outline'} size="sm" onClick={() => setShowChart((v) => !v)}>
+            {showChart ? 'Hide Chart' : 'Show Chart'}
+          </Button>
+        </div>
       </div>
 
       {error && (
         <div className="mb-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-red-800">{String(error.message || error)}</div>
       )}
+
+      {showChart ? (
+        <Suspense fallback={<div className="mb-3 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-gray-700">Loading chart…</div>}>
+          <RewardsChartLazy address={address} />
+        </Suspense>
+      ) : null}
 
       <div className="overflow-x-auto md:overflow-x-visible">
         <table className="w-full table-fixed divide-y divide-gray-200">
@@ -50,6 +67,25 @@ export function RewardsTable({ address }: RewardsTableProps) {
                 const ts = formatTimestamp(r.timestamp);
                 const full = formatTimestampFull(r.timestamp);
                 const amount = formatTokenAmount(r.amount, 18, 'REEF');
+                // Convert base units (18 decimals) to a JS number with ~4 decimal precision to avoid BigInt->Number overflow
+                const amountReef: number = (() => {
+                  try {
+                    const bi = BigInt(r.amount);
+                    // Divide by 1e14 first (BigInt), then by 1e4 as float => keeps 4 decimal places (total 1e18)
+                    return Number(bi / 100000000000000n) / 1e4;
+                  } catch {
+                    return 0;
+                  }
+                })();
+                const amountUsd = price ? amountReef * price.usd : null;
+                const amountUsdText = amountUsd === null
+                  ? null
+                  : (() => {
+                      const sign = amountUsd < 0 ? '-' : '';
+                      const abs = Math.abs(amountUsd);
+                      const num = abs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                      return `${sign}${num}$`;
+                    })();
                 return (
                   <tr key={r.id}>
                     <td className="px-4 py-3 whitespace-nowrap">
@@ -62,7 +98,7 @@ export function RewardsTable({ address }: RewardsTableProps) {
                         </Tooltip>
                       </TooltipProvider>
                     </td>
-                    <td className="px-4 py-3">{amount}</td>
+                    <td className="px-4 py-3">{amount}{amountUsdText ? <span className="ml-2 text-gray-500">{amountUsdText}</span> : null}</td>
                     <td className="px-2 py-3 text-center">{r.extrinsicHash ? <ExternalLink href={`https://reefscan.com/extrinsic/${r.extrinsicHash}`} /> : '-'}</td>
                   </tr>
                 );
