@@ -12,10 +12,17 @@ import { sumFeesFromEvents } from '@/utils/fees';
 // Simple module-level cache to deduplicate fee fetches across hooks/components
 const feeCache = new Map<string, string>();
 const inflightFees = new Map<string, Promise<string>>();
+// Cache for extrinsic id by hash (e.g., "13538903-1")
+const extrinsicIdCache = new Map<string, string>();
 
 export function getCachedFee(extrinsicHash: string): string | undefined {
   if (!extrinsicHash) return undefined;
   return feeCache.get(extrinsicHash);
+}
+
+export function getCachedExtrinsicId(extrinsicHash: string): string | undefined {
+  if (!extrinsicHash) return undefined;
+  return extrinsicIdCache.get(extrinsicHash);
 }
 
 export const EXTRINSIC_FEE_QUERY = graphql(`
@@ -24,6 +31,15 @@ export const EXTRINSIC_FEE_QUERY = graphql(`
       events(where: {section_eq: "transactionpayment", method_eq: "TransactionFeePaid"}, limit: 1) {
         data
       }
+    }
+  }
+`);
+
+// Minimal extrinsic fetch by hash to retrieve its canonical id ("block-extrinsic")
+export const EXTRINSIC_ID_BY_HASH_QUERY = graphql(`
+  query ExtrinsicIdByHash($hash: String!) {
+    extrinsics(where: { hash_eq: $hash }, limit: 1) {
+      id
     }
   }
 `);
@@ -40,6 +56,16 @@ export const BULK_EXTRINSIC_FEES_QUERY = graphql(`
   }
 `);
 
+// Bulk extrinsic ids by hashes to minimize round-trips
+export const BULK_EXTRINSIC_IDS_BY_HASHES_QUERY = graphql(`
+  query BulkExtrinsicIdsByHashes($hashes: [String!]!) {
+    extrinsics(where: { hash_in: $hashes }) {
+      hash
+      id
+    }
+  }
+`);
+
 // --- Reusable fragments for transfers ---
 export const TRANSFER_COMMON_FIELDS = graphql(`
   fragment TransferCommonFields on Transfer {
@@ -50,6 +76,10 @@ export const TRANSFER_COMMON_FIELDS = graphql(`
     type
     signedData
     extrinsicHash
+    extrinsicId
+    blockHeight
+    extrinsicIndex
+    eventIndex
     from { id }
     to { id }
     token { id name }
@@ -212,5 +242,98 @@ export async function fetchFeesByExtrinsicHashes(
 
   const workers = Array.from({ length: Math.min(concurrency, toFetch.length) }, () => worker());
   await Promise.all(workers);
+  return result;
+}
+
+// --- ExtrinsicId helpers ---
+/**
+ * Fetch extrinsic id ("block-extrinsic") by extrinsic hash and cache it.
+ */
+export async function fetchExtrinsicIdByHash(
+  client: ApolloClient<NormalizedCacheObject>,
+  hash: string,
+): Promise<string | undefined> {
+  if (!hash) return undefined;
+  const cached = extrinsicIdCache.get(hash);
+  if (cached !== undefined) return cached;
+  try {
+    const { data } = await client.query({
+      query: EXTRINSIC_ID_BY_HASH_QUERY as unknown as TypedDocumentNode<any, any>,
+      variables: { hash },
+      fetchPolicy: 'cache-first',
+    });
+    const id: string | undefined = data?.extrinsics?.[0]?.id;
+    if (id) extrinsicIdCache.set(hash, id);
+    return id;
+  } catch (e) {
+    console.warn('[exId] Failed to fetch extrinsic id for hash', hash, e);
+    return undefined;
+  }
+}
+
+/**
+ * Fetch extrinsic ids for a list of extrinsic hashes with simple concurrency limiting.
+ */
+export async function fetchExtrinsicIdsByHashes(
+  client: ApolloClient<NormalizedCacheObject>,
+  hashes: string[],
+  concurrency = 4,
+): Promise<Record<string, string>> {
+  const unique = Array.from(new Set(hashes.filter(Boolean)));
+  const result: Record<string, string> = {};
+
+  const toFetch: string[] = [];
+  for (const h of unique) {
+    const cached = extrinsicIdCache.get(h);
+    if (cached !== undefined) {
+      result[h] = cached;
+    } else {
+      toFetch.push(h);
+    }
+  }
+
+  // Try bulk first to reduce number of requests
+  let remaining = toFetch.slice();
+  if (remaining.length > 1) {
+    try {
+      const { data } = await client.query({
+        query: BULK_EXTRINSIC_IDS_BY_HASHES_QUERY as unknown as TypedDocumentNode<any, any>,
+        variables: { hashes: remaining },
+        fetchPolicy: 'cache-first',
+      });
+      const list = (data?.extrinsics ?? []) as Array<{ hash: string; id?: string }>;
+      const bulkMap: Record<string, string> = {};
+      for (const ex of list) {
+        if (ex?.hash && ex?.id) {
+          bulkMap[ex.hash] = ex.id;
+          extrinsicIdCache.set(ex.hash, ex.id);
+        }
+      }
+      for (const [h, id] of Object.entries(bulkMap)) {
+        result[h] = id;
+      }
+      remaining = remaining.filter((h) => bulkMap[h] === undefined);
+    } catch (e) {
+      console.warn('[exId][bulk] Failed to fetch bulk extrinsic ids', e);
+    }
+  }
+
+  // Fallback to singles for those still missing
+  if (remaining.length > 0) {
+    let index = 0;
+    async function worker() {
+      while (index < remaining.length) {
+        const current = remaining[index++];
+        const id = await fetchExtrinsicIdByHash(client, current);
+        if (id) {
+          result[current] = id;
+          extrinsicIdCache.set(current, id);
+        }
+      }
+    }
+    const workers = Array.from({ length: Math.min(concurrency, remaining.length) }, () => worker());
+    await Promise.all(workers);
+  }
+
   return result;
 }

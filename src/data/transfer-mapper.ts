@@ -2,11 +2,18 @@ import { getNumber, getString } from '@/utils/object';
 // Use minimal shapes instead of tight GraphQL-generated types so both
 // paginated and polling queries can reuse the mapper without type friction.
 
+export interface UiSwapInfo {
+  sold: { amount: string; token: { id: string; name: string; decimals: number } };
+  bought: { amount: string; token: { id: string; name: string; decimals: number } };
+  /** Optional: underlying transfer id (block-extrinsic-event) to build a direct Reefscan transfer link */
+  preferredTransferId?: string;
+}
+
 export interface UiTransfer {
   id: string;
   from: string;
   to: string;
-  type: 'INCOMING' | 'OUTGOING';
+  type: 'INCOMING' | 'OUTGOING' | 'SWAP';
   amount: string;
   isNft: boolean;
   tokenId: string | null;
@@ -20,6 +27,18 @@ export interface UiTransfer {
 
   extrinsicHash: string;
   feeAmount: string;
+
+  // Optional precise indices for Reefscan transfer link
+  blockHeight?: number;
+  extrinsicIndex?: number;
+  eventIndex?: number;
+  /** Optional extrinsic id in the form Block-Extrinsic (no event) */
+  extrinsicId?: string;
+
+  /** Synthetic method when we aggregate legs into a single logical action */
+  method?: 'swap' | 'transfer';
+  /** Detailed amounts for swap rows */
+  swapInfo?: UiSwapInfo;
 }
 
 interface TransferLikeToken {
@@ -132,6 +151,11 @@ export function mapTransfersToUiTransfers(
 
         extrinsicHash: transfer.extrinsicHash || '',
         feeAmount: partialFee ?? '0',
+        method: 'transfer',
+        blockHeight: getNumber(transfer as any, ['blockHeight']) ?? undefined,
+        extrinsicIndex: getNumber(transfer as any, ['extrinsicIndex']) ?? undefined,
+        eventIndex: getNumber(transfer as any, ['eventIndex']) ?? undefined,
+        extrinsicId: getString(transfer as any, ['extrinsicId']) ?? undefined,
       };
     })
     .filter((transfer): transfer is UiTransfer => transfer !== null);

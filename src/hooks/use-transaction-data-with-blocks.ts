@@ -7,7 +7,7 @@ import { PAGINATED_TRANSFERS_QUERY, TRANSFERS_POLLING_QUERY } from '../data/tran
 import type { TransferOrderByInput, TransfersFeeQueryQuery as TransfersFeeQuery, TransfersFeeQueryQueryVariables as TransfersFeeQueryVariables } from '@/gql/graphql';
 import { mapTransfersToUiTransfers, type UiTransfer } from '../data/transfer-mapper';
 import { useAddressResolver } from './use-address-resolver';
-import { fetchFeesByExtrinsicHashes, getCachedFee } from '../data/transfers';
+import { fetchFeesByExtrinsicHashes, getCachedFee, fetchExtrinsicIdsByHashes, getCachedExtrinsicId } from '../data/transfers';
 import { buildTransferWhereFilter } from '@/utils/transfer-query';
 import { getNumber, getString } from '@/utils/object';
 
@@ -43,6 +43,7 @@ export function useTransactionDataWithBlocks(
   const [isResolvingAddress, setIsResolvingAddress] = useState(false);
   const client = useApolloClient();
   const [feesByHash, setFeesByHash] = useState<Record<string, string>>({});
+  const [exIdsByHash, setExIdsByHash] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!accountAddress) {
@@ -91,6 +92,7 @@ export function useTransactionDataWithBlocks(
   // Reset fees when address changes
   useEffect(() => {
     setFeesByHash({});
+    setExIdsByHash({});
   }, [resolvedAddress, resolvedEvmAddress]);
 
   // Fetch fees for extrinsics present in current edges,
@@ -139,6 +141,44 @@ export function useTransactionDataWithBlocks(
     return () => { cancelled = true; };
   }, [client, data, feesByHash]);
 
+  // Fetch extrinsicId (block-extrinsic) for nodes missing it
+  useEffect(() => {
+    const edges = data?.transfersConnection.edges || [];
+    const nodes = edges.map((e) => e?.node).filter(Boolean) as Array<any>;
+    if (nodes.length === 0) return;
+
+    const missing: string[] = [];
+    for (const n of nodes) {
+      const h = getString(n, ['extrinsicHash']);
+      const exId = getString(n, ['extrinsicId']);
+      if (!h) continue;
+      if (exId) {
+        if (!exIdsByHash[h]) {
+          setExIdsByHash((prev) => ({ ...prev, [h]: exId }));
+        }
+        continue;
+      }
+      if (!getCachedExtrinsicId(h) && !exIdsByHash[h]) {
+        missing.push(h);
+      }
+    }
+    if (missing.length === 0) return;
+
+    let cancelled = false;
+    fetchExtrinsicIdsByHashes(client as ApolloClient<NormalizedCacheObject>, missing)
+      .then((map: Record<string, string>) => {
+        if (cancelled) return;
+        if (Object.keys(map).length > 0) {
+          setExIdsByHash((prev) => ({ ...prev, ...map }));
+        }
+      })
+      .catch((e: unknown) => {
+        console.warn('[exId] batch fetch failed', e);
+      });
+
+    return () => { cancelled = true; };
+  }, [client, data, exIdsByHash]);
+
   const uiTransfers = useMemo(() => {
     const edges = data?.transfersConnection.edges || [];
     if (edges.length === 0) {
@@ -153,6 +193,7 @@ export function useTransactionDataWithBlocks(
     const enriched = mapped.map((t) => ({
       ...t,
       feeAmount: t.extrinsicHash ? (feesByHash[t.extrinsicHash] ?? getCachedFee(t.extrinsicHash) ?? t.feeAmount) : t.feeAmount,
+      extrinsicId: t.extrinsicId ?? (t.extrinsicHash ? (exIdsByHash[t.extrinsicHash] ?? getCachedExtrinsicId(t.extrinsicHash)) : undefined),
     }));
 
     // Enforce global stable order: timestamp_DESC, id_DESC
@@ -176,8 +217,112 @@ export function useTransactionDataWithBlocks(
       }
     }
 
-    return unique;
-  }, [data, resolvedAddress, resolvedEvmAddress, feesByHash]);
+    // Group by extrinsicHash to detect swaps (incoming + outgoing different tokens)
+    const byHash = new Map<string, UiTransfer[]>();
+    for (const t of unique) {
+      const h = t.extrinsicHash || t.id;
+      const arr = byHash.get(h) || [];
+      arr.push(t);
+      byHash.set(h, arr);
+    }
+
+    const aggregated: UiTransfer[] = [];
+    for (const [hash, group] of byHash.entries()) {
+      const fungible = group.filter(g => !g.isNft);
+      const incoming = fungible.filter(g => g.type === 'INCOMING');
+      const outgoing = fungible.filter(g => g.type === 'OUTGOING');
+
+      const inTokenIds = Array.from(new Set(incoming.map(g => g.token.id)));
+      const outTokenIds = Array.from(new Set(outgoing.map(g => g.token.id)));
+
+      const isSwapCandidate = incoming.length > 0 && outgoing.length > 0 && inTokenIds.length === 1 && outTokenIds.length === 1 && inTokenIds[0] !== outTokenIds[0];
+      if (!isSwapCandidate) {
+        aggregated.push(...group);
+        continue;
+      }
+
+      // Pick the largest legs per direction by raw amount (string BigInt compare)
+      function pickMax(list: UiTransfer[]): UiTransfer {
+        let best = list[0]!;
+        for (const it of list) {
+          try {
+            if (BigInt(it.amount) > BigInt(best.amount)) best = it;
+          } catch {
+            // Fallback to string compare if BigInt fails (shouldn't)
+            if (it.amount > best.amount) best = it;
+          }
+        }
+        return best;
+      }
+      const maxIn = pickMax(incoming);
+      const maxOut = pickMax(outgoing);
+
+      const ts = maxIn.timestamp || maxOut.timestamp;
+      const success = group.every(g => g.success);
+      const fee = group.find(g => g.feeAmount && g.feeAmount !== '0')?.feeAmount || '0';
+
+      // Try to capture a concrete transfer id for linking (find triple anywhere, strip leading zeros)
+      function extractTripleId(src?: string): string | undefined {
+        if (!src) return undefined;
+        const m = src.match(/0*(\d+)-0*(\d+)-0*(\d+)/);
+        if (!m) return undefined;
+        const block = String(Number(m[1]));
+        const extrinsic = String(Number(m[2]));
+        const event = String(Number(m[3]));
+        return `${block}-${extrinsic}-${event}`;
+      }
+      function buildFromExId(leg?: any): string | undefined {
+        if (!leg?.extrinsicId || leg?.eventIndex == null) return undefined;
+        const m = String(leg.extrinsicId).match(/0*(\d+)-0*(\d+)/);
+        if (!m) return undefined;
+        const block = String(Number(m[1]));
+        const extrinsic = String(Number(m[2]));
+        const event = String(Number(leg.eventIndex));
+        if (!Number.isFinite(Number(event))) return undefined;
+        return `${block}-${extrinsic}-${event}`;
+      }
+      const preferId = extractTripleId(maxIn.id)
+        ?? extractTripleId(maxOut.id)
+        ?? buildFromExId(maxIn)
+        ?? buildFromExId(maxOut);
+
+      aggregated.push({
+        id: `${hash}:swap`,
+        from: maxOut.from,
+        to: maxIn.to,
+        type: 'SWAP',
+        method: 'swap',
+        amount: maxIn.amount,
+        isNft: false,
+        tokenId: null,
+        token: maxIn.token,
+        timestamp: ts,
+        success,
+        extrinsicHash: hash,
+        feeAmount: fee,
+        blockHeight: (maxIn.blockHeight ?? maxOut.blockHeight),
+        extrinsicIndex: (maxIn.extrinsicIndex ?? maxOut.extrinsicIndex),
+        eventIndex: (maxIn.eventIndex ?? maxOut.eventIndex),
+        extrinsicId: (maxIn.extrinsicId ?? maxOut.extrinsicId),
+        swapInfo: {
+          sold: { amount: maxOut.amount, token: maxOut.token },
+          bought: { amount: maxIn.amount, token: maxIn.token },
+          preferredTransferId: preferId,
+        },
+      });
+    }
+
+    // Final sort and return
+    aggregated.sort((a, b) => {
+      const ta = toEpochMs(a.timestamp);
+      const tb = toEpochMs(b.timestamp);
+      if (tb !== ta) return tb - ta;
+      if (a.id === b.id) return 0;
+      return a.id < b.id ? 1 : -1;
+    });
+
+    return aggregated;
+  }, [data, resolvedAddress, resolvedEvmAddress, feesByHash, exIdsByHash]);
 
   const fetchMore = useCallback(async () => {
     if (!apolloFetchMore || !data?.transfersConnection.pageInfo.hasNextPage) return;

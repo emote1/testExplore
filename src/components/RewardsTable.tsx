@@ -4,6 +4,7 @@ import { useStakingRewards } from '@/hooks/useStakingRewards';
 import { formatTimestamp, formatTimestampFull, formatTokenAmount } from '@/utils/formatters';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 import { ExternalLink } from './ui/external-link';
+import { REEFSCAN_ORIGIN } from '@/constants/reefscan';
 import { useReefPrice } from '@/hooks/use-reef-price';
 import { Button } from './ui/button';
 const RewardsChartLazy = lazy(() => import('./RewardsChart').then((m) => ({ default: m.RewardsChart })));
@@ -99,7 +100,7 @@ export function RewardsTable({ address }: RewardsTableProps) {
                       </TooltipProvider>
                     </td>
                     <td className="px-4 py-3">{amount}{amountUsdText ? <span className="ml-2 text-gray-500">{amountUsdText}</span> : null}</td>
-                    <td className="px-2 py-3 text-center">{r.extrinsicHash ? <ExternalLink href={`https://reefscan.com/extrinsic/${r.extrinsicHash}`} /> : '-'}</td>
+                    <td className="px-2 py-3 text-center">{r.extrinsicHash ? <ExternalLink href={`${REEFSCAN_ORIGIN}/extrinsic/${r.extrinsicHash}`} /> : '-'}</td>
                   </tr>
                 );
               })
