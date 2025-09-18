@@ -5,33 +5,16 @@ const httpLink = new HttpLink({
   uri: 'https://squid.subsquid.io/reef-explorer/graphql',
 });
 
-// Lightweight timing logger for selected operations (DEV or VITE_APOLLO_TIMING=1|true)
-const shouldLogTiming = import.meta.env.DEV || import.meta.env.VITE_APOLLO_TIMING === '1' || import.meta.env.VITE_APOLLO_TIMING === 'true';
+// Lightweight timing hook (now silent). Keeps structure for potential future use.
+const shouldLogTiming = (import.meta.env.VITE_APOLLO_TIMING === '1' || import.meta.env.VITE_APOLLO_TIMING === 'true');
 const measureOps = new Set(['TransfersFeeQuery', 'TransfersPollingQuery']);
-function getPageSize(vars: unknown): number | undefined {
-  if (!vars || typeof vars !== 'object') return undefined;
-  const v = vars as { first?: unknown; limit?: unknown };
-  if (typeof v.first === 'number') return v.first;
-  if (typeof v.limit === 'number') return v.limit;
-  return undefined;
-}
 const timingLink = new ApolloLink((operation, forward) => {
-  const start = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
   const opName = operation.operationName || 'UnknownOp';
   const obs = forward(operation);
   if (!measureOps.has(opName)) return obs;
   return obs.map((result) => {
     if (!shouldLogTiming) return result;
-    const end = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-    const ttfb = Math.round(end - start);
-    let size = 0;
-    try {
-      size = result && result?.data ? JSON.stringify(result.data).length : 0;
-    } catch {
-      size = 0;
-    }
-    const pageSize = getPageSize(operation.variables);
-    console.info(`[ApolloTiming] ${opName} ttfb=${ttfb}ms size≈${size}B pageSize=${pageSize ?? '-'}`);
+    // Timing logs disabled
     return result;
   });
 });
@@ -131,4 +114,6 @@ export const cache = new InMemoryCache({
 export const apolloClient = new ApolloClient({
   link,
   cache,
+  // Silence Apollo DevTools suggestion banner in dev console
+  connectToDevTools: false,
 });

@@ -20,6 +20,10 @@ const RewardsTable = React.lazy(() =>
   import('./RewardsTable').then(m => ({ default: m.RewardsTable }))
 );
 
+const BalancesTable = React.lazy(() =>
+  import('./BalancesTable').then(m => ({ default: m.BalancesTable }))
+);
+
 // Top-level TransactionsView so it does not remount on each parent render.
 function TransactionsView({ addr }: { addr: string }) {
   const { table, isLoading, error, showNewItems, goToPage, isPageLoading, pageLoadProgress, hasExactTotal, fastModeActive } = useTanstackTransactionAdapter(addr);
@@ -133,7 +137,7 @@ interface TransactionHistoryWithBlocksProps {
 }
 
 export function TransactionHistoryWithBlocks({ initialAddress = '' }: TransactionHistoryWithBlocksProps) {
-  const [viewMode, setViewMode] = React.useState<'transactions' | 'nfts' | 'rewards'>('transactions');
+  const [viewMode, setViewMode] = React.useState<'transactions' | 'nfts' | 'rewards' | 'balances'>('transactions');
   const [address, setAddress] = React.useState(initialAddress);
   const [submittedAddress, setSubmittedAddress] = React.useState(initialAddress);
 
@@ -266,6 +270,17 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
             >
               <span className="inline-flex items-center gap-2"><Award className="h-4 w-4" /> Rewards</span>
             </button>
+            <button
+              className={`px-4 py-2 -mb-px font-semibold border-b-2 ${
+                viewMode === 'balances'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+              onClick={() => setViewMode('balances')}
+              data-testid="tab-balances"
+            >
+              Balances
+            </button>
           </div>
         )}
 
@@ -275,6 +290,10 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
           ) : viewMode === 'nfts' ? (
             <React.Suspense fallback={<div className="flex items-center justify-center p-8"><Loader2 className="h-6 w-6 animate-spin" /></div>}>
               <NftGallery address={submittedAddress} enableOwnerInfinite={enableOwnerInfiniteFlag} />
+            </React.Suspense>
+          ) : viewMode === 'balances' ? (
+            <React.Suspense fallback={<div className="flex items-center justify-center p-8"><Loader2 className="h-6 w-6 animate-spin" /></div>}>
+              <BalancesTable address={submittedAddress} />
             </React.Suspense>
           ) : (
             <React.Suspense fallback={<div className="flex items-center justify-center p-8"><Loader2 className="h-6 w-6 animate-spin" /></div>}>

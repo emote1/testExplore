@@ -66,8 +66,27 @@ export default defineConfig(async () => {
         'react/jsx-runtime': path.resolve(__dirname, 'node_modules/react/jsx-runtime.js'),
         'react/jsx-dev-runtime': path.resolve(__dirname, 'node_modules/react/jsx-dev-runtime.js'),
         '@': path.resolve(__dirname, './src'),
+        // Polyfill Node 'buffer' for libraries that reference it
+        buffer: 'buffer',
       },
-      dedupe: ['react', 'react-dom', '@apollo/client', 'graphql'],
+      dedupe: [
+        'react',
+        'react-dom',
+        '@apollo/client',
+        'graphql',
+        // Ensure only a single copy of Polkadot packages is bundled
+        '@polkadot/api',
+        '@polkadot/api-base',
+        '@polkadot/api-derive',
+        '@polkadot/keyring',
+        '@polkadot/rpc-core',
+        '@polkadot/rpc-provider',
+        '@polkadot/rpc-augment',
+        '@polkadot/types',
+        '@polkadot/types-known',
+        '@polkadot/util',
+        '@polkadot/util-crypto',
+      ],
     },
     build: {
       chunkSizeWarningLimit: 1024,
@@ -76,7 +95,7 @@ export default defineConfig(async () => {
       },
     },
     optimizeDeps: {
-      include: ['@apollo/client', 'graphql'],
+      include: ['@apollo/client', 'graphql', 'buffer'],
     },
   };
 });

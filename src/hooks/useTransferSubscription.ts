@@ -138,11 +138,7 @@ export function useTransferSubscription({
       return;
     }
 
-    // Lightweight debug: observe polling ticks and resolution state
-    try {
-      const transfersCount = (data as any)?.transfers?.length ?? 0;
-      console.info('[sub] tick', { count: transfersCount, hasResolved: !!resolvedAddress || !!resolvedEvmAddress });
-    } catch {}
+    // Debug tick log removed
 
     if (!data?.transfers || (!resolvedAddress && !resolvedEvmAddress)) return;
 
@@ -163,9 +159,7 @@ export function useTransferSubscription({
     const transferEdges = rawTransfers.map((transfer) => ({ node: transfer }));
     const uiTransfers = mapTransfersToUiTransfers(transferEdges as unknown as (any | null)[], resolvedAddress ?? resolvedEvmAddress ?? undefined);
 
-    try {
-      console.info('[sub] ui mapped', { uiCount: uiTransfers.length });
-    } catch {}
+    // Debug ui mapped log removed
 
     // Pre-fetch fees only for those without inline fee from signedData
     const missing = uiTransfers
@@ -184,9 +178,7 @@ export function useTransferSubscription({
 
     // Detect and notify only truly new transfers (first call primes and returns [])
     const newTransfers = detectorRef.current.detectNew(uiTransfers);
-    try {
-      console.info('[sub] detectNew', { newCount: newTransfers.length, ids: newTransfers.map(t => t.id) });
-    } catch {}
+    // Debug detectNew log removed
     const readyNewTransfers = newTransfers.map((transfer) => {
       const fee = transfer.extrinsicHash ? (feesByHash[transfer.extrinsicHash] ?? getCachedFee(transfer.extrinsicHash)) : undefined;
       return { ...transfer, feeAmount: fee ?? transfer.feeAmount };
@@ -215,12 +207,7 @@ export function useTransferSubscription({
       });
 
       for (const where of whereVariants) {
-        try {
-          console.info('[sub] cache.reconcile prepend', {
-            candCount: candidates.length,
-            vars: { first: PAGINATION_CONFIG.API_FETCH_PAGE_SIZE, where, orderBy },
-          });
-        } catch {}
+        // Debug cache.reconcile prepend log removed
         try {
           client.cache.updateQuery<TransfersFeeQueryQuery, TransfersFeeQueryQueryVariables>(
             {
@@ -304,9 +291,7 @@ export function useTransferSubscription({
       }
     } else {
       // Fallback: refetch the first page to let merge policy replace edges
-      try {
-        console.info('[sub] refetch list after new transfers');
-      } catch {}
+      // Debug refetch log removed
       void client
         .refetchQueries({
           include: [

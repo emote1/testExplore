@@ -2,8 +2,8 @@
 // Use named exports; no React components here.
 
 export const DEFAULT_IPFS_GATEWAYS: readonly string[] = [
-  'https://reef.infura-ipfs.io/ipfs/',
   'https://ipfs.io/ipfs/',
+  'https://reef.infura-ipfs.io/ipfs/',
   'https://cloudflare-ipfs.com/ipfs/',
   'https://dweb.link/ipfs/',
 ];

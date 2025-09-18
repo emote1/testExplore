@@ -15,10 +15,9 @@ import { ApolloError } from '@apollo/client';
 // In-memory per-address page index memory for the current session
 const addressPageMemory = new Map<string, number>();
 
-// Debug flag to trace pagination math without polluting production logs
-const DEBUG_TX_PAGINATION = (import.meta as any).env?.DEV
-  || (import.meta as any).env?.VITE_TX_PAGINATION_DEBUG === '1'
-  || (import.meta as any).env?.VITE_TX_PAGINATION_DEBUG === 'true';
+// Debug flag to trace pagination math; enable only with VITE_TX_PAGINATION_DEBUG=1|true
+const DEBUG_TX_PAGINATION = ((import.meta as any).env?.VITE_TX_PAGINATION_DEBUG === '1'
+  || (import.meta as any).env?.VITE_TX_PAGINATION_DEBUG === 'true');
 function dbg(...args: any[]) {
   if (!DEBUG_TX_PAGINATION) return;
   // eslint-disable-next-line no-console

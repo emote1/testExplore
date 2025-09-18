@@ -83,6 +83,12 @@ Recommendations:
 - Fast RPC/REST: 16/12
 - Cautious or limited providers: 8/8
 
+## Data Sources Defaults
+
+- NFT metadata: auto (RPC → marketplace → Graph ERC1155 URI)
+- Price source: Graph (Reefswap Subsquid)
+- Notes: RPC используется только для `tokenURI/uri` (ERC721/1155). Цены считаются по пулам DEX через Subsquid Graph, чтобы не нагружать RPC. Эндпоинты и поведение можно настраивать через переменные окружения — см. `.env.example`.
+
 ## Custom Hooks Documentation
 
 ### `usePaginationAndSorting`

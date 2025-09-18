@@ -6,6 +6,11 @@
 import type { Transfer, PageInfo } from '@/gql/graphql';
 import { PAGINATION_CONFIG, CACHE_CONFIG } from '../constants/pagination';
 
+// Debug flag for cache logs (disabled by default). Enable with VITE_CACHE_DEBUG=1|true
+const DEBUG_CACHE = (import.meta as any)?.env?.VITE_CACHE_DEBUG === '1' || (import.meta as any)?.env?.VITE_CACHE_DEBUG === 'true';
+function cacheLog(...args: unknown[]) { if (DEBUG_CACHE) console.log(...args); }
+function cacheWarn(...args: unknown[]) { if (DEBUG_CACHE) console.warn(...args); }
+
 export interface CachedPageData {
   transactions: Transfer[];
   pageInfo: PageInfo;
@@ -54,7 +59,7 @@ export class PaginationCacheManager {
     isUiCache = false
   ): void {
     if (!this.isValidCacheData(data)) {
-      console.warn('[CACHE] Invalid data provided, skipping cache set');
+      cacheWarn('[CACHE] Invalid data provided, skipping cache set');
       return;
     }
 
@@ -94,7 +99,7 @@ export class PaginationCacheManager {
       const oldestKey = this.accessOrder.shift();
       if (oldestKey && this.cache.has(oldestKey)) {
         this.cache.delete(oldestKey);
-        console.log(`[CACHE] Evicted oldest entry: ${oldestKey}`);
+        cacheLog(`[CACHE] Evicted oldest entry: ${oldestKey}`);
       }
     }
   }
@@ -134,7 +139,7 @@ export class PaginationCacheManager {
       }
     });
     
-    console.log(`[CACHE] Cleared ${keysToDelete.length} entries for address: ${nativeAddress}`);
+    cacheLog(`[CACHE] Cleared ${keysToDelete.length} entries for address: ${nativeAddress}`);
   }
 
   /**
@@ -158,6 +163,6 @@ export class PaginationCacheManager {
   clear(): void {
     this.cache.clear();
     this.accessOrder = [];
-    console.log('[CACHE] All cache entries cleared');
+    cacheLog('[CACHE] All cache entries cleared');
   }
 }
