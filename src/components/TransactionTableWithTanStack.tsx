@@ -7,6 +7,7 @@ import { useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { transactionColumns } from './transaction-columns';
 import type { UiTransfer } from '../data/transfer-mapper';
+// Token USD prices are computed in the adapter and passed via table meta
 
 interface TransactionTableWithTanStackProps {
   newTransfers?: string[];

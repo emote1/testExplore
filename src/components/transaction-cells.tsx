@@ -8,6 +8,7 @@ import { ArrowUpDown } from 'lucide-react';
 import { AddressDisplay } from './AddressDisplay';
 import { Tooltip, TooltipTrigger, TooltipProvider, TooltipContent } from './ui/tooltip';
 import { REEFSCAN_ORIGIN } from '@/constants/reefscan';
+// Price data is provided via TanStack table meta to avoid hooks in cells
 
 export function TypeCell(ctx: CellContext<UiTransfer, unknown>) {
   const { row } = ctx;
@@ -64,7 +65,9 @@ export function ToCell(ctx: CellContext<UiTransfer, unknown>) {
   return <AddressDisplay address={ctx.row.getValue('to') as string} />;
 }
 
-export function AmountCell(ctx: CellContext<UiTransfer, unknown>) {
+export interface AmountCellProps { ctx: CellContext<UiTransfer, unknown> }
+
+export function AmountCellComponent({ ctx }: AmountCellProps) {
   const transfer = ctx.row.original;
   if (transfer.method === 'swap' && transfer.swapInfo) {
     const sold = transfer.swapInfo.sold;
@@ -78,7 +81,33 @@ export function AmountCell(ctx: CellContext<UiTransfer, unknown>) {
     transfer.token.decimals,
     transfer.token.name
   );
-  return <span>{formattedAmount}</span>;
+  // Append USD when price is available
+  const isReef = transfer.token.name === 'REEF' && transfer.token.decimals === 18;
+  const meta = (ctx.table.options as any)?.meta as { pricesById?: Record<string, number | null>; reefUsd?: number | null } | undefined;
+  let usdPart: string | null = null;
+  if (/^\d+$/.test(transfer.amount || '')) {
+    try {
+      const amountBI = BigInt(transfer.amount);
+      const divisor = 10n ** BigInt(transfer.token.decimals || 0);
+      const intPart = divisor === 0n ? 0n : (amountBI / (divisor || 1n));
+      const fracPart = divisor === 0n ? '0' : (amountBI % divisor).toString().padStart(transfer.token.decimals || 0, '0');
+      const numeric = transfer.token.decimals === 0 ? 0 : parseFloat(`${intPart}.${fracPart}`);
+      let usdPerUnit: number | undefined;
+      if (isReef && typeof meta?.reefUsd === 'number') usdPerUnit = meta.reefUsd as number;
+      else if (transfer.token.decimals > 0 && transfer.token.id && meta?.pricesById) {
+        usdPerUnit = meta.pricesById[(transfer.token.id || '').toLowerCase()] ?? undefined;
+      }
+      if (typeof usdPerUnit === 'number' && Number.isFinite(usdPerUnit) && numeric > 0) {
+        const usd = numeric * usdPerUnit;
+        usdPart = usd.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
+      }
+    } catch {}
+  }
+  return <span>{formattedAmount}{usdPart ? <span className="ml-2 text-gray-500">({usdPart})</span> : null}</span>;
+}
+
+export function AmountCell(ctx: CellContext<UiTransfer, unknown>) {
+  return <AmountCellComponent ctx={ctx} />;
 }
 
 export function FeeCell(ctx: CellContext<UiTransfer, unknown>) {

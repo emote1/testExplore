@@ -14,7 +14,7 @@ import { TRANSFERS_POLLING_QUERY, PAGINATED_TRANSFERS_QUERY } from '../data/tran
 import { fetchFeesByExtrinsicHashes, getCachedFee } from '../data/transfers';
 import { PAGINATION_CONFIG } from '../constants/pagination';
 import { useAddressResolver } from './use-address-resolver';
-import { buildTransferWhereFilter } from '@/utils/transfer-query';
+import { buildTransferWhereFilter, type TransactionDirection } from '@/utils/transfer-query';
 import { createNewItemDetector } from '@/utils/transfer-new-items';
 
 const MAX_SEEN_IDS = 200;
@@ -23,12 +23,14 @@ interface UseTransferSubscriptionProps {
   address: string | null;
   onNewTransfer: (transfer: UiTransfer) => void;
   isEnabled: boolean;
+  direction?: TransactionDirection;
 }
 
 export function useTransferSubscription({
   address,
   onNewTransfer,
   isEnabled,
+  direction = 'any',
 }: UseTransferSubscriptionProps) {
   const detectorRef = useRef(createNewItemDetector<UiTransfer>({ key: (t) => t.id, max: MAX_SEEN_IDS }));
   const [feesByHash, setFeesByHash] = useState<Record<string, string>>({});
@@ -70,7 +72,7 @@ export function useTransferSubscription({
   }, [address, resolveAddress, resolveEvmAddress]);
 
   const queryVariables = useMemo(() => {
-    const where = buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress });
+    const where = buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress, direction });
     if (!where) return null;
 
     return {
@@ -79,7 +81,7 @@ export function useTransferSubscription({
       offset: 0,
       limit: PAGINATION_CONFIG.SUBSCRIPTION_FETCH_SIZE,
     };
-  }, [resolvedAddress, resolvedEvmAddress]);
+  }, [resolvedAddress, resolvedEvmAddress, direction]);
 
   // Allow E2E to override polling interval via URL param ?pollMs=1000
   const pollIntervalMs = useMemo(() => {
@@ -97,7 +99,7 @@ export function useTransferSubscription({
   useEffect(() => {
     detectorRef.current.reset();
     setFeesByHash({});
-  }, [address, resolvedAddress, resolvedEvmAddress]);
+  }, [address, resolvedAddress, resolvedEvmAddress, direction]);
 
 
   const { data, error, startPolling, stopPolling } = useQuery<TransfersPollingQueryQuery, TransfersPollingQueryQueryVariables>(
@@ -187,7 +189,7 @@ export function useTransferSubscription({
     // Always reconcile the cache with the latest polled top list to ensure
     // newest transfers appear even on the first tick (when detector primes)
     if (PAGINATION_CONFIG.SUB_PREPEND_WITHOUT_REFETCH) {
-      const baseWhere = buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress });
+      const baseWhere = buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress, direction });
       const orderBy = ['timestamp_DESC', 'id_DESC'] as TransferOrderByInput[];
 
       // Use the raw polled list as prepend candidates (already newest-first)
@@ -195,8 +197,8 @@ export function useTransferSubscription({
       // Cover timing races between address resolution variants by updating multiple where shapes.
       const whereVariantsRaw = [
         baseWhere,
-        buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress: null }),
-        buildTransferWhereFilter({ resolvedAddress: null, resolvedEvmAddress }),
+        buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress: null, direction }),
+        buildTransferWhereFilter({ resolvedAddress: null, resolvedEvmAddress, direction }),
       ].filter(Boolean) as Array<Record<string, unknown>>;
       const seenWhere = new Set<string>();
       const whereVariants = whereVariantsRaw.filter((w) => {
@@ -311,5 +313,5 @@ export function useTransferSubscription({
         });
     }
     return () => { cancelled = true; };
-  }, [data, error, onNewTransfer, resolvedAddress, resolvedEvmAddress, client, feesByHash]);
+  }, [data, error, onNewTransfer, resolvedAddress, resolvedEvmAddress, client, feesByHash, direction]);
 }

@@ -8,7 +8,7 @@ import type { TransferOrderByInput, TransfersFeeQueryQuery as TransfersFeeQuery,
 import { mapTransfersToUiTransfers, type UiTransfer } from '../data/transfer-mapper';
 import { useAddressResolver } from './use-address-resolver';
 import { fetchFeesByExtrinsicHashes, getCachedFee, fetchExtrinsicIdsByHashes, getCachedExtrinsicId } from '../data/transfers';
-import { buildTransferWhereFilter } from '@/utils/transfer-query';
+import { buildTransferWhereFilter, type TransactionDirection } from '@/utils/transfer-query';
 import { getNumber, getString } from '@/utils/object';
 
 // Normalize timestamps via shared formatter to epoch milliseconds for stable sorting
@@ -33,7 +33,8 @@ export interface UseTransactionDataReturn {
 
 export function useTransactionDataWithBlocks(
   accountAddress: string | null | undefined,
-  limit: number
+  limit: number,
+  direction: TransactionDirection = 'any',
 ): UseTransactionDataReturn {
 
   const { resolveAddress, resolveEvmAddress } = useAddressResolver();
@@ -80,7 +81,7 @@ export function useTransactionDataWithBlocks(
       {
         variables: {
           first: limit,
-          where: buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress }),
+          where: buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress, direction }),
           orderBy: ['timestamp_DESC', 'id_DESC'] as TransferOrderByInput[],
         },
         skip: !resolvedAddress && !resolvedEvmAddress,
@@ -93,7 +94,7 @@ export function useTransactionDataWithBlocks(
   useEffect(() => {
     setFeesByHash({});
     setExIdsByHash({});
-  }, [resolvedAddress, resolvedEvmAddress]);
+  }, [resolvedAddress, resolvedEvmAddress, direction]);
 
   // Fetch fees for extrinsics present in current edges,
   // but skip ones that already contain inline signedData.fee.partialFee
@@ -343,7 +344,7 @@ export function useTransactionDataWithBlocks(
           // Use polling query since it exposes offset/limit on plain list
           query: TRANSFERS_POLLING_QUERY as unknown as TypedDocumentNode<any, any>,
           variables: {
-            where: buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress }),
+            where: buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress, direction }),
             orderBy: ['timestamp_DESC', 'id_DESC'] as TransferOrderByInput[],
             offset: Math.max(0, Math.floor(offset) || 0),
             limit: Math.max(1, Math.floor(limit) || 1),
@@ -403,7 +404,7 @@ export function useTransactionDataWithBlocks(
       console.warn('[tx][fetchWindow] failed', e);
       return [];
     }
-  }, [client, resolvedAddress, resolvedEvmAddress]);
+  }, [client, resolvedAddress, resolvedEvmAddress, direction]);
 
   const isLoading = loading || isResolvingAddress;
   const totalError = error; // Do not create a new error for the resolving state

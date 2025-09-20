@@ -6,7 +6,7 @@ import {
   TimestampCell,
   FromCell,
   ToCell,
-  AmountCell,
+  AmountCellComponent,
   FeeCell,
   ActionsCell,
   StatusCell,
@@ -36,7 +36,7 @@ export const transactionColumns: ColumnDef<UiTransfer>[] = [
   {
     accessorKey: 'amount',
     header: 'AMOUNT',
-    cell: AmountCell,
+    cell: (ctx) => <AmountCellComponent ctx={ctx} />,
   },
   {
     accessorKey: 'feeAmount',

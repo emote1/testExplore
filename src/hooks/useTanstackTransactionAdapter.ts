@@ -7,10 +7,13 @@ import {
   PaginationState,
 } from '@tanstack/react-table';
 import { useTransactionDataWithBlocks } from './use-transaction-data-with-blocks';
+import type { TransactionDirection } from '@/utils/transfer-query';
 import { transactionColumns } from '../components/transaction-columns';
 import { UiTransfer } from '../data/transfer-mapper';
 import { PAGINATION_CONFIG } from '../constants/pagination';
 import { ApolloError } from '@apollo/client';
+import { useTokenUsdPrices, type TokenInput } from '@/hooks/use-token-usd-prices';
+import { useReefPrice } from '@/hooks/use-reef-price';
 
 // In-memory per-address page index memory for the current session
 const addressPageMemory = new Map<string, number>();
@@ -47,6 +50,7 @@ export interface TanstackTransactionAdapterReturn {
 
 export function useTanstackTransactionAdapter(
   address: string,
+  direction: TransactionDirection = 'any',
 ): TanstackTransactionAdapterReturn {
   // Allow initial page jump via URL params (?page=6 or ?p=6) for E2E and deep-links.
   const initialPageIndex = useMemo(() => {
@@ -75,7 +79,7 @@ export function useTanstackTransactionAdapter(
     hasMore: hasNextPage,
     totalCount,
     fetchWindow,
-  } = useTransactionDataWithBlocks(address, PAGINATION_CONFIG.API_FETCH_PAGE_SIZE);
+  } = useTransactionDataWithBlocks(address, PAGINATION_CONFIG.API_FETCH_PAGE_SIZE, direction);
 
   // Apollo cache is the single source of truth; pages are merged by typePolicies
 
@@ -86,6 +90,13 @@ export function useTanstackTransactionAdapter(
     dbg('anchor: reset due to address change', { address });
     setAnchorFirstId(undefined);
   }, [address]);
+
+  // Reset anchor and page index when direction changes
+  useEffect(() => {
+    dbg('anchor: reset due to direction change', { direction });
+    setAnchorFirstId(undefined);
+    setPagination(p => ({ ...p, pageIndex: 0 }));
+  }, [direction]);
 
   // On address change after initial mount, set page to remembered index for that address,
   // or reset to page 1 (index 0) if first time seeing this address.
@@ -273,6 +284,28 @@ export function useTanstackTransactionAdapter(
     return (initialTransactions || []).slice(start, end);
   }, [pagination, initialTransactions, newItemsCount, fastModeActive, fastPageData]);
 
+  // Derive token set for pricing on the current page and fetch USD prices
+  const tokensForPrices = useMemo(() => {
+    const out: TokenInput[] = [];
+    const seen = new Set<string>();
+    for (const t of (dataForCurrentPage || [])) {
+      const tok = (t as any)?.token as { id?: string; decimals?: number; name?: string } | undefined;
+      if (!tok) continue;
+      const id = (tok.id || '').toLowerCase();
+      if (!id) continue;
+      const decimals = typeof tok.decimals === 'number' ? tok.decimals : 18;
+      if (decimals === 0) continue; // NFTs
+      if ((tok.name === 'REEF') && decimals === 18) continue; // REEF priced separately
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push({ id, decimals });
+    }
+    return out;
+  }, [dataForCurrentPage]);
+  const { pricesById } = useTokenUsdPrices(tokensForPrices);
+  const { price: reefPrice } = useReefPrice();
+  const reefUsd = reefPrice?.usd ?? undefined;
+
   // Trace current page window indices and ids
   useEffect(() => {
     if (!DEBUG_TX_PAGINATION) return;
@@ -375,6 +408,7 @@ export function useTanstackTransactionAdapter(
     autoResetPageIndex: false,
     state: { pagination },
     onPaginationChange: setPagination,
+    meta: { pricesById, reefUsd, addTransaction: () => {} },
   });
 
   // Guards and state for sequential ensureLoaded and prefetch

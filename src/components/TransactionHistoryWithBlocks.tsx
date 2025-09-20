@@ -3,6 +3,7 @@ import { Loader2, AlertTriangle, ArrowDownRight, ArrowUpRight, Award } from 'luc
 import { useTanstackTransactionAdapter } from '../hooks/useTanstackTransactionAdapter';
 import type { UiTransfer } from '../data/transfer-mapper';
 import { useTransferSubscription } from '../hooks/useTransferSubscription';
+import type { TransactionDirection } from '../utils/transfer-query';
 import { isValidEvmAddressFormat, isValidSubstrateAddressFormat } from '../utils/address-helpers';
 import { useAddressResolver } from '../hooks/use-address-resolver';
 import { formatAmount } from '../utils/formatters';
@@ -26,7 +27,8 @@ const BalancesTable = React.lazy(() =>
 
 // Top-level TransactionsView so it does not remount on each parent render.
 function TransactionsView({ addr }: { addr: string }) {
-  const { table, isLoading, error, showNewItems, goToPage, isPageLoading, pageLoadProgress, hasExactTotal, fastModeActive } = useTanstackTransactionAdapter(addr);
+  const [direction, setDirection] = React.useState<TransactionDirection>('any');
+  const { table, isLoading, error, showNewItems, goToPage, isPageLoading, pageLoadProgress, hasExactTotal, fastModeActive } = useTanstackTransactionAdapter(addr, direction);
   const [newTransfers, setNewTransfers] = React.useState<string[]>([]);
   const [toastTransfer, setToastTransfer] = React.useState<UiTransfer | null>(null);
   const toastTimerRef = React.useRef<number | undefined>(undefined);
@@ -63,6 +65,7 @@ function TransactionsView({ addr }: { addr: string }) {
     // Avoid race: start polling only after initial paginated query has loaded
     // so cache.updateQuery can prepend into an existing connection entry
     isEnabled: !!addr && !isLoading,
+    direction,
   });
 
   React.useEffect(() => {
@@ -76,6 +79,27 @@ function TransactionsView({ addr }: { addr: string }) {
 
   return (
     <>
+      {/* Direction filter */}
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-sm text-gray-600">Direction:</span>
+        <div className="inline-flex rounded-md shadow-sm border overflow-hidden" role="group">
+          <button
+            type="button"
+            className={`px-3 py-1.5 text-sm ${direction === 'any' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+            onClick={() => setDirection('any')}
+          >All</button>
+          <button
+            type="button"
+            className={`px-3 py-1.5 text-sm border-l ${direction === 'incoming' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+            onClick={() => setDirection('incoming')}
+          >Incoming</button>
+          <button
+            type="button"
+            className={`px-3 py-1.5 text-sm border-l ${direction === 'outgoing' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+            onClick={() => setDirection('outgoing')}
+          >Outgoing</button>
+        </div>
+      </div>
       {error && (
         <div className="flex items-center gap-4 p-4 mb-4 text-red-700 bg-red-100 rounded-lg shadow">
           <AlertTriangle className="h-6 w-6" />
