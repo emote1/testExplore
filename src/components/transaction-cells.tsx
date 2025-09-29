@@ -4,7 +4,7 @@ import { formatTimestamp, formatTokenAmount, formatTimestampFull } from '../util
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { ExternalLink } from './ui/external-link';
-import { ArrowUpDown } from 'lucide-react';
+import { ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { AddressDisplay } from './AddressDisplay';
 import { Tooltip, TooltipTrigger, TooltipProvider, TooltipContent } from './ui/tooltip';
 import { REEFSCAN_ORIGIN } from '@/constants/reefscan';
@@ -28,14 +28,73 @@ export function TypeCell(ctx: CellContext<UiTransfer, unknown>) {
 
 export function TimestampHeader(ctx: HeaderContext<UiTransfer, unknown>) {
   const { column } = ctx;
-  return (
+  const meta = (ctx.table?.options as any)?.meta as { disableTimestampSorting?: boolean } | undefined;
+  const disabled = !!meta?.disableTimestampSorting;
+  const sorted = column.getIsSorted();
+  const button = (
     <Button
       variant="ghost"
-      onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+      onClick={() => { if (!disabled) column.toggleSorting(sorted === 'asc'); }}
+      disabled={disabled}
     >
       TIMESTAMP
-      <ArrowUpDown className="ml-2 h-4 w-4" />
+      {disabled ? (
+        <ArrowUpDown className="ml-2 h-4 w-4 opacity-40" />
+      ) : sorted === 'asc' ? (
+        <ArrowUp className="ml-2 h-4 w-4" />
+      ) : sorted === 'desc' ? (
+        <ArrowDown className="ml-2 h-4 w-4" />
+      ) : (
+        <ArrowUpDown className="ml-2 h-4 w-4" />
+      )}
     </Button>
+  );
+  if (!disabled) return button;
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>{button}</TooltipTrigger>
+        <TooltipContent>
+          <span>Sorting by time is disabled</span>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+export function AmountHeader(ctx: HeaderContext<UiTransfer, unknown>) {
+  const { column } = ctx;
+  const meta = (ctx.table?.options as any)?.meta as { disableAmountSorting?: boolean } | undefined;
+  const disabled = !!meta?.disableAmountSorting;
+  const sorted = column.getIsSorted();
+  const button = (
+    <Button
+      variant="ghost"
+      onClick={() => { if (!disabled) column.toggleSorting(sorted === 'asc'); }}
+      disabled={disabled}
+    >
+      AMOUNT
+      {disabled ? (
+        <ArrowUpDown className="ml-2 h-4 w-4 opacity-40" />
+      ) : sorted === 'asc' ? (
+        <ArrowUp className="ml-2 h-4 w-4" />
+      ) : sorted === 'desc' ? (
+        <ArrowDown className="ml-2 h-4 w-4" />
+      ) : (
+        <ArrowUpDown className="ml-2 h-4 w-4" />
+      )}
+    </Button>
+  );
+  if (!disabled) return button;
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>{button}</TooltipTrigger>
+        <TooltipContent>
+          <span>Sorting by amount is disabled</span>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 
@@ -74,36 +133,58 @@ export function AmountCellComponent({ ctx }: AmountCellProps) {
     const bought = transfer.swapInfo.bought;
     const soldFmt = formatTokenAmount(sold.amount, sold.token.decimals, sold.token.name);
     const boughtFmt = formatTokenAmount(bought.amount, bought.token.decimals, bought.token.name);
-    return <span>{soldFmt} → {boughtFmt}</span>;
+
+    function toNumeric(amount: string, decimals: number): number | null {
+      if (!/^\d+$/.test(amount || '')) return null;
+      try {
+        const bi = BigInt(amount);
+        const d = Math.max(0, decimals || 0);
+        const div = 10n ** BigInt(d);
+        const ip = div === 0n ? 0n : bi / (div || 1n);
+        const fp = div === 0n ? '0' : (bi % div).toString().padStart(d, '0');
+        const n = d === 0 ? Number(ip) : parseFloat(`${ip}.${fp}`);
+        return Number.isFinite(n) ? n : null;
+      } catch {
+        return null;
+      }
+    }
+    function rateStr(): string {
+      const soldNum = toNumeric(sold.amount, sold.token.decimals);
+      const boughtNum = toNumeric(bought.amount, bought.token.decimals);
+      if (soldNum == null || soldNum <= 0 || boughtNum == null) return '—';
+      const r = boughtNum / soldNum;
+      if (!Number.isFinite(r)) return '—';
+      return r.toLocaleString('en-US', { maximumFractionDigits: 6 });
+    }
+    const feeFmt = formatTokenAmount(transfer.feeAmount || '0', 18, 'REEF');
+
+    const content = (
+      <div className="flex flex-col">
+        <span className="text-red-600">Sold: -{soldFmt}</span>
+        <span className="text-green-600">Bought: +{boughtFmt}</span>
+      </div>
+    );
+
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>{content}</TooltipTrigger>
+          <TooltipContent>
+            <div className="space-y-1">
+              <div className="text-xs text-gray-700">Rate: 1 {sold.token.name} = {rateStr()} {bought.token.name}</div>
+              <div className="text-xs text-gray-700">Fee: {feeFmt}</div>
+            </div>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
   }
   const formattedAmount = formatTokenAmount(
     transfer.amount,
     transfer.token.decimals,
     transfer.token.name
   );
-  // Append USD when price is available
-  const isReef = transfer.token.name === 'REEF' && transfer.token.decimals === 18;
-  const meta = (ctx.table.options as any)?.meta as { pricesById?: Record<string, number | null>; reefUsd?: number | null } | undefined;
-  let usdPart: string | null = null;
-  if (/^\d+$/.test(transfer.amount || '')) {
-    try {
-      const amountBI = BigInt(transfer.amount);
-      const divisor = 10n ** BigInt(transfer.token.decimals || 0);
-      const intPart = divisor === 0n ? 0n : (amountBI / (divisor || 1n));
-      const fracPart = divisor === 0n ? '0' : (amountBI % divisor).toString().padStart(transfer.token.decimals || 0, '0');
-      const numeric = transfer.token.decimals === 0 ? 0 : parseFloat(`${intPart}.${fracPart}`);
-      let usdPerUnit: number | undefined;
-      if (isReef && typeof meta?.reefUsd === 'number') usdPerUnit = meta.reefUsd as number;
-      else if (transfer.token.decimals > 0 && transfer.token.id && meta?.pricesById) {
-        usdPerUnit = meta.pricesById[(transfer.token.id || '').toLowerCase()] ?? undefined;
-      }
-      if (typeof usdPerUnit === 'number' && Number.isFinite(usdPerUnit) && numeric > 0) {
-        const usd = numeric * usdPerUnit;
-        usdPart = usd.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
-      }
-    } catch {}
-  }
-  return <span>{formattedAmount}{usdPart ? <span className="ml-2 text-gray-500">({usdPart})</span> : null}</span>;
+  return <span>{formattedAmount}</span>;
 }
 
 export function AmountCell(ctx: CellContext<UiTransfer, unknown>) {
@@ -118,6 +199,62 @@ export function FeeCell(ctx: CellContext<UiTransfer, unknown>) {
     'REEF'
   );
   return <span>{formattedFee}</span>;
+}
+
+// Standalone USD value column
+export function ValueCell(ctx: CellContext<UiTransfer, unknown>) {
+  const t = ctx.row.original;
+  const meta = (ctx.table.options as any)?.meta as { pricesById?: Record<string, number | null>; reefUsd?: number | null } | undefined;
+
+  function toNumeric(amount: string, decimals: number): number | null {
+    if (!/^\d+$/.test(amount || '')) return null;
+    try {
+      const bi = BigInt(amount);
+      const d = Math.max(0, decimals || 0);
+      const div = 10n ** BigInt(d);
+      const ip = div === 0n ? 0n : bi / (div || 1n);
+      const fp = div === 0n ? '0' : (bi % div).toString().padStart(d, '0');
+      const n = d === 0 ? Number(ip) : parseFloat(`${ip}.${fp}`);
+      return Number.isFinite(n) ? n : null;
+    } catch { return null; }
+  }
+
+  function usdFor(token: { id?: string; name?: string; decimals: number }, amount: string): string | null {
+    const n = toNumeric(amount, token.decimals);
+    if (n == null || n <= 0) return null;
+    let usdPerUnit: number | undefined;
+    if (token.name === 'REEF' && token.decimals === 18 && typeof meta?.reefUsd === 'number') usdPerUnit = meta.reefUsd as number;
+    else if (token.decimals > 0 && token.id && meta?.pricesById) usdPerUnit = meta.pricesById[(token.id || '').toLowerCase()] ?? undefined;
+    if (typeof usdPerUnit !== 'number' || !Number.isFinite(usdPerUnit)) return null;
+    const usd = n * usdPerUnit;
+    return usd.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
+  }
+
+  if (t.method === 'swap' && t.swapInfo) {
+    const soldUsd = usdFor(t.swapInfo.sold.token, t.swapInfo.sold.amount);
+    const boughtUsd = usdFor(t.swapInfo.bought.token, t.swapInfo.bought.amount);
+    if (!soldUsd && !boughtUsd) return <span className="block text-right">—</span>;
+    if (soldUsd && boughtUsd) {
+      return (
+        <div className="flex flex-col items-end">
+          <span className="whitespace-nowrap text-gray-700">≈ {soldUsd} → {boughtUsd}</span>
+          <span className="whitespace-nowrap font-medium text-gray-900">{boughtUsd}</span>
+        </div>
+      );
+    }
+    // Fallbacks when price known only for one side
+    const approx = soldUsd ?? boughtUsd;
+    const final = boughtUsd ?? approx;
+    return (
+      <div className="flex flex-col items-end">
+        <span className="whitespace-nowrap text-gray-700">≈ {approx}</span>
+        <span className="whitespace-nowrap font-medium text-gray-900">{final}</span>
+      </div>
+    );
+  }
+
+  const usd = usdFor(t.token as any, t.amount);
+  return <span className="block text-right">{usd ?? '—'}</span>;
 }
 
 export function ActionsCell(ctx: CellContext<UiTransfer, unknown>) {

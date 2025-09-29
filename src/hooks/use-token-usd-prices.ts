@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useReefPrice } from './use-reef-price';
 import { REEF_TOKEN_ADDRESS } from '@/utils/evm-call';
 import { TtlCache } from '../data/ttl-cache';
@@ -229,6 +229,10 @@ export function useTokenUsdPrices(tokens: TokenInput[]): TokenPricesResult {
     return out;
   }, [tokens]);
 
+  // Stable signature to avoid effect reruns on equal content
+  const uniqKey = useMemo(() => unique.map(t => `${t.id}:${t.decimals}`).join('|'), [unique]);
+  const lastKeyRef = useRef<string | null>(null);
+
   const { price: reefPrice, loading: reefLoading } = useReefPrice();
   const [prices, setPrices] = useState<Record<string, number | null>>({});
   const [loading, setLoading] = useState(false);
@@ -238,24 +242,30 @@ export function useTokenUsdPrices(tokens: TokenInput[]): TokenPricesResult {
     const ac = new AbortController();
     const signal = ac.signal;
     async function run() {
+      // Skip if content did not change
+      if (lastKeyRef.current === uniqKey) return;
+      lastKeyRef.current = uniqKey;
       if (!reefPrice?.usd || unique.length === 0) {
         setPrices({});
         setLoading(false);
         return;
       }
-      setLoading(true);
-      const next: Record<string, number | null> = {};
       // 1) Try TTL cache for all tokens
+      const next: Record<string, number | null> = {};
       const missing: TokenInput[] = [];
       for (const t of unique) {
         const key = `${t.id}:${t.decimals}`;
         const cached = priceTtl.get(key);
-        if (typeof cached === 'number') {
-          next[t.id] = cached;
-        } else {
-          missing.push(t);
-        }
+        if (typeof cached === 'number') next[t.id] = cached;
+        else missing.push(t);
       }
+
+      if (missing.length === 0) {
+        setPrices(next);
+        setLoading(false);
+        return;
+      }
+      setLoading(true);
 
       // 2) Batch poolsReserves for missing tokens
       const idsToQuery = missing
@@ -318,7 +328,7 @@ export function useTokenUsdPrices(tokens: TokenInput[]): TokenPricesResult {
     }
     run();
     return () => { aborted = true; ac.abort(); };
-  }, [reefPrice?.usd, unique]);
+  }, [reefPrice?.usd, uniqKey]);
 
   return { pricesById: prices, loading: loading || reefLoading };
 }

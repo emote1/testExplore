@@ -74,6 +74,7 @@ export const TRANSFER_COMMON_FIELDS = graphql(`
     timestamp
     success
     type
+    reefswapAction
     signedData
     extrinsicHash
     extrinsicId
@@ -95,6 +96,24 @@ export const PAGINATED_TRANSFERS_QUERY = graphql(`
           token {
             contractData
           }
+        }
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+      totalCount
+    }
+  }
+`);
+
+// Minimal variant without token.contractData for lighter payload when token filter is fixed
+export const PAGINATED_TRANSFERS_MIN_QUERY = graphql(`
+  query TransfersMinQuery($first: Int!, $after: String, $where: TransferWhereInput, $orderBy: [TransferOrderByInput!]!) {
+    transfersConnection(orderBy: $orderBy, first: $first, after: $after, where: $where) {
+      edges {
+        node {
+          ...TransferCommonFields
         }
       }
       pageInfo {

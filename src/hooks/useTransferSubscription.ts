@@ -24,6 +24,8 @@ interface UseTransferSubscriptionProps {
   onNewTransfer: (transfer: UiTransfer) => void;
   isEnabled: boolean;
   direction?: TransactionDirection;
+  minReefRaw?: string | bigint | null;
+  maxReefRaw?: string | bigint | null;
 }
 
 export function useTransferSubscription({
@@ -31,6 +33,8 @@ export function useTransferSubscription({
   onNewTransfer,
   isEnabled,
   direction = 'any',
+  minReefRaw = null,
+  maxReefRaw = null,
 }: UseTransferSubscriptionProps) {
   const detectorRef = useRef(createNewItemDetector<UiTransfer>({ key: (t) => t.id, max: MAX_SEEN_IDS }));
   const [feesByHash, setFeesByHash] = useState<Record<string, string>>({});
@@ -72,7 +76,7 @@ export function useTransferSubscription({
   }, [address, resolveAddress, resolveEvmAddress]);
 
   const queryVariables = useMemo(() => {
-    const where = buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress, direction });
+    const where = buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress, direction, minReefRaw, maxReefRaw });
     if (!where) return null;
 
     return {
@@ -81,7 +85,7 @@ export function useTransferSubscription({
       offset: 0,
       limit: PAGINATION_CONFIG.SUBSCRIPTION_FETCH_SIZE,
     };
-  }, [resolvedAddress, resolvedEvmAddress, direction]);
+  }, [resolvedAddress, resolvedEvmAddress, direction, minReefRaw, maxReefRaw]);
 
   // Allow E2E to override polling interval via URL param ?pollMs=1000
   const pollIntervalMs = useMemo(() => {
@@ -99,7 +103,7 @@ export function useTransferSubscription({
   useEffect(() => {
     detectorRef.current.reset();
     setFeesByHash({});
-  }, [address, resolvedAddress, resolvedEvmAddress, direction]);
+  }, [address, resolvedAddress, resolvedEvmAddress, direction, minReefRaw, maxReefRaw]);
 
 
   const { data, error, startPolling, stopPolling } = useQuery<TransfersPollingQueryQuery, TransfersPollingQueryQueryVariables>(
@@ -189,7 +193,7 @@ export function useTransferSubscription({
     // Always reconcile the cache with the latest polled top list to ensure
     // newest transfers appear even on the first tick (when detector primes)
     if (PAGINATION_CONFIG.SUB_PREPEND_WITHOUT_REFETCH) {
-      const baseWhere = buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress, direction });
+      const baseWhere = buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress, direction, minReefRaw, maxReefRaw });
       const orderBy = ['timestamp_DESC', 'id_DESC'] as TransferOrderByInput[];
 
       // Use the raw polled list as prepend candidates (already newest-first)
@@ -197,8 +201,8 @@ export function useTransferSubscription({
       // Cover timing races between address resolution variants by updating multiple where shapes.
       const whereVariantsRaw = [
         baseWhere,
-        buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress: null, direction }),
-        buildTransferWhereFilter({ resolvedAddress: null, resolvedEvmAddress, direction }),
+        buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress: null, direction, minReefRaw, maxReefRaw }),
+        buildTransferWhereFilter({ resolvedAddress: null, resolvedEvmAddress, direction, minReefRaw, maxReefRaw }),
       ].filter(Boolean) as Array<Record<string, unknown>>;
       const seenWhere = new Set<string>();
       const whereVariants = whereVariantsRaw.filter((w) => {
@@ -313,5 +317,5 @@ export function useTransferSubscription({
         });
     }
     return () => { cancelled = true; };
-  }, [data, error, onNewTransfer, resolvedAddress, resolvedEvmAddress, client, feesByHash, direction]);
+  }, [data, error, onNewTransfer, resolvedAddress, resolvedEvmAddress, client, feesByHash, direction, minReefRaw, maxReefRaw]);
 }

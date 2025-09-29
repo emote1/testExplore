@@ -1,6 +1,6 @@
 // src/utils/address-helpers.ts
 import { u8aToHex } from '@polkadot/util';
-import { decodeAddress } from '@polkadot/util-crypto';
+import { decodeAddress, keccakAsHex } from '@polkadot/util-crypto';
 
 /**
  * Validates if a string is a valid EVM address format (0x + 40 hex characters)
@@ -54,4 +54,32 @@ export function convertAddressToEvm(address: string): string {
     return u8aToHex(decoded);
   }
   throw new Error(`Invalid address format: ${address}`);
+}
+
+/** Normalize to 0x-prefixed string */
+function normalize0x(addr: string): string {
+  return addr && addr.startsWith('0x') ? addr : `0x${addr ?? ''}`;
+}
+
+/**
+ * Compute EIP-55 checksum for a 20-byte hex address. Returns normalized 0x-form.
+ * If the input is not a valid 40-hex string, returns normalized input unchanged.
+ */
+export function toChecksumAddress(address: string): string {
+  try {
+    const s = normalize0x(address);
+    const hex = s.slice(2);
+    if (hex.length !== 40 || /[^0-9a-fA-F]/.test(hex)) return s;
+    const lower = hex.toLowerCase();
+    const hash = keccakAsHex(lower).slice(2);
+    let out = '';
+    for (let i = 0; i < lower.length; i++) {
+      const ch = lower[i]!;
+      const nib = parseInt(hash[i]!, 16);
+      out += nib >= 8 ? ch.toUpperCase() : ch;
+    }
+    return `0x${out}`;
+  } catch {
+    return normalize0x(address);
+  }
 }

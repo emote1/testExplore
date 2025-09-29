@@ -3,9 +3,10 @@ import { parseTimestampToDate } from '@/utils/formatters';
 import { useQuery, ApolloError, useApolloClient } from '@apollo/client';
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import type { ApolloClient, NormalizedCacheObject } from '@apollo/client';
-import { PAGINATED_TRANSFERS_QUERY, TRANSFERS_POLLING_QUERY } from '../data/transfers';
+import { PAGINATED_TRANSFERS_QUERY, PAGINATED_TRANSFERS_MIN_QUERY, TRANSFERS_POLLING_QUERY } from '../data/transfers';
 import type { TransferOrderByInput, TransfersFeeQueryQuery as TransfersFeeQuery, TransfersFeeQueryQueryVariables as TransfersFeeQueryVariables } from '@/gql/graphql';
-import { mapTransfersToUiTransfers, type UiTransfer } from '../data/transfer-mapper';
+import { mapTransfersToUiTransfers, type UiTransfer, hasTokenMetaCached, primeTokenMetaCacheFromContracts } from '../data/transfer-mapper';
+import { VerifiedContractsByIdsDocument } from '@/gql/graphql';
 import { useAddressResolver } from './use-address-resolver';
 import { fetchFeesByExtrinsicHashes, getCachedFee, fetchExtrinsicIdsByHashes, getCachedExtrinsicId } from '../data/transfers';
 import { buildTransferWhereFilter, type TransactionDirection } from '@/utils/transfer-query';
@@ -35,6 +36,13 @@ export function useTransactionDataWithBlocks(
   accountAddress: string | null | undefined,
   limit: number,
   direction: TransactionDirection = 'any',
+  minReefRaw?: string | bigint | null,
+  maxReefRaw?: string | bigint | null,
+  reefOnly: boolean = false,
+  tokenIds: string[] | null = null,
+  tokenMinRaw: string | bigint | null = null,
+  tokenMaxRaw: string | bigint | null = null,
+  erc20Only: boolean = false,
 ): UseTransactionDataReturn {
 
   const { resolveAddress, resolveEvmAddress } = useAddressResolver();
@@ -45,6 +53,10 @@ export function useTransactionDataWithBlocks(
   const client = useApolloClient();
   const [feesByHash, setFeesByHash] = useState<Record<string, string>>({});
   const [exIdsByHash, setExIdsByHash] = useState<Record<string, string>>({});
+  // Partner legs for swaps (filled when strict server token filter is active)
+  const [partnersByHash, setPartnersByHash] = useState<Record<string, any[]>>({});
+  // Bump to force re-map when lazy metadata arrives
+  const [metaVersion, setMetaVersion] = useState(0);
 
   useEffect(() => {
     if (!accountAddress) {
@@ -75,14 +87,18 @@ export function useTransactionDataWithBlocks(
     resolveAndSet();
   }, [accountAddress, resolveAddress, resolveEvmAddress]);
 
+  const pagedDoc = ((tokenIds && tokenIds.length > 0) || reefOnly)
+    ? PAGINATED_TRANSFERS_MIN_QUERY
+    : PAGINATED_TRANSFERS_QUERY;
+
   const { data, loading, error, fetchMore: apolloFetchMore } = 
     useQuery<TransfersFeeQuery, TransfersFeeQueryVariables>(
-      PAGINATED_TRANSFERS_QUERY as unknown as TypedDocumentNode<TransfersFeeQuery, TransfersFeeQueryVariables>,
+      pagedDoc as unknown as TypedDocumentNode<TransfersFeeQuery, TransfersFeeQueryVariables>,
       {
         variables: {
           first: limit,
-          where: buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress, direction }),
-          orderBy: ['timestamp_DESC', 'id_DESC'] as TransferOrderByInput[],
+          where: buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress, direction, minReefRaw, maxReefRaw, reefOnly, tokenIds, tokenMinRaw, tokenMaxRaw, erc20Only }),
+          orderBy: ((minReefRaw || maxReefRaw || tokenMinRaw || tokenMaxRaw) ? ['amount_ASC', 'id_ASC'] : ['timestamp_DESC', 'id_DESC']) as TransferOrderByInput[],
         },
         skip: !resolvedAddress && !resolvedEvmAddress,
         notifyOnNetworkStatusChange: false,
@@ -94,7 +110,62 @@ export function useTransactionDataWithBlocks(
   useEffect(() => {
     setFeesByHash({});
     setExIdsByHash({});
-  }, [resolvedAddress, resolvedEvmAddress, direction]);
+    setPartnersByHash({});
+  }, [resolvedAddress, resolvedEvmAddress, direction, minReefRaw, maxReefRaw, reefOnly, tokenIds, tokenMinRaw, tokenMaxRaw]);
+
+  // When strict token server filter is active (tokenIds provided), fetch partner legs for swaps
+  useEffect(() => {
+    // Only for strict token filter (non-empty tokenIds) and when we have page data
+    if (!tokenIds || tokenIds.length === 0) return;
+    const edges = data?.transfersConnection.edges || [];
+    const nodes = edges.map((e) => e?.node).filter(Boolean) as Array<any>;
+    if (nodes.length === 0) return;
+
+    const missing: string[] = [];
+    for (const n of nodes) {
+      const h = getString(n, ['extrinsicHash']);
+      const act = (n as any)?.reefswapAction;
+      if (!h || !act) continue; // not a swap extrinsic
+      if (!partnersByHash[h]) missing.push(h);
+    }
+    if (missing.length === 0) return;
+
+    (async () => {
+      try {
+        // Base address/direction filter without token/amount constraints
+        const base = buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress, direction: 'any' });
+        const where: any = base ? { AND: [base, { extrinsicHash_in: missing }] } : { extrinsicHash_in: missing };
+        const { data: q } = await (client as ApolloClient<NormalizedCacheObject>).query(
+          {
+            query: TRANSFERS_POLLING_QUERY as unknown as TypedDocumentNode<any, any>,
+            variables: {
+              where,
+              // conservative cap: expect a handful of legs per extrinsic
+              limit: Math.min(missing.length * 10, 500),
+            },
+            fetchPolicy: 'network-only',
+          }
+        );
+        const list = (q?.transfers || []) as Array<any>;
+        if (!list.length) return;
+        const grouped: Record<string, any[]> = {};
+        for (const t of list) {
+          const h = getString(t, ['extrinsicHash']);
+          if (!h) continue;
+          (grouped[h] = grouped[h] || []).push(t);
+        }
+        setPartnersByHash((prev) => {
+          const next = { ...prev };
+          for (const [h, arr] of Object.entries(grouped)) {
+            if (!next[h]) next[h] = arr as any[];
+          }
+          return next;
+        });
+      } catch (e) {
+        console.warn('[tx][partners] fetch failed', e);
+      }
+    })();
+  }, [client, data, tokenIds, resolvedAddress, resolvedEvmAddress, partnersByHash]);
 
   // Fetch fees for extrinsics present in current edges,
   // but skip ones that already contain inline signedData.fee.partialFee
@@ -180,14 +251,52 @@ export function useTransactionDataWithBlocks(
     return () => { cancelled = true; };
   }, [client, data, exIdsByHash]);
 
+  // Lazy fetch token metadata (contractData) for tokens on current page that lack cached meta
+  useEffect(() => {
+    const edges = data?.transfersConnection.edges || [];
+    const nodes = edges.map((e) => e?.node).filter(Boolean) as Array<any>;
+    if (nodes.length === 0) return;
+
+    const ids: string[] = [];
+    for (const n of nodes) {
+      const id = getString(n, ['token', 'id']);
+      if (!id) continue;
+      if (!hasTokenMetaCached(id)) ids.push(id);
+    }
+    const unique = Array.from(new Set(ids));
+    if (unique.length === 0) return;
+
+    (async () => {
+      try {
+        const { data: q } = await (client as ApolloClient<NormalizedCacheObject>).query({
+          query: VerifiedContractsByIdsDocument as unknown as TypedDocumentNode<any, any>,
+          variables: { ids: unique, first: Math.min(unique.length, 100) },
+          fetchPolicy: 'cache-first',
+        });
+        const list = (q?.verifiedContracts || []) as Array<{ id: string; contractData?: any; name?: string }>;
+        if (list.length === 0) return;
+        const added = primeTokenMetaCacheFromContracts(list);
+        if (added > 0) setMetaVersion((v) => v + 1);
+      } catch (e) {
+        // ignore, soft optimization
+      }
+    })();
+  }, [client, data]);
+
   const uiTransfers = useMemo(() => {
     const edges = data?.transfersConnection.edges || [];
     if (edges.length === 0) {
       return [];
     }
 
+    // Merge partner legs (if any) before mapping/aggregation
+    const partnerList = Object.values(partnersByHash).flat();
+    const combinedEdges = partnerList.length > 0
+      ? [...(edges as unknown as Array<{ node: any }>), ...partnerList.map((n) => ({ node: n }))]
+      : (edges as unknown as Array<{ node: any }>);
+
     const mapped = mapTransfersToUiTransfers(
-      edges as unknown as Array<{ node: any }>,
+      combinedEdges,
       resolvedAddress ?? resolvedEvmAddress ?? undefined
     );
     // inject fees
@@ -197,15 +306,32 @@ export function useTransactionDataWithBlocks(
       extrinsicId: t.extrinsicId ?? (t.extrinsicHash ? (exIdsByHash[t.extrinsicHash] ?? getCachedExtrinsicId(t.extrinsicHash)) : undefined),
     }));
 
-    // Enforce global stable order: timestamp_DESC, id_DESC
-    enriched.sort((a, b) => {
-      const ta = toEpochMs(a.timestamp);
-      const tb = toEpochMs(b.timestamp);
-      if (tb !== ta) return tb - ta; // newer first
-      // tie-break by id DESC
-      if (a.id === b.id) return 0;
-      return a.id < b.id ? 1 : -1;
-    });
+    // Enforce global stable order matching server order
+    if (minReefRaw || maxReefRaw) {
+      // amount_ASC, id_ASC
+      enriched.sort((a, b) => {
+        try {
+          const da = BigInt(a.amount || '0');
+          const db = BigInt(b.amount || '0');
+          if (da !== db) return da < db ? -1 : 1;
+        } catch {
+          const na = Number(a.amount);
+          const nb = Number(b.amount);
+          if (Number.isFinite(na) && Number.isFinite(nb) && na !== nb) return na < nb ? -1 : 1;
+        }
+        if (a.id === b.id) return 0;
+        return a.id < b.id ? -1 : 1;
+      });
+    } else {
+      // timestamp_DESC, id_DESC
+      enriched.sort((a, b) => {
+        const ta = toEpochMs(a.timestamp);
+        const tb = toEpochMs(b.timestamp);
+        if (tb !== ta) return tb - ta; // newer first
+        if (a.id === b.id) return 0;
+        return a.id < b.id ? 1 : -1;
+      });
+    }
 
     // Belt-and-suspenders: ensure unique transfers by id to protect UI
     // from any rare duplication that might slip through cache merge/reconcile.
@@ -242,16 +368,13 @@ export function useTransactionDataWithBlocks(
         continue;
       }
 
-      // Pick the largest legs per direction by raw amount (string BigInt compare)
+      // Pick the largest legs per direction by raw amount using cached BigInt when available
       function pickMax(list: UiTransfer[]): UiTransfer {
         let best = list[0]!;
         for (const it of list) {
-          try {
-            if (BigInt(it.amount) > BigInt(best.amount)) best = it;
-          } catch {
-            // Fallback to string compare if BigInt fails (shouldn't)
-            if (it.amount > best.amount) best = it;
-          }
+          const a = (it as any).amountBI ?? BigInt(it.amount || '0');
+          const b = (best as any).amountBI ?? BigInt(best.amount || '0');
+          if (a > b) best = it;
         }
         return best;
       }
@@ -294,6 +417,7 @@ export function useTransactionDataWithBlocks(
         type: 'SWAP',
         method: 'swap',
         amount: maxIn.amount,
+        amountBI: (maxIn as any).amountBI ?? (() => { try { return BigInt(maxIn.amount || '0'); } catch { return undefined; } })(),
         isNft: false,
         tokenId: null,
         token: maxIn.token,
@@ -306,24 +430,40 @@ export function useTransactionDataWithBlocks(
         eventIndex: (maxIn.eventIndex ?? maxOut.eventIndex),
         extrinsicId: (maxIn.extrinsicId ?? maxOut.extrinsicId),
         swapInfo: {
-          sold: { amount: maxOut.amount, token: maxOut.token },
-          bought: { amount: maxIn.amount, token: maxIn.token },
+          sold: { amount: maxOut.amount, amountBI: (maxOut as any).amountBI ?? (() => { try { return BigInt(maxOut.amount || '0'); } catch { return undefined; } })(), token: maxOut.token },
+          bought: { amount: maxIn.amount, amountBI: (maxIn as any).amountBI ?? (() => { try { return BigInt(maxIn.amount || '0'); } catch { return undefined; } })(), token: maxIn.token },
           preferredTransferId: preferId,
         },
       });
     }
 
     // Final sort and return
-    aggregated.sort((a, b) => {
-      const ta = toEpochMs(a.timestamp);
-      const tb = toEpochMs(b.timestamp);
-      if (tb !== ta) return tb - ta;
-      if (a.id === b.id) return 0;
-      return a.id < b.id ? 1 : -1;
-    });
+    if (minReefRaw || maxReefRaw) {
+      aggregated.sort((a, b) => {
+        try {
+          const da = BigInt(a.amount || '0');
+          const db = BigInt(b.amount || '0');
+          if (da !== db) return da < db ? -1 : 1;
+        } catch {
+          const na = Number(a.amount);
+          const nb = Number(b.amount);
+          if (Number.isFinite(na) && Number.isFinite(nb) && na !== nb) return na < nb ? -1 : 1;
+        }
+        if (a.id === b.id) return 0;
+        return a.id < b.id ? -1 : 1;
+      });
+    } else {
+      aggregated.sort((a, b) => {
+        const ta = toEpochMs(a.timestamp);
+        const tb = toEpochMs(b.timestamp);
+        if (tb !== ta) return tb - ta;
+        if (a.id === b.id) return 0;
+        return a.id < b.id ? 1 : -1;
+      });
+    }
 
     return aggregated;
-  }, [data, resolvedAddress, resolvedEvmAddress, feesByHash, exIdsByHash]);
+  }, [data, resolvedAddress, resolvedEvmAddress, feesByHash, exIdsByHash, minReefRaw, maxReefRaw, partnersByHash, metaVersion]);
 
   const fetchMore = useCallback(async () => {
     if (!apolloFetchMore || !data?.transfersConnection.pageInfo.hasNextPage) return;
@@ -344,8 +484,8 @@ export function useTransactionDataWithBlocks(
           // Use polling query since it exposes offset/limit on plain list
           query: TRANSFERS_POLLING_QUERY as unknown as TypedDocumentNode<any, any>,
           variables: {
-            where: buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress, direction }),
-            orderBy: ['timestamp_DESC', 'id_DESC'] as TransferOrderByInput[],
+            where: buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress, direction, minReefRaw, maxReefRaw, reefOnly, tokenIds, tokenMinRaw, tokenMaxRaw, erc20Only }),
+            orderBy: ((minReefRaw || maxReefRaw || tokenMinRaw || tokenMaxRaw) ? ['amount_ASC', 'id_ASC'] : ['timestamp_DESC', 'id_DESC']) as TransferOrderByInput[],
             offset: Math.max(0, Math.floor(offset) || 0),
             limit: Math.max(1, Math.floor(limit) || 1),
           },
@@ -384,14 +524,30 @@ export function useTransactionDataWithBlocks(
         }
       }
 
-      // Enforce global stable DESC order (belt-and-suspenders)
-      enrichedPrimed.sort((a, b) => {
-        const ta = toEpochMs(a.timestamp);
-        const tb = toEpochMs(b.timestamp);
-        if (tb !== ta) return tb - ta;
-        if (a.id === b.id) return 0;
-        return a.id < b.id ? 1 : -1;
-      });
+      // Enforce global order consistent with server
+      if (minReefRaw || maxReefRaw) {
+        enrichedPrimed.sort((a, b) => {
+          try {
+            const da = BigInt(a.amount || '0');
+            const db = BigInt(b.amount || '0');
+            if (da !== db) return da < db ? -1 : 1;
+          } catch {
+            const na = Number(a.amount);
+            const nb = Number(b.amount);
+            if (Number.isFinite(na) && Number.isFinite(nb) && na !== nb) return na < nb ? -1 : 1;
+          }
+          if (a.id === b.id) return 0;
+          return a.id < b.id ? -1 : 1;
+        });
+      } else {
+        enrichedPrimed.sort((a, b) => {
+          const ta = toEpochMs(a.timestamp);
+          const tb = toEpochMs(b.timestamp);
+          if (tb !== ta) return tb - ta;
+          if (a.id === b.id) return 0;
+          return a.id < b.id ? 1 : -1;
+        });
+      }
 
       // Unique by id
       const seen = new Set<string>();
@@ -404,7 +560,7 @@ export function useTransactionDataWithBlocks(
       console.warn('[tx][fetchWindow] failed', e);
       return [];
     }
-  }, [client, resolvedAddress, resolvedEvmAddress, direction]);
+  }, [client, resolvedAddress, resolvedEvmAddress, direction, minReefRaw, maxReefRaw, reefOnly, tokenIds, tokenMinRaw, tokenMaxRaw]);
 
   const isLoading = loading || isResolvingAddress;
   const totalError = error; // Do not create a new error for the resolving state

@@ -3,29 +3,90 @@ import {
   useReactTable,
   getCoreRowModel,
   getPaginationRowModel,
+  getSortedRowModel,
   Table,
   PaginationState,
+  SortingState,
 } from '@tanstack/react-table';
 import { useTransactionDataWithBlocks } from './use-transaction-data-with-blocks';
 import type { TransactionDirection } from '@/utils/transfer-query';
 import { transactionColumns } from '../components/transaction-columns';
 import { UiTransfer } from '../data/transfer-mapper';
 import { PAGINATION_CONFIG } from '../constants/pagination';
-import { ApolloError } from '@apollo/client';
+import { ApolloError, useApolloClient, type ApolloClient, type NormalizedCacheObject } from '@apollo/client';
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { VERIFIED_CONTRACTS_BY_NAME_QUERY } from '@/data/verified-contracts';
 import { useTokenUsdPrices, type TokenInput } from '@/hooks/use-token-usd-prices';
 import { useReefPrice } from '@/hooks/use-reef-price';
 
-// In-memory per-address page index memory for the current session
 const addressPageMemory = new Map<string, number>();
 
 // Debug flag to trace pagination math; enable only with VITE_TX_PAGINATION_DEBUG=1|true
 const DEBUG_TX_PAGINATION = ((import.meta as any).env?.VITE_TX_PAGINATION_DEBUG === '1'
   || (import.meta as any).env?.VITE_TX_PAGINATION_DEBUG === 'true');
-function dbg(...args: any[]) {
-  if (!DEBUG_TX_PAGINATION) return;
-  // eslint-disable-next-line no-console
-  console.debug('[TxPagination]', ...args);
-}
+  function dbg(...args: any[]) {
+    if (!DEBUG_TX_PAGINATION) return;
+    // eslint-disable-next-line no-console
+    console.debug('[TxPagination]', ...args);
+  }
+
+  // Feature flag: bootstrap USDC ids via verifiedContracts query (disabled by default)
+  const ENABLE_USDC_BOOTSTRAP = ((import.meta as any).env?.VITE_ENABLE_USDC_BOOTSTRAP === '1'
+    || (import.meta as any).env?.VITE_ENABLE_USDC_BOOTSTRAP === 'true');
+
+  // Local storage helpers to persist discovered ERC20 contract ids between sessions
+  const STORAGE_AVAILABLE = typeof window !== 'undefined' && !!window.localStorage;
+  const USDC_STORAGE_KEY = 'reef.session.usdc.ids.v1';
+  const MRD_STORAGE_KEY = 'reef.session.mrd.ids.v1';
+  const IDS_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+  function loadIds(key: string): string[] {
+    try {
+      if (!STORAGE_AVAILABLE) return [];
+      const raw = window.localStorage.getItem(key);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!parsed || !Array.isArray(parsed.ids) || typeof parsed.ts !== 'number') return [];
+      if (Date.now() - parsed.ts > IDS_TTL_MS) return [];
+      return (parsed.ids as string[]).map(s => String(s).toLowerCase()).filter(Boolean);
+    } catch { return []; }
+  }
+  function saveIds(key: string, ids: Set<string>) {
+    try {
+      if (!STORAGE_AVAILABLE) return;
+      const arr = Array.from(ids);
+      window.localStorage.setItem(key, JSON.stringify({ ids: arr, ts: Date.now() }));
+    } catch { /* ignore */ }
+  }
+
+// --- Module-level token sets to avoid re-allocations per render ---
+const USDC_ENV_RAW = (import.meta as any)?.env?.VITE_USDC_CONTRACT_IDS as string | undefined;
+const USDC_ENV = (USDC_ENV_RAW || '')
+  .split(',')
+  .map((s: string) => s.trim().toLowerCase())
+  .filter(Boolean);
+const USDC_DEFAULTS = ['0x7922d8785d93e692bb584e659b607fa821e6a91a'];
+const USDC_ID_SET = new Set<string>(USDC_ENV.length > 0 ? USDC_ENV : USDC_DEFAULTS);
+const USDC_SESSION_SET = new Set<string>();
+const isUsdcId = (id?: string) => {
+  if (!id) return false;
+  const s = String(id).toLowerCase();
+  return USDC_ID_SET.has(s) || USDC_SESSION_SET.has(s);
+};
+// Session-level accumulator for any USDC contract ids observed in data (monotonic, avoids oscillation)
+
+const MRD_ENV_RAW = (import.meta as any)?.env?.VITE_MRD_CONTRACT_IDS as string | undefined;
+const MRD_ENV = (MRD_ENV_RAW || '')
+  .split(',')
+  .map((s: string) => s.trim().toLowerCase())
+  .filter(Boolean);
+const MRD_DEFAULTS = ['0x95a2af50040b7256a4b4c405a4afd4dd573da115'];
+const MRD_ID_SET = new Set<string>(MRD_ENV.length > 0 ? MRD_ENV : MRD_DEFAULTS);
+const MRD_SESSION_SET = new Set<string>();
+const isMrdId = (id?: string) => {
+  if (!id) return false;
+  const s = String(id).toLowerCase();
+  return MRD_ID_SET.has(s) || MRD_SESSION_SET.has(s);
+};
 
 export interface TanstackTransactionAdapterReturn {
   table: Table<UiTransfer>;
@@ -46,12 +107,28 @@ export interface TanstackTransactionAdapterReturn {
   hasExactTotal: boolean;
   /** Whether fast offset-window mode is active for current page index */
   fastModeActive: boolean;
+  /** Which of the known tokens are present in the loaded dataset */
+  availableTokens: { reef: boolean; usdc: boolean; mrd: boolean };
 }
+
+// Token filter supports special keywords 'all' and 'reef', legacy 'usdc',
+// and any EVM contract address (0x...).
+type TokenFilter = string;
 
 export function useTanstackTransactionAdapter(
   address: string,
   direction: TransactionDirection = 'any',
+  minReefRaw?: string | bigint | null,
+  maxReefRaw?: string | bigint | null,
+  tokenFilter: TokenFilter = 'all',
+  tokenMinRaw?: string | null,
+  tokenMaxRaw?: string | null,
+  strictServerTokenFilter: boolean = false,
 ): TanstackTransactionAdapterReturn {
+  const apollo = useApolloClient();
+  // Enforce strict server token filter by default for USDC/MRD and custom 0x tokens
+  const enforceStrict = (tokenFilter === 'usdc' || tokenFilter === 'mrd' || /^0x[0-9a-fA-F]{40}$/.test(tokenFilter));
+  const effectiveStrict = enforceStrict || strictServerTokenFilter;
   // Allow initial page jump via URL params (?page=6 or ?p=6) for E2E and deep-links.
   const initialPageIndex = useMemo(() => {
     try {
@@ -68,8 +145,49 @@ export function useTanstackTransactionAdapter(
     pageIndex: initialPageIndex,
     pageSize: PAGINATION_CONFIG.UI_TRANSACTIONS_PER_PAGE,
   });
+  const [sorting, setSorting] = useState<SortingState>([]);
   // Track address changes
   const prevAddressRef = useRef(address);
+  // Strict server token ids (exact-cased), computed after we have observed data or from input address
+  const [serverTokenIds, setServerTokenIds] = useState<string[] | null>(() => {
+    if (!effectiveStrict) return null;
+    const isHex = (v: string) => /^0x[0-9a-fA-F]{40}$/.test(v);
+    if (tokenFilter === 'usdc') return Array.from(new Set<string>([...USDC_ID_SET, ...USDC_SESSION_SET]));
+    if (tokenFilter === 'mrd') return Array.from(new Set<string>([...MRD_ID_SET, ...MRD_SESSION_SET]));
+    if (isHex(tokenFilter)) return [tokenFilter];
+    return null;
+  });
+  const [usdcBootstrapDone, setUsdcBootstrapDone] = useState<boolean>(false);
+  // Soft fallback: if strict server token filter yields empty page for USDC,
+  // temporarily disable server token ids and filter on client to discover ids,
+  // then return to strict once ids are known.
+  const [softFallbackActive, setSoftFallbackActive] = useState<boolean>(false);
+  const [softFallbackAttempted, setSoftFallbackAttempted] = useState<boolean>(false);
+
+  // Determine server-side token constraints when strict filter is enabled (computed post-load)
+  const isHexAddress = (v: string) => /^0x[0-9a-fA-F]{40}$/.test(v);
+  function arraysEqual(a: string[] | null, b: string[] | null): boolean {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i]) return false;
+    return true;
+  }
+
+  // Use effective server token ids (null when soft fallback is active)
+  const effectiveServerTokenIds = softFallbackActive ? null : serverTokenIds;
+
+  // Compute dynamic API page size: when strict token ids are applied and direction is not 'any', use smaller page size
+  const apiPageSize = useMemo((): number => {
+    let n: number = PAGINATION_CONFIG.API_FETCH_PAGE_SIZE as unknown as number;
+    if (effectiveServerTokenIds && direction !== 'any') n = Math.min(n, 30);
+    return n;
+  }, [effectiveServerTokenIds, direction]);
+
+  // When in soft fallback mode for a specific token, narrow to ERC20 only
+  const erc20Only = useMemo(() => {
+    return softFallbackActive && (tokenFilter === 'usdc' || tokenFilter === 'mrd' || isHexAddress(tokenFilter));
+  }, [softFallbackActive, tokenFilter]);
 
   const {
     transfers: initialTransactions,
@@ -79,7 +197,324 @@ export function useTanstackTransactionAdapter(
     hasMore: hasNextPage,
     totalCount,
     fetchWindow,
-  } = useTransactionDataWithBlocks(address, PAGINATION_CONFIG.API_FETCH_PAGE_SIZE, direction);
+  } = useTransactionDataWithBlocks(
+    address,
+    apiPageSize,
+    direction,
+    minReefRaw,
+    maxReefRaw,
+    tokenFilter === 'reef',
+    effectiveServerTokenIds,
+    (effectiveServerTokenIds ? (tokenMinRaw ?? null) : null),
+    (effectiveServerTokenIds ? (tokenMaxRaw ?? null) : null),
+    erc20Only,
+  );
+
+  // Reset serverTokenIds when strict filter is off or token group is not supported
+  useEffect(() => {
+    if (!effectiveStrict || tokenFilter === 'all' || tokenFilter === 'reef') {
+      if (!arraysEqual(serverTokenIds, null)) setServerTokenIds(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveStrict, tokenFilter]);
+
+  // Hex address: update once on filter change, preserve checksum casing
+  useEffect(() => {
+    if (!effectiveStrict) return;
+    if (!isHexAddress(tokenFilter)) return;
+    const next = [tokenFilter];
+    const tid = (typeof window !== 'undefined') ? window.setTimeout(() => {
+      if (!arraysEqual(serverTokenIds, next)) setServerTokenIds(next);
+    }, 150) : undefined;
+    return () => { if (typeof window !== 'undefined' && tid) window.clearTimeout(tid); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveStrict, tokenFilter]);
+
+  // Seed ids immediately when strict filter is enabled to avoid initial query without tokenIds
+  useEffect(() => {
+    if (!effectiveStrict) return;
+    if (serverTokenIds && serverTokenIds.length > 0) return;
+    const isHex = (v: string) => /^0x[0-9a-fA-F]{40}$/.test(v);
+    if (tokenFilter === 'usdc') {
+      const next = Array.from(new Set<string>([...USDC_ID_SET, ...USDC_SESSION_SET]));
+      if (next.length > 0 && !arraysEqual(serverTokenIds, next)) {
+        setServerTokenIds(next);
+        if (softFallbackActive) setSoftFallbackActive(false);
+      }
+    } else if (tokenFilter === 'mrd') {
+      const next = Array.from(new Set<string>([...MRD_ID_SET, ...MRD_SESSION_SET]));
+      if (next.length > 0 && !arraysEqual(serverTokenIds, next)) {
+        setServerTokenIds(next);
+        if (softFallbackActive) setSoftFallbackActive(false);
+      }
+    } else if (isHex(tokenFilter)) {
+      const next = [tokenFilter];
+      if (!arraysEqual(serverTokenIds, next)) {
+        setServerTokenIds(next);
+        if (softFallbackActive) setSoftFallbackActive(false);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveStrict, tokenFilter]);
+
+  // On first mount, load persisted session ids
+  useEffect(() => {
+    const usdc = loadIds(USDC_STORAGE_KEY);
+    for (const id of usdc) USDC_SESSION_SET.add(id);
+    const mrd = loadIds(MRD_STORAGE_KEY);
+    for (const id of mrd) MRD_SESSION_SET.add(id);
+  }, []);
+
+  // USDC: use stable, predefined id set (unioned with any session-observed USDC ids) to avoid oscillation
+  useEffect(() => {
+    if (!effectiveStrict) return;
+    if (tokenFilter !== 'usdc') return;
+    const next = Array.from(new Set<string>([...USDC_ID_SET, ...USDC_SESSION_SET]));
+    const tid = (typeof window !== 'undefined') ? window.setTimeout(() => {
+      if (!arraysEqual(serverTokenIds, next)) setServerTokenIds(next);
+    }, 150) : undefined;
+    return () => { if (typeof window !== 'undefined' && tid) window.clearTimeout(tid); };
+  }, [effectiveStrict, tokenFilter, serverTokenIds]);
+
+  // MRD: same logic as USDC
+  useEffect(() => {
+    if (!effectiveStrict) return;
+    if (tokenFilter !== 'mrd') return;
+    const next = Array.from(new Set<string>([...MRD_ID_SET, ...MRD_SESSION_SET]));
+    const tid = (typeof window !== 'undefined') ? window.setTimeout(() => {
+      if (!arraysEqual(serverTokenIds, next)) setServerTokenIds(next);
+    }, 150) : undefined;
+    return () => { if (typeof window !== 'undefined' && tid) window.clearTimeout(tid); };
+  }, [effectiveStrict, tokenFilter, serverTokenIds]);
+
+  // Activate soft fallback when strict USDC/MRD filter returns no items on first load
+  useEffect(() => {
+    // Disable soft fallback for enforced strict tokens (USDC/MRD/custom 0x)
+    if (enforceStrict) {
+      if (softFallbackActive) setSoftFallbackActive(false);
+      if (softFallbackAttempted) setSoftFallbackAttempted(false);
+      return;
+    }
+    const eligible = (tokenFilter === 'usdc' || tokenFilter === 'mrd');
+    if (!effectiveStrict || !eligible) {
+      if (softFallbackActive) setSoftFallbackActive(false);
+      if (softFallbackAttempted) setSoftFallbackAttempted(false);
+      return;
+    }
+    if (isLoading) return;
+    // Включать fallback только после попытки строгого фильтра (когда ids известны)
+    if (!serverTokenIds || serverTokenIds.length === 0) return;
+    const count = (initialTransactions || []).length;
+    if (count === 0 && !softFallbackActive && !softFallbackAttempted) {
+      setSoftFallbackActive(true);
+      setSoftFallbackAttempted(true);
+      if (DEBUG_TX_PAGINATION) console.debug('[ERC20][fallback] activating soft fallback (no items under strict filter)', { tokenFilter });
+    }
+  }, [effectiveStrict, tokenFilter, isLoading, initialTransactions, softFallbackActive, softFallbackAttempted, serverTokenIds]);
+
+  // Exit soft fallback once we have concrete server token ids (observed via session/bootstrap)
+  useEffect(() => {
+    if (enforceStrict) { if (softFallbackActive) setSoftFallbackActive(false); return; }
+    if (!softFallbackActive) return;
+    const eligible = (tokenFilter === 'usdc' || tokenFilter === 'mrd');
+    if (!effectiveStrict || !eligible) { setSoftFallbackActive(false); return; }
+    // Exit fallback only after we've actually observed ids on the page (session sets filled)
+    const discovered = tokenFilter === 'usdc' ? (USDC_SESSION_SET.size > 0) : (MRD_SESSION_SET.size > 0);
+    if (discovered) {
+      setSoftFallbackActive(false);
+      if (DEBUG_TX_PAGINATION) console.debug('[ERC20][fallback] discovered ids via session, returning to strict mode');
+    }
+  }, [softFallbackActive, effectiveStrict, tokenFilter, initialTransactions, enforceStrict]);
+
+  // Bootstrap USDC ids by querying verified contracts by name once when strict filter is enabled
+  useEffect(() => {
+    if (!effectiveStrict) { setUsdcBootstrapDone(false); return; }
+    if (tokenFilter !== 'usdc') { setUsdcBootstrapDone(false); return; }
+    if (usdcBootstrapDone) return;
+    // Only attempt bootstrap if feature is enabled AND strict filter явно не дал результатов (soft fallback активен)
+    if (!ENABLE_USDC_BOOTSTRAP) { setUsdcBootstrapDone(true); return; }
+    if (!softFallbackActive) return; // запускать только когда строгий фильтр ничего не вернул
+    // Если уже нашли id в этой сессии — пропускаем
+    if (USDC_SESSION_SET.size > 0) { setUsdcBootstrapDone(true); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const names = ['USDC', 'USDC.e', 'USD Coin'];
+        const { data } = await (apollo as ApolloClient<NormalizedCacheObject>).query({
+          query: VERIFIED_CONTRACTS_BY_NAME_QUERY as unknown as TypedDocumentNode<any, any>,
+          variables: { names, needle: 'usdc' },
+          fetchPolicy: 'cache-first',
+          errorPolicy: 'ignore',
+        });
+        const list = (data?.verifiedContracts ?? []) as Array<{ id?: string; name?: string }>;
+        let added = 0;
+        for (const it of list) {
+          const id = String(it?.id || '').toLowerCase();
+          if (!id) continue;
+          if (!USDC_SESSION_SET.has(id)) { USDC_SESSION_SET.add(id); added += 1; }
+        }
+        if (added > 0 && !cancelled) {
+          const next = Array.from(new Set<string>([...USDC_ID_SET, ...USDC_SESSION_SET]));
+          if (!arraysEqual(serverTokenIds, next)) setServerTokenIds(next);
+        }
+      } catch (_e) {
+        // ignore, fallback to defaults
+      } finally {
+        if (!cancelled) setUsdcBootstrapDone(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [effectiveStrict, tokenFilter, apollo, usdcBootstrapDone, softFallbackActive]);
+
+  // Observe current page for any tokens named USDC (including synonyms and swap legs) and extend session set
+  useEffect(() => {
+    if (!effectiveStrict) return;
+    if (tokenFilter !== 'usdc') return;
+    const list = initialTransactions || [];
+    let added = 0;
+    const nameSynonyms = new Set(['usdc', 'usdc.e', 'usd coin']);
+    for (const t of list) {
+      const tok = (t as any)?.token as { id?: string; name?: string } | undefined;
+      const addIf = (maybe?: { id?: string; name?: string }) => {
+        const id = (maybe?.id || '').toLowerCase();
+        if (!id) return;
+        const nm = (maybe?.name || '').toString().toLowerCase();
+        if (nm && nameSynonyms.has(nm) && !USDC_SESSION_SET.has(id)) { USDC_SESSION_SET.add(id); added += 1; }
+      };
+      if (tok) addIf(tok);
+      const s = (t as any)?.swapInfo;
+      if (s) { addIf(s.sold?.token); addIf(s.bought?.token); }
+    }
+    if (added > 0) {
+      const next = Array.from(new Set<string>([...USDC_ID_SET, ...USDC_SESSION_SET]));
+      if (!arraysEqual(serverTokenIds, next)) setServerTokenIds(next);
+      saveIds(USDC_STORAGE_KEY, USDC_SESSION_SET);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveStrict, tokenFilter, initialTransactions]);
+
+  // Observe current page for MRD tokens (case-insensitive) and extend session set
+  useEffect(() => {
+    if (!effectiveStrict) return;
+    if (tokenFilter !== 'mrd') return;
+    const list = initialTransactions || [];
+    let added = 0;
+    const nameSynonyms = new Set(['mrd']);
+    for (const t of list) {
+      const tok = (t as any)?.token as { id?: string; name?: string } | undefined;
+      const addIf = (maybe?: { id?: string; name?: string }) => {
+        const id = (maybe?.id || '').toLowerCase();
+        if (!id) return;
+        const nm = (maybe?.name || '').toString().toLowerCase();
+        if (nm && nameSynonyms.has(nm) && !MRD_SESSION_SET.has(id)) { MRD_SESSION_SET.add(id); added += 1; }
+      };
+      if (tok) addIf(tok);
+      const s = (t as any)?.swapInfo;
+      if (s) { addIf(s.sold?.token); addIf(s.bought?.token); }
+    }
+    if (added > 0) {
+      const next = Array.from(new Set<string>([...MRD_ID_SET, ...MRD_SESSION_SET]));
+      if (!arraysEqual(serverTokenIds, next)) setServerTokenIds(next);
+      saveIds(MRD_STORAGE_KEY, MRD_SESSION_SET);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveStrict, tokenFilter, initialTransactions]);
+
+  // Client-side token filter to include swaps where either leg matches the token
+  const filteredTransactions = useMemo(() => {
+    const list = initialTransactions || [];
+    if (tokenFilter === 'all') return list;
+
+    const isReef = (tok?: { name?: string; decimals?: number }) => !!tok && tok.name === 'REEF' && (tok.decimals ?? 18) === 18;
+
+    const isAddress = (v: string) => /^0x[0-9a-fA-F]{40}$/.test(v);
+    const addrLower = isAddress(tokenFilter) ? tokenFilter.toLowerCase() : undefined;
+
+    const minRaw = tokenMinRaw != null && tokenMinRaw !== '' ? BigInt(String(tokenMinRaw)) : null;
+    const maxRaw = tokenMaxRaw != null && tokenMaxRaw !== '' ? BigInt(String(tokenMaxRaw)) : null;
+    const passesAmt = (amt: bigint): boolean => {
+      if (minRaw !== null && amt < minRaw) return false;
+      if (maxRaw !== null && amt > maxRaw) return false;
+      return true;
+    };
+
+    // Name-based fallback when strict server ids are not yet known or soft fallback is active
+    const useNameFallback = softFallbackActive || !serverTokenIds || serverTokenIds.length === 0;
+    const usdcNameSynonyms = new Set(['usdc', 'usdc.e', 'usd coin']);
+    const isUsdcByName = (tok?: { name?: string | null }) => {
+      const nm = (tok?.name || '').toString().toLowerCase();
+      return !!nm && usdcNameSynonyms.has(nm);
+    };
+
+    return list.filter(t => {
+      // Helper to test a token match and range against a transfer or swap legs
+      if (tokenFilter === 'reef') {
+        if (t.method === 'swap' && t.swapInfo) {
+          const soldAmt = (t.swapInfo.sold as any).amountBI ?? BigInt(t.swapInfo.sold.amount || '0');
+          const boughtAmt = (t.swapInfo.bought as any).amountBI ?? BigInt(t.swapInfo.bought.amount || '0');
+          const soldOk = isReef(t.swapInfo.sold.token) && (!minRaw && !maxRaw ? true : passesAmt(soldAmt));
+          const boughtOk = isReef(t.swapInfo.bought.token) && (!minRaw && !maxRaw ? true : passesAmt(boughtAmt));
+          return soldOk || boughtOk;
+        }
+        if (!isReef(t.token)) return false;
+        const amt = (t as any).amountBI ?? BigInt(t.amount || '0');
+        return (!minRaw && !maxRaw) ? true : passesAmt(amt);
+      }
+      if (tokenFilter === 'usdc') {
+        if (t.method === 'swap' && t.swapInfo) {
+          const soldAmt = (t.swapInfo.sold as any).amountBI ?? BigInt(t.swapInfo.sold.amount || '0');
+          const boughtAmt = (t.swapInfo.bought as any).amountBI ?? BigInt(t.swapInfo.bought.amount || '0');
+          const soldOk = (isUsdcId(t.swapInfo.sold.token.id) || (useNameFallback && isUsdcByName(t.swapInfo.sold.token))) && (!minRaw && !maxRaw ? true : passesAmt(soldAmt));
+          const boughtOk = (isUsdcId(t.swapInfo.bought.token.id) || (useNameFallback && isUsdcByName(t.swapInfo.bought.token))) && (!minRaw && !maxRaw ? true : passesAmt(boughtAmt));
+          return soldOk || boughtOk;
+        }
+        if (!(isUsdcId(t.token.id) || (useNameFallback && isUsdcByName((t as any).token)))) return false;
+        const amt = (t as any).amountBI ?? BigInt(t.amount || '0');
+        return (!minRaw && !maxRaw) ? true : passesAmt(amt);
+      }
+      if (addrLower) {
+        if (t.method === 'swap' && t.swapInfo) {
+          const soldAmt = (t.swapInfo.sold as any).amountBI ?? BigInt(t.swapInfo.sold.amount || '0');
+          const boughtAmt = (t.swapInfo.bought as any).amountBI ?? BigInt(t.swapInfo.bought.amount || '0');
+          const soldOk = String(t.swapInfo.sold.token.id || '').toLowerCase() === addrLower && (!minRaw && !maxRaw ? true : passesAmt(soldAmt));
+          const boughtOk = String(t.swapInfo.bought.token.id || '').toLowerCase() === addrLower && (!minRaw && !maxRaw ? true : passesAmt(boughtAmt));
+          return soldOk || boughtOk;
+        }
+        if (String(t.token.id || '').toLowerCase() !== addrLower) return false;
+        const amt = (t as any).amountBI ?? BigInt(t.amount || '0');
+        return (!minRaw && !maxRaw) ? true : passesAmt(amt);
+      }
+      return true;
+    });
+  }, [initialTransactions, tokenFilter, tokenMinRaw, tokenMaxRaw, softFallbackActive, serverTokenIds]);
+
+  // Expose presence of specific tokens in the currently loaded dataset for dynamic UI options
+  const availableTokens = useMemo(() => {
+    const list = initialTransactions || [];
+    if (list.length === 0) return { reef: false, usdc: false, mrd: false };
+
+    const isReef = (tok?: { name?: string; decimals?: number }) => !!tok && tok.name === 'REEF' && (tok.decimals ?? 18) === 18;
+
+    // Use module-level helpers for USDC/MRD id checks
+
+    let reef = false, usdc = false, mrd = false;
+    for (const t of list) {
+      // direct token
+      if (!reef) reef = isReef((t as any).token);
+      if (!usdc) usdc = isUsdcId((t as any)?.token?.id);
+      if (!mrd) mrd = isMrdId((t as any)?.token?.id);
+      // swap legs
+      if ((t as any)?.swapInfo) {
+        const s = (t as any).swapInfo.sold?.token;
+        const b = (t as any).swapInfo.bought?.token;
+        if (!reef) reef = isReef(s) || isReef(b);
+        if (!usdc) usdc = isUsdcId(s?.id) || isUsdcId(b?.id);
+        if (!mrd) mrd = isMrdId(s?.id) || isMrdId(b?.id);
+      }
+      if (reef && usdc && mrd) break;
+    }
+    return { reef, usdc, mrd };
+  }, [initialTransactions]);
 
   // Apollo cache is the single source of truth; pages are merged by typePolicies
 
@@ -91,12 +526,17 @@ export function useTanstackTransactionAdapter(
     setAnchorFirstId(undefined);
   }, [address]);
 
-  // Reset anchor and page index when direction changes
+  // Reset anchor and page index when direction or min/max REEF or token filter changes
   useEffect(() => {
-    dbg('anchor: reset due to direction change', { direction });
+    dbg('anchor: reset due to direction/min/max/token change', { direction, minReefRaw, maxReefRaw, tokenFilter });
     setAnchorFirstId(undefined);
     setPagination(p => ({ ...p, pageIndex: 0 }));
-  }, [direction]);
+  }, [direction, minReefRaw, maxReefRaw, tokenFilter]);
+
+  // Disable client sorting entirely; server provides ordering when needed
+  useEffect(() => {
+    setSorting([]);
+  }, [minReefRaw, maxReefRaw, tokenFilter]);
 
   // On address change after initial mount, set page to remembered index for that address,
   // or reset to page 1 (index 0) if first time seeing this address.
@@ -191,9 +631,10 @@ export function useTanstackTransactionAdapter(
   }, [address]);
 
   // Fast offset-window mode: after threshold pages, fetch page window via offset/limit
+  // Disabled for filtered views to avoid inconsistencies
   const fastModeActive = useMemo(() => {
-    return !!PAGINATION_CONFIG.ENABLE_FAST_OFFSET_MODE && (pagination.pageIndex >= PAGINATION_CONFIG.FAST_OFFSET_MODE_THRESHOLD_PAGES);
-  }, [pagination.pageIndex]);
+    return (tokenFilter === 'all') && !!PAGINATION_CONFIG.ENABLE_FAST_OFFSET_MODE && (pagination.pageIndex >= PAGINATION_CONFIG.FAST_OFFSET_MODE_THRESHOLD_PAGES);
+  }, [pagination.pageIndex, tokenFilter]);
 
   const [fastPageData, setFastPageData] = useState<UiTransfer[] | null>(null);
   const [isFastLoading, setIsFastLoading] = useState<boolean>(false);
@@ -248,7 +689,7 @@ export function useTanstackTransactionAdapter(
     addressPageMemory.set(address, pagination.pageIndex);
   }, [address, pagination.pageIndex]);
 
-  const hasExactTotal = useMemo(() => typeof totalCount === 'number' && Number.isFinite(totalCount), [totalCount]);
+  const hasExactTotal = useMemo(() => (tokenFilter === 'all' || tokenFilter === 'reef') && typeof totalCount === 'number' && Number.isFinite(totalCount), [totalCount, tokenFilter]);
   const pageCount = useMemo(() => {
     // Prefer exact total if available; adjust for virtual anchor shift
     const size = pagination.pageSize;
@@ -262,9 +703,14 @@ export function useTanstackTransactionAdapter(
       return Math.max(computed, pagination.pageIndex + 1);
     }
 
-    // Fallback heuristic based on loaded items and hasNextPage
-    const itemsLoaded = (initialTransactions || []).length;
+    // Fallback heuristic
+    const itemsLoaded = (tokenFilter === 'all' ? (initialTransactions || []).length : (filteredTransactions || []).length);
     const pagesLoaded = itemsLoaded > 0 ? Math.ceil(itemsLoaded / size) : 0;
+    if (tokenFilter !== 'all') {
+      // For filtered views, compute strictly from filtered length — no phantom next page
+      // Keep at least 1 page to satisfy TanStack pagination expectations.
+      return Math.max(pagesLoaded, 1);
+    }
     const computed = hasNextPage ? pagesLoaded + 1 : pagesLoaded;
 
     // Ensure UI supports deep manual jumps while total is unknown: include phantom next page
@@ -272,17 +718,18 @@ export function useTanstackTransactionAdapter(
     const minForNext = hasNextPage ? pagination.pageIndex + 2 : minForCurrent;
     const withOverride = Math.max(computed, minForNext, pageCountOverride || 0);
     return withOverride;
-  }, [hasExactTotal, totalCount, newItemsCount, initialTransactions, pagination.pageSize, hasNextPage, pagination.pageIndex, pageCountOverride]);
+  }, [hasExactTotal, totalCount, newItemsCount, initialTransactions, filteredTransactions, tokenFilter, pagination.pageSize, hasNextPage, pagination.pageIndex, pageCountOverride]);
 
   const dataForCurrentPage = useMemo(() => {
     if (fastModeActive && fastPageData) {
       return fastPageData;
     }
     const { pageIndex, pageSize } = pagination;
-    const start = newItemsCount + pageIndex * pageSize;
+    const isFiltered = tokenFilter !== 'all';
+    const start = (isFiltered ? 0 : newItemsCount) + pageIndex * pageSize;
     const end = start + pageSize;
-    return (initialTransactions || []).slice(start, end);
-  }, [pagination, initialTransactions, newItemsCount, fastModeActive, fastPageData]);
+    return (filteredTransactions || []).slice(start, end);
+  }, [pagination, filteredTransactions, tokenFilter, newItemsCount, fastModeActive, fastPageData]);
 
   // Derive token set for pricing on the current page and fetch USD prices
   const tokensForPrices = useMemo(() => {
@@ -310,9 +757,10 @@ export function useTanstackTransactionAdapter(
   useEffect(() => {
     if (!DEBUG_TX_PAGINATION) return;
     const { pageIndex, pageSize } = pagination;
-    const start = newItemsCount + pageIndex * pageSize;
+    const isFiltered = tokenFilter !== 'all';
+    const start = (isFiltered ? 0 : newItemsCount) + pageIndex * pageSize;
     const end = start + pageSize;
-    const items = (initialTransactions || []).slice(start, end);
+    const items = (filteredTransactions || []).slice(start, end);
     const first = items[0]?.id;
     const last = items[items.length - 1]?.id;
     dbg('page window', {
@@ -321,12 +769,12 @@ export function useTanstackTransactionAdapter(
       newItemsCount,
       start,
       end,
-      totalLoaded: (initialTransactions || []).length,
+      totalLoaded: (filteredTransactions || []).length,
       count: items.length,
       first,
       last,
     });
-  }, [pagination.pageIndex, pagination.pageSize, newItemsCount, initialTransactions]);
+  }, [pagination.pageIndex, pagination.pageSize, newItemsCount, filteredTransactions, tokenFilter]);
 
   // Debug-only: detect duplicate ids in the full source list
   useEffect(() => {
@@ -368,27 +816,36 @@ export function useTanstackTransactionAdapter(
       return { isPageLoading: isFastLoading, pageLoadProgress: isFastLoading ? 0 : 1 };
     }
     const { pageIndex, pageSize } = pagination;
-    const itemsLoaded = (initialTransactions || []).length;
-    // base query still pending
-    if (itemsLoaded === 0) return { isPageLoading: true, pageLoadProgress: 0 };
+    const isFiltered = tokenFilter !== 'all';
+    const itemsLoaded = isFiltered ? (filteredTransactions || []).length : (initialTransactions || []).length;
 
-    const desiredStart = newItemsCount + pageIndex * pageSize;
+    // If base query is still loading, show spinner
+    if (isLoading) return { isPageLoading: true, pageLoadProgress: 0 };
+
+    // If base query finished and there are no items at all, don't show spinner
+    if (itemsLoaded === 0) return { isPageLoading: false, pageLoadProgress: 0 };
+
+    const desiredStart = (isFiltered ? 0 : newItemsCount) + pageIndex * pageSize;
     const desiredEnd = desiredStart + pageSize;
 
-    // Jumped beyond the end and there is no more data at all
-    if (!hasNextPage && itemsLoaded <= desiredStart) {
-      return { isPageLoading: false, pageLoadProgress: 0 };
+    // Filtered modes: show gradual progress toward a ladder window like All-mode
+    if (isFiltered) {
+      const ladderPages = Math.max(1, PAGINATION_CONFIG.NON_FAST_LADDER_UI_PAGES || 1);
+      const requiredToTargetEnd = Math.max(1, (pageIndex + ladderPages) * pageSize);
+      const pipelineProgress = Math.max(0, Math.min(1, itemsLoaded / requiredToTargetEnd));
+      const fullyLoaded = itemsLoaded >= desiredEnd;
+      return { isPageLoading: !fullyLoaded, pageLoadProgress: fullyLoaded ? 1 : pipelineProgress };
     }
 
-    // If there is no next page (we are at the tail), treat whatever is in the window as final
+    // When there is no next page (All mode but end reached), treat as final
     if (!hasNextPage) {
+      if (itemsLoaded <= desiredStart) return { isPageLoading: false, pageLoadProgress: 0 };
       const currentCount = dataForCurrentPage.length;
       const p = Math.max(0, Math.min(1, currentCount / pageSize));
       return { isPageLoading: false, pageLoadProgress: p };
     }
 
-    // When there are more pages, reflect progress toward a ladder window (e.g., 3 UI pages),
-    // even while earlier pages are being fetched.
+    // When there are more pages (All mode), reflect progress toward a ladder window
     const loadedFromBaseline = Math.max(0, itemsLoaded - newItemsCount);
     const ladderPages = Math.max(1, PAGINATION_CONFIG.NON_FAST_LADDER_UI_PAGES || 1);
     const requiredToTargetEnd = Math.max(1, (pageIndex + ladderPages) * pageSize);
@@ -396,19 +853,21 @@ export function useTanstackTransactionAdapter(
 
     const fullyLoaded = itemsLoaded >= desiredEnd;
     return { isPageLoading: !fullyLoaded, pageLoadProgress: fullyLoaded ? 1 : pipelineProgress };
-  }, [pagination, initialTransactions, hasNextPage, newItemsCount, dataForCurrentPage.length, fastModeActive, isFastLoading]);
+  }, [pagination, initialTransactions, filteredTransactions, tokenFilter, hasNextPage, newItemsCount, dataForCurrentPage.length, fastModeActive, isFastLoading, isLoading]);
 
   const table = useReactTable({
     data: dataForCurrentPage,
     columns: transactionColumns,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
     manualPagination: true,
     pageCount,
     autoResetPageIndex: false,
-    state: { pagination },
+    state: { pagination, sorting },
     onPaginationChange: setPagination,
-    meta: { pricesById, reefUsd, addTransaction: () => {} },
+    onSortingChange: setSorting,
+    meta: { pricesById, reefUsd, addTransaction: () => {}, disableTimestampSorting: true, disableAmountSorting: true },
   });
 
   // Guards and state for sequential ensureLoaded and prefetch
@@ -572,19 +1031,19 @@ export function useTanstackTransactionAdapter(
 
   // Clear override once real computed count has caught up
   useEffect(() => {
-    // If exact total is known, override is unnecessary — clear it
-    if (typeof totalCount === 'number' && Number.isFinite(totalCount)) {
+    // For filtered views or when exact total is known, override is unnecessary — clear it
+    if (tokenFilter !== 'all' || hasExactTotal) {
       if (pageCountOverride) setPageCountOverride(0);
       return;
     }
-    // Otherwise, clear once heuristic catches up
+    // Otherwise, clear once heuristic catches up (All mode)
     const itemsLoaded = (initialTransactions || []).length;
     const pagesLoaded = itemsLoaded > 0 ? Math.ceil(itemsLoaded / pagination.pageSize) : 0;
     const computed = hasNextPage ? pagesLoaded + 1 : pagesLoaded;
     if (pageCountOverride && computed >= pageCountOverride) {
       setPageCountOverride(0);
     }
-  }, [initialTransactions, pagination.pageSize, hasNextPage, pageCountOverride, totalCount]);
+  }, [tokenFilter, hasExactTotal, initialTransactions, pagination.pageSize, hasNextPage, pageCountOverride]);
 
   const goToPage = useCallback((idx: number) => {
     const rawTarget = Math.max(0, Math.floor(idx));
@@ -595,15 +1054,25 @@ export function useTanstackTransactionAdapter(
       const effectiveTotal = Math.max(0, totalCount - (newItemsCount || 0));
       const lastIndex = Math.max(0, Math.ceil(effectiveTotal / size) - 1);
       clamped = Math.min(rawTarget, lastIndex);
+    } else if (tokenFilter !== 'all') {
+      // In filtered mode, clamp to the last page of the filtered list
+      const size = pagination.pageSize;
+      const itemsLoaded = (filteredTransactions || []).length;
+      const lastIndex = Math.max(0, Math.ceil(Math.max(0, itemsLoaded) / size) - 1);
+      clamped = Math.min(rawTarget, lastIndex);
     }
 
     // Inflate override so TanStack won't clamp the next render when total is unknown
     const minForCurrent = clamped + 1;
-    const minForNext = hasNextPage ? clamped + 2 : minForCurrent;
-    setPageCountOverride(prev => Math.max(prev || 0, minForNext));
+    const minForNext = (tokenFilter === 'all' && hasNextPage) ? clamped + 2 : minForCurrent;
+    if (tokenFilter === 'all') {
+      setPageCountOverride(prev => Math.max(prev || 0, minForNext));
+    } else {
+      setPageCountOverride(0);
+    }
     // Directly set pagination to bypass table's clamping
     setPagination(p => ({ ...p, pageIndex: clamped }));
-  }, [hasNextPage, totalCount, pagination.pageSize, newItemsCount]);
+  }, [hasNextPage, totalCount, pagination.pageSize, newItemsCount, tokenFilter, filteredTransactions]);
 
   return {
     table,
@@ -616,5 +1085,6 @@ export function useTanstackTransactionAdapter(
     pageLoadProgress,
     hasExactTotal,
     fastModeActive,
+    availableTokens,
   };
 }

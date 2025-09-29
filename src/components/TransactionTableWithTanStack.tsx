@@ -23,9 +23,11 @@ interface TransactionTableWithTanStackProps {
   hasExactTotal?: boolean;
   /** When true, adapter is using offset/limit fast mode */
   fastModeActive?: boolean;
+  /** Optional hint to show when the table has no rows (overrides spinner) */
+  emptyHint?: string;
 }
 
-export function TransactionTableWithTanStack({ table, isLoading, isFetching, newTransfers = [], goToPage, isPageLoading, pageLoadProgress, hasExactTotal = false, fastModeActive = false }: TransactionTableWithTanStackProps) {
+export function TransactionTableWithTanStack({ table, isLoading, isFetching, newTransfers = [], goToPage, isPageLoading, pageLoadProgress, hasExactTotal = false, fastModeActive = false, emptyHint }: TransactionTableWithTanStackProps) {
   const rows = table.getRowModel().rows;
   const enableVirtual = rows.length > 30;
   const parentRef = useRef<HTMLDivElement | null>(null);
@@ -41,6 +43,14 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
   const paddingBottom = virtualItems.length > 0
     ? totalSize - (virtualItems[virtualItems.length - 1]!.start + virtualItems[virtualItems.length - 1]!.size)
     : 0;
+
+  // Sorting badge label
+  const sortBadge = useMemo(() => {
+    const s = (table.getState().sorting || [])[0] as { id?: string; desc?: boolean } | undefined;
+    if (!s || !s.id) return null;
+    const label = s.id === 'amount' ? 'Amount' : s.id === 'timestamp' ? 'Timestamp' : String(s.id);
+    return `${label} ${s.desc ? '↓' : '↑'}`;
+  }, [table]);
 
   // Quick jump helpers
   const pageIndex = table.getState().pagination.pageIndex;
@@ -69,6 +79,13 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
 
   return (
     <div className="relative p-4 bg-white rounded-lg shadow-md overflow-hidden">
+      {sortBadge ? (
+        <div className="absolute top-2 right-3">
+          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full border border-gray-200 bg-gray-50 text-gray-700">
+            Sorted by {sortBadge}
+          </span>
+        </div>
+      ) : null}
       <div className="overflow-x-auto md:overflow-x-visible">
         <div ref={parentRef} className={enableVirtual ? 'max-h-[70vh] overflow-auto' : undefined}>
           <table className="w-full table-fixed divide-y divide-gray-200">
@@ -78,7 +95,13 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
                 {headerGroup.headers.map(header => (
                   <th
                     key={header.id}
-                    className={`px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider ${header.column.id === 'actions' ? 'w-8 text-center px-1' : ''} ${header.column.id === 'timestamp' ? 'w-52 md:w-60' : ''} ${header.column.id === 'feeAmount' ? 'w-20 text-right px-1' : ''}`}
+                    className={`px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider
+                      ${header.column.id === 'actions' ? 'w-8 text-center px-1' : ''}
+                      ${header.column.id === 'timestamp' ? 'w-52 md:w-60 text-left' : ''}
+                      ${header.column.id === 'value' ? 'w-28 md:w-32 text-right px-2' : ''}
+                      ${header.column.id === 'feeAmount' ? 'w-20 text-right px-1' : ''}
+                      ${!(header.column.id === 'actions' || header.column.id === 'timestamp' || header.column.id === 'value' || header.column.id === 'feeAmount') ? 'text-left' : ''}
+                    `}
                   >
                     {header.isPlaceholder
                       ? null
@@ -107,7 +130,9 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={transactionColumns.length} className="text-center py-4">No transactions found for this address.</td>
+                <td colSpan={transactionColumns.length} className="text-center py-6 text-gray-500">
+                  {emptyHint ?? 'No transactions found for this address.'}
+                </td>
               </tr>
             ) : enableVirtual ? (
               <>
@@ -131,6 +156,7 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
                           className={
                             cell.column.id === 'actions' ? 'px-1 py-3 text-center w-8' :
                             cell.column.id === 'timestamp' ? 'px-2 py-3 whitespace-nowrap' :
+                            cell.column.id === 'value' ? 'px-2 py-3 text-right whitespace-nowrap' :
                             cell.column.id === 'feeAmount' ? 'px-1 py-3 text-right' :
                             (cell.column.id === 'from' || cell.column.id === 'to') ? 'px-3 py-3' :
                             'px-4 py-3'
@@ -174,6 +200,7 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
                         className={
                           cell.column.id === 'actions' ? 'px-1 py-3 text-center w-8' :
                           cell.column.id === 'timestamp' ? 'px-2 py-3 whitespace-nowrap' :
+                          cell.column.id === 'value' ? 'px-2 py-3 text-right whitespace-nowrap' :
                           cell.column.id === 'feeAmount' ? 'px-1 py-3 text-right' :
                           (cell.column.id === 'from' || cell.column.id === 'to') ? 'px-3 py-3' :
                           'px-4 py-3'

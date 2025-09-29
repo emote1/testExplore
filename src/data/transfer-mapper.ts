@@ -2,9 +2,16 @@ import { getNumber, getString } from '@/utils/object';
 // Use minimal shapes instead of tight GraphQL-generated types so both
 // paginated and polling queries can reuse the mapper without type friction.
 
+export interface UiSwapLeg {
+  amount: string;
+  /** Cached bigint for faster compares (optional) */
+  amountBI?: bigint;
+  token: { id: string; name: string; decimals: number };
+}
+
 export interface UiSwapInfo {
-  sold: { amount: string; token: { id: string; name: string; decimals: number } };
-  bought: { amount: string; token: { id: string; name: string; decimals: number } };
+  sold: UiSwapLeg;
+  bought: UiSwapLeg;
   /** Optional: underlying transfer id (block-extrinsic-event) to build a direct Reefscan transfer link */
   preferredTransferId?: string;
 }
@@ -15,6 +22,8 @@ export interface UiTransfer {
   to: string;
   type: 'INCOMING' | 'OUTGOING' | 'SWAP';
   amount: string;
+  /** Cached bigint representation of amount for fast numeric compares */
+  amountBI?: bigint;
   isNft: boolean;
   tokenId: string | null;
   token: {
@@ -67,6 +76,35 @@ type Transfer = TransferLike;
 // Cache token metadata derived from contractData to avoid repeated JSON.parse
 const tokenMetaCache = new Map<string, { name: string; decimals: number }>();
 
+/** Check if token metadata is already cached for a given token id (as-is, checksum preserved). */
+export function hasTokenMetaCached(id?: string | null): boolean {
+  if (!id) return false;
+  return tokenMetaCache.has(id);
+}
+
+/** Prime token metadata cache from a list of contracts (id + contractData JSON). Returns number of items added. */
+export function primeTokenMetaCacheFromContracts(items: Array<{ id?: string | null; contractData?: unknown; name?: string | null }>): number {
+  let added = 0;
+  for (const it of items) {
+    const id = (it?.id ?? '').toString();
+    if (!id || tokenMetaCache.has(id)) continue;
+    const fallbackName = (it?.name ?? 'TOKEN').toString();
+    try {
+      const raw = it?.contractData;
+      const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      const nm = getString(data as any, ['symbol']) || fallbackName;
+      const dec = getNumber(data as any, ['decimals']) ?? 18;
+      tokenMetaCache.set(id, { name: nm, decimals: dec });
+      added += 1;
+    } catch {
+      // If parsing failed, store fallback to avoid refetch carousel
+      tokenMetaCache.set(id, { name: fallbackName, decimals: 18 });
+      added += 1;
+    }
+  }
+  return added;
+}
+
 const resolveTransferDirection = (
   transfer: Transfer,
   userAddress: string,
@@ -87,8 +125,17 @@ function parseTokenData(transfer: Transfer): { name: string; decimals: number } 
   // contractData may be omitted from some queries to reduce payload size
   const contractDataRaw = transfer.token.contractData;
   if (!contractDataRaw) {
-    // Fallback to provided token name with default decimals
-    return { name: transfer.token.name, decimals: 18 };
+    // Fallbacks for well-known tokens when metadata is omitted
+    const nm = (transfer.token.name || '').toString();
+    const lower = nm.toLowerCase();
+    if (lower === 'usdc' || lower === 'usdc.e' || lower === 'usd coin') {
+      return { name: nm, decimals: 6 };
+    }
+    if (lower === 'mrd') {
+      return { name: nm, decimals: 18 };
+    }
+    // Generic default
+    return { name: nm, decimals: 18 };
   }
 
   try {
@@ -139,6 +186,7 @@ export function mapTransfersToUiTransfers(
         to: transfer.to.id,
         type: resolveTransferDirection(transfer, userAddress),
         amount: transfer.amount,
+        amountBI: (() => { try { return BigInt(transfer.amount || '0'); } catch { return undefined; } })(),
         isNft,
         tokenId: isNft ? transfer.amount : null, // Simplification, might need adjustment based on actual NFT logic
         token: {

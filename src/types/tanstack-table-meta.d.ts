@@ -5,5 +5,9 @@ declare module '@tanstack/table-core' {
   interface TableMeta<TData extends RowData> {
     pricesById?: Record<string, number | null>;
     reefUsd?: number | null;
+    /** When true, TIMESTAMP header sorting is disabled (e.g., when Min REEF filter is active) */
+    disableTimestampSorting?: boolean;
+    /** When true, AMOUNT header sorting is disabled (e.g., when Min REEF filter is inactive) */
+    disableAmountSorting?: boolean;
   }
 }
