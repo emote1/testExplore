@@ -3,7 +3,7 @@ import type { CodegenConfig } from '@graphql-codegen/cli';
 const config: CodegenConfig = {
   overwrite: true,
   schema: 'https://squid.subsquid.io/reef-explorer/graphql',
-  documents: ['src/**/*.{ts,tsx}', '!src/gql/**/*'],
+  documents: ['src/**/*.{ts,tsx}', '!src/gql/**/*', '!src/data/reef-swap.ts'],
   generates: {
     'src/gql/': {
       preset: 'client',

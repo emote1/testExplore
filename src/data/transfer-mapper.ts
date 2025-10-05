@@ -36,6 +36,8 @@ export interface UiTransfer {
 
   extrinsicHash: string;
   feeAmount: string;
+  /** Present on subsquid for swap-related legs */
+  reefswapAction?: string | null;
 
   // Optional precise indices for Reefscan transfer link
   blockHeight?: number;
@@ -180,6 +182,7 @@ export function mapTransfersToUiTransfers(
       // signedData is a JSON scalar; use loose typing
       const partialFee = getString(transfer, ['signedData', 'fee', 'partialFee']);
 
+      const swapFlag = getString(transfer as any, ['reefswapAction']) ?? null;
       return {
         id: transfer.id,
         from: transfer.from.id,
@@ -199,7 +202,8 @@ export function mapTransfersToUiTransfers(
 
         extrinsicHash: transfer.extrinsicHash || '',
         feeAmount: partialFee ?? '0',
-        method: 'transfer',
+        reefswapAction: swapFlag,
+        method: swapFlag ? 'swap' : 'transfer',
         blockHeight: getNumber(transfer as any, ['blockHeight']) ?? undefined,
         extrinsicIndex: getNumber(transfer as any, ['extrinsicIndex']) ?? undefined,
         eventIndex: getNumber(transfer as any, ['eventIndex']) ?? undefined,

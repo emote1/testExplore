@@ -9,6 +9,7 @@ import {
   SortingState,
 } from '@tanstack/react-table';
 import { useTransactionDataWithBlocks } from './use-transaction-data-with-blocks';
+import { useSwapEvents } from './use-swap-events';
 import type { TransactionDirection } from '@/utils/transfer-query';
 import { transactionColumns } from '../components/transaction-columns';
 import { UiTransfer } from '../data/transfer-mapper';
@@ -124,6 +125,7 @@ export function useTanstackTransactionAdapter(
   tokenMinRaw?: string | null,
   tokenMaxRaw?: string | null,
   strictServerTokenFilter: boolean = false,
+  swapOnly: boolean = false,
 ): TanstackTransactionAdapterReturn {
   const apollo = useApolloClient();
   // Enforce strict server token filter by default for USDC/MRD and custom 0x tokens
@@ -180,25 +182,22 @@ export function useTanstackTransactionAdapter(
   // Compute dynamic API page size: when strict token ids are applied and direction is not 'any', use smaller page size
   const apiPageSize = useMemo((): number => {
     let n: number = PAGINATION_CONFIG.API_FETCH_PAGE_SIZE as unknown as number;
+    // Swap mode: use smaller pages to reduce payload per request
+    if (swapOnly) n = Math.min(n, 20);
     if (effectiveServerTokenIds && direction !== 'any') n = Math.min(n, 30);
     return n;
-  }, [effectiveServerTokenIds, direction]);
+  }, [effectiveServerTokenIds, direction, swapOnly]);
 
   // When in soft fallback mode for a specific token, narrow to ERC20 only
   const erc20Only = useMemo(() => {
     return softFallbackActive && (tokenFilter === 'usdc' || tokenFilter === 'mrd' || isHexAddress(tokenFilter));
   }, [softFallbackActive, tokenFilter]);
 
-  const {
-    transfers: initialTransactions,
-    loading: isLoading,
-    error,
-    fetchMore,
-    hasMore: hasNextPage,
-    totalCount,
-    fetchWindow,
-  } = useTransactionDataWithBlocks(
-    address,
+  // When swapOnly is true, use reef-swap path instead of transfers
+  // Disable swap events fetching when not on Swap tab to avoid extra network traffic
+  const swapAdapter = useSwapEvents(swapOnly ? address : null, apiPageSize, swapOnly);
+  const baseAdapter = useTransactionDataWithBlocks(
+    (swapOnly ? null : address),
     apiPageSize,
     direction,
     minReefRaw,
@@ -208,7 +207,16 @@ export function useTanstackTransactionAdapter(
     (effectiveServerTokenIds ? (tokenMinRaw ?? null) : null),
     (effectiveServerTokenIds ? (tokenMaxRaw ?? null) : null),
     erc20Only,
+    swapOnly,
   );
+
+  const initialTransactions = useMemo(() => (swapOnly ? (swapAdapter.items || []) : (baseAdapter.transfers || [])), [swapOnly, swapAdapter.items, baseAdapter.transfers]);
+  const isLoading = swapOnly ? swapAdapter.loading : baseAdapter.loading;
+  const error = swapOnly ? (swapAdapter.error as any) : baseAdapter.error;
+  const fetchMore = swapOnly ? swapAdapter.fetchMore : baseAdapter.fetchMore;
+  const hasNextPage = swapOnly ? swapAdapter.hasMore : baseAdapter.hasMore;
+  const totalCount = swapOnly ? undefined : baseAdapter.totalCount;
+  const fetchWindow = baseAdapter.fetchWindow;
 
   // Reset serverTokenIds when strict filter is off or token group is not supported
   useEffect(() => {
@@ -420,9 +428,14 @@ export function useTanstackTransactionAdapter(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveStrict, tokenFilter, initialTransactions]);
 
-  // Client-side token filter to include swaps where either leg matches the token
+  // Client-side filter
+  // - In Swap tab (swapOnly=true): include only swap rows
+  // - In All transactions: exclude swap rows (show only direct transfers)
   const filteredTransactions = useMemo(() => {
-    const list = initialTransactions || [];
+    const all = initialTransactions || [];
+    const list = swapOnly
+      ? all.filter(t => (t as any).method === 'swap' || (t as any).type === 'SWAP')
+      : all.filter(t => (t as any).method !== 'swap' && (t as any).type !== 'SWAP');
     if (tokenFilter === 'all') return list;
 
     const isReef = (tok?: { name?: string; decimals?: number }) => !!tok && tok.name === 'REEF' && (tok.decimals ?? 18) === 18;
@@ -486,7 +499,7 @@ export function useTanstackTransactionAdapter(
       }
       return true;
     });
-  }, [initialTransactions, tokenFilter, tokenMinRaw, tokenMaxRaw, softFallbackActive, serverTokenIds]);
+  }, [initialTransactions, tokenFilter, tokenMinRaw, tokenMaxRaw, softFallbackActive, serverTokenIds, swapOnly]);
 
   // Expose presence of specific tokens in the currently loaded dataset for dynamic UI options
   const availableTokens = useMemo(() => {
@@ -633,8 +646,8 @@ export function useTanstackTransactionAdapter(
   // Fast offset-window mode: after threshold pages, fetch page window via offset/limit
   // Disabled for filtered views to avoid inconsistencies
   const fastModeActive = useMemo(() => {
-    return (tokenFilter === 'all') && !!PAGINATION_CONFIG.ENABLE_FAST_OFFSET_MODE && (pagination.pageIndex >= PAGINATION_CONFIG.FAST_OFFSET_MODE_THRESHOLD_PAGES);
-  }, [pagination.pageIndex, tokenFilter]);
+    return (tokenFilter === 'all' && !swapOnly) && !!PAGINATION_CONFIG.ENABLE_FAST_OFFSET_MODE && (pagination.pageIndex >= PAGINATION_CONFIG.FAST_OFFSET_MODE_THRESHOLD_PAGES);
+  }, [pagination.pageIndex, tokenFilter, swapOnly]);
 
   const [fastPageData, setFastPageData] = useState<UiTransfer[] | null>(null);
   const [isFastLoading, setIsFastLoading] = useState<boolean>(false);
@@ -689,63 +702,83 @@ export function useTanstackTransactionAdapter(
     addressPageMemory.set(address, pagination.pageIndex);
   }, [address, pagination.pageIndex]);
 
-  const hasExactTotal = useMemo(() => (tokenFilter === 'all' || tokenFilter === 'reef') && typeof totalCount === 'number' && Number.isFinite(totalCount), [totalCount, tokenFilter]);
+  // All view now excludes swaps server-side, so it can rely on exact total like REEF
+  const hasExactTotal = useMemo(
+    () => ((((tokenFilter === 'all') && !swapOnly) || tokenFilter === 'reef') && typeof totalCount === 'number' && Number.isFinite(totalCount)),
+    [totalCount, tokenFilter, swapOnly]
+  );
   const pageCount = useMemo(() => {
     // Prefer exact total if available; adjust for virtual anchor shift
     const size = pagination.pageSize;
     const effectiveTotal = hasExactTotal
-      ? Math.max(0, (totalCount as number) - (newItemsCount || 0))
+      ? Math.max(0, (totalCount as number))
       : undefined;
 
     if (hasExactTotal) {
       const computed = Math.ceil((effectiveTotal ?? 0) / size);
+      // If we're in All mode and have reached the end (no next page),
+      // clamp to the number of aggregated UI rows actually loaded to avoid phantom pages
+      let adjusted = computed;
+      if (tokenFilter === 'all' && !hasNextPage) {
+        const aggTotal = Math.max(0, (initialTransactions || []).length - (newItemsCount || 0));
+        const aggPages = Math.ceil(aggTotal / size);
+        adjusted = Math.min(computed, Math.max(aggPages, pagination.pageIndex + 1));
+      }
       // Never report less than the current page (prevents transient shrink)
-      return Math.max(computed, pagination.pageIndex + 1);
+      return Math.max(adjusted, pagination.pageIndex + 1);
     }
 
     // Fallback heuristic
-    const itemsLoaded = (tokenFilter === 'all' ? (initialTransactions || []).length : (filteredTransactions || []).length);
-    const pagesLoaded = itemsLoaded > 0 ? Math.ceil(itemsLoaded / size) : 0;
-    if (tokenFilter !== 'all') {
-      // For filtered views, compute strictly from filtered length — no phantom next page
-      // Keep at least 1 page to satisfy TanStack pagination expectations.
-      return Math.max(pagesLoaded, 1);
+    if (swapOnly) {
+      // Treat Swap-only like All-mode for navigation with phantom next page
+      const itemsLoadedRaw = Math.max(0, (initialTransactions || []).length - (newItemsCount || 0));
+      const pagesLoaded = itemsLoadedRaw > 0 ? Math.ceil(itemsLoadedRaw / size) : 0;
+      const computed = hasNextPage ? pagesLoaded + 1 : pagesLoaded;
+      const minForCurrent = pagination.pageIndex + 1;
+      const minForNext = hasNextPage ? pagination.pageIndex + 2 : minForCurrent;
+      const withOverride = Math.max(computed, minForNext, pageCountOverride || 0);
+      return withOverride;
     }
+    // All/Incoming/Outgoing act like filtered views because swaps are excluded
+    const itemsLoaded = (filteredTransactions || []).length;
+    const pagesLoaded = itemsLoaded > 0 ? Math.ceil(itemsLoaded / size) : 0;
     const computed = hasNextPage ? pagesLoaded + 1 : pagesLoaded;
-
-    // Ensure UI supports deep manual jumps while total is unknown: include phantom next page
-    const minForCurrent = pagination.pageIndex + 1;
-    const minForNext = hasNextPage ? pagination.pageIndex + 2 : minForCurrent;
-    const withOverride = Math.max(computed, minForNext, pageCountOverride || 0);
-    return withOverride;
-  }, [hasExactTotal, totalCount, newItemsCount, initialTransactions, filteredTransactions, tokenFilter, pagination.pageSize, hasNextPage, pagination.pageIndex, pageCountOverride]);
+    return Math.max(computed, pagination.pageIndex + 1);
+  }, [hasExactTotal, totalCount, newItemsCount, initialTransactions, filteredTransactions, tokenFilter, swapOnly, pagination.pageSize, hasNextPage, pagination.pageIndex, pageCountOverride]);
 
   const dataForCurrentPage = useMemo(() => {
     if (fastModeActive && fastPageData) {
       return fastPageData;
     }
     const { pageIndex, pageSize } = pagination;
-    const isFiltered = tokenFilter !== 'all';
+    // Treat non-swap views as filtered: we exclude SWAP rows from All/Incoming/Outgoing
+    const isFiltered = (tokenFilter !== 'all') || swapOnly || true;
     const start = (isFiltered ? 0 : newItemsCount) + pageIndex * pageSize;
     const end = start + pageSize;
     return (filteredTransactions || []).slice(start, end);
-  }, [pagination, filteredTransactions, tokenFilter, newItemsCount, fastModeActive, fastPageData]);
+  }, [pagination, filteredTransactions, tokenFilter, swapOnly, newItemsCount, fastModeActive, fastPageData]);
 
   // Derive token set for pricing on the current page and fetch USD prices
   const tokensForPrices = useMemo(() => {
     const out: TokenInput[] = [];
     const seen = new Set<string>();
-    for (const t of (dataForCurrentPage || [])) {
-      const tok = (t as any)?.token as { id?: string; decimals?: number; name?: string } | undefined;
-      if (!tok) continue;
+    const pushTok = (tok?: { id?: string; decimals?: number; name?: string } | null) => {
+      if (!tok) return;
       const id = (tok.id || '').toLowerCase();
-      if (!id) continue;
+      if (!id) return;
       const decimals = typeof tok.decimals === 'number' ? tok.decimals : 18;
-      if (decimals === 0) continue; // NFTs
-      if ((tok.name === 'REEF') && decimals === 18) continue; // REEF priced separately
-      if (seen.has(id)) continue;
+      if (decimals === 0) return; // NFTs
+      if ((tok.name === 'REEF') && decimals === 18) return; // REEF priced separately
+      if (seen.has(id)) return;
       seen.add(id);
       out.push({ id, decimals });
+    };
+    for (const t of (dataForCurrentPage || [])) {
+      pushTok((t as any)?.token);
+      if ((t as any)?.swapInfo) {
+        pushTok((t as any).swapInfo.sold?.token);
+        pushTok((t as any).swapInfo.bought?.token);
+      }
     }
     return out;
   }, [dataForCurrentPage]);
@@ -757,7 +790,7 @@ export function useTanstackTransactionAdapter(
   useEffect(() => {
     if (!DEBUG_TX_PAGINATION) return;
     const { pageIndex, pageSize } = pagination;
-    const isFiltered = tokenFilter !== 'all';
+    const isFiltered = tokenFilter !== 'all' || swapOnly;
     const start = (isFiltered ? 0 : newItemsCount) + pageIndex * pageSize;
     const end = start + pageSize;
     const items = (filteredTransactions || []).slice(start, end);
@@ -774,7 +807,7 @@ export function useTanstackTransactionAdapter(
       first,
       last,
     });
-  }, [pagination.pageIndex, pagination.pageSize, newItemsCount, filteredTransactions, tokenFilter]);
+  }, [pagination.pageIndex, pagination.pageSize, newItemsCount, filteredTransactions, tokenFilter, swapOnly]);
 
   // Debug-only: detect duplicate ids in the full source list
   useEffect(() => {
@@ -810,14 +843,22 @@ export function useTanstackTransactionAdapter(
     }
   }, [dataForCurrentPage, pagination.pageIndex]);
 
+  // Guards used by isPageLoading/ensureLoaded
+  const inFlightEnsureRef = useRef(false);
+  const ensureSeqRef = useRef(0);
+  const ensureMaxedRef = useRef(false);
+
   // Derive per-page loading progress (0..1) for UI deep jumps
   const { isPageLoading, pageLoadProgress } = useMemo(() => {
     if (fastModeActive) {
       return { isPageLoading: isFastLoading, pageLoadProgress: isFastLoading ? 0 : 1 };
     }
     const { pageIndex, pageSize } = pagination;
-    const isFiltered = tokenFilter !== 'all';
-    const itemsLoaded = isFiltered ? (filteredTransactions || []).length : (initialTransactions || []).length;
+    // Treat non-swap views as filtered
+    const isFiltered = (tokenFilter !== 'all') || swapOnly || true;
+    const itemsLoaded = swapOnly
+      ? (initialTransactions || []).length
+      : (isFiltered ? (filteredTransactions || []).length : (initialTransactions || []).length);
 
     // If base query is still loading, show spinner
     if (isLoading) return { isPageLoading: true, pageLoadProgress: 0 };
@@ -828,8 +869,20 @@ export function useTanstackTransactionAdapter(
     const desiredStart = (isFiltered ? 0 : newItemsCount) + pageIndex * pageSize;
     const desiredEnd = desiredStart + pageSize;
 
-    // Filtered modes: show gradual progress toward a ladder window like All-mode
+    // Filtered modes (token filter or swapOnly): show gradual progress toward a ladder window like All-mode
     if (isFiltered) {
+      // If there's no next page anymore, treat as final and don't show spinner even if the page window isn't full
+      if (!hasNextPage) {
+        const currentCount = dataForCurrentPage.length;
+        const p = Math.max(0, Math.min(1, currentCount / pageSize));
+        return { isPageLoading: false, pageLoadProgress: p };
+      }
+      // If ensureLoaded is not fetching and attempts are exhausted, stop spinner to avoid hanging state
+      if (!inFlightEnsureRef.current && ensureMaxedRef.current) {
+        const currentCount = dataForCurrentPage.length;
+        const p = Math.max(0, Math.min(1, currentCount / pageSize));
+        return { isPageLoading: false, pageLoadProgress: p };
+      }
       const ladderPages = Math.max(1, PAGINATION_CONFIG.NON_FAST_LADDER_UI_PAGES || 1);
       const requiredToTargetEnd = Math.max(1, (pageIndex + ladderPages) * pageSize);
       const pipelineProgress = Math.max(0, Math.min(1, itemsLoaded / requiredToTargetEnd));
@@ -853,7 +906,21 @@ export function useTanstackTransactionAdapter(
 
     const fullyLoaded = itemsLoaded >= desiredEnd;
     return { isPageLoading: !fullyLoaded, pageLoadProgress: fullyLoaded ? 1 : pipelineProgress };
-  }, [pagination, initialTransactions, filteredTransactions, tokenFilter, hasNextPage, newItemsCount, dataForCurrentPage.length, fastModeActive, isFastLoading, isLoading]);
+  }, [pagination, initialTransactions, filteredTransactions, tokenFilter, swapOnly, hasNextPage, newItemsCount, dataForCurrentPage.length, fastModeActive, isFastLoading, isLoading]);
+
+  // Auto-clamp to the last available page when there is no next page and current page start is beyond loaded items
+  useEffect(() => {
+    const isFiltered = tokenFilter !== 'all' || swapOnly;
+    if (!isFiltered) return;
+    if (hasNextPage) return;
+    const itemsLoaded = (filteredTransactions || []).length;
+    if (itemsLoaded === 0) return;
+    const { pageIndex, pageSize } = pagination;
+    const desiredStart = pageIndex * pageSize; // filtered views have no newItemsCount offset
+    if (desiredStart < itemsLoaded) return;
+    const lastIndex = Math.max(0, Math.ceil(itemsLoaded / pageSize) - 1);
+    if (pageIndex > lastIndex) setPagination(p => ({ ...p, pageIndex: lastIndex }));
+  }, [pagination.pageIndex, pagination.pageSize, filteredTransactions, hasNextPage, tokenFilter, swapOnly]);
 
   const table = useReactTable({
     data: dataForCurrentPage,
@@ -871,8 +938,7 @@ export function useTanstackTransactionAdapter(
   });
 
   // Guards and state for sequential ensureLoaded and prefetch
-  const inFlightEnsureRef = useRef(false);
-  const ensureSeqRef = useRef(0);
+  // (inFlightEnsureRef/ensureSeqRef/ensureMaxedRef are declared above to satisfy early usage)
   const prefetchIdleIdRef = useRef<number | undefined>(undefined);
   const prefetchTimerRef = useRef<number | undefined>(undefined);
   const lastPrefetchedAtCountRef = useRef<number | undefined>(undefined);
@@ -882,33 +948,44 @@ export function useTanstackTransactionAdapter(
   // Ensure enough items are loaded for the current page; supports deep page jumps.
   useEffect(() => {
     if (fastModeActive) return; // skip sequential ensure loop in fast mode
+    // Run ensureLoaded for swapOnly too, to pull more reef-swap pages when user navigates
     let cancelled = false;
     const seq = (ensureSeqRef.current = (ensureSeqRef.current ?? 0) + 1);
+    ensureMaxedRef.current = false;
 
     async function run() {
       // Avoid overlapping runs
       if (inFlightEnsureRef.current) return;
 
       const { pageIndex, pageSize } = pagination;
-      const ladderPages = Math.max(1, PAGINATION_CONFIG.NON_FAST_LADDER_UI_PAGES || 1);
-      const requiredCount = newItemsCount + (pageIndex + ladderPages) * pageSize;
+      const ladderPages = swapOnly ? 1 : Math.max(1, PAGINATION_CONFIG.NON_FAST_LADDER_UI_PAGES || 1);
+      // Treat non-swap views as filtered
+      const isFilteredMode = (tokenFilter !== 'all') || swapOnly || true;
+      // For filtered/swap views, we need enough FILTERED rows to fill the target window
+      const requiredCount = isFilteredMode
+        ? (pageIndex + ladderPages) * pageSize
+        : (newItemsCount + (pageIndex + ladderPages) * pageSize);
       let attempts = 0;
+      const maxAttempts = (PAGINATION_CONFIG.MAX_SEQUENTIAL_FETCH_PAGES || 20);
       dbg('ensureLoaded: start', {
         pageIndex,
         pageSize,
         requiredCount,
         newItemsCount,
-        itemsLoaded: (initialTransactions || []).length,
+        itemsLoaded: isFilteredMode ? (filteredTransactions || []).length : (initialTransactions || []).length,
         hasNextPage,
       });
 
       // Loop while we need more items and we can fetch more
       while (!cancelled) {
-        const itemsLoaded = (initialTransactions || []).length;
-        if (itemsLoaded === 0) { dbg('ensureLoaded: base query not ready'); break; }
+        const itemsLoaded = isFilteredMode ? (filteredTransactions || []).length : (initialTransactions || []).length;
+        // For swapOnly/filtered views allow fetching even when base list is empty
+        if (!isFilteredMode) {
+          if (!initialTransactions || initialTransactions.length === 0) { dbg('ensureLoaded: base query not ready'); break; }
+        }
         if (itemsLoaded >= requiredCount) break;
         if (!hasNextPage) break;
-        if (attempts >= PAGINATION_CONFIG.MAX_SEQUENTIAL_FETCH_PAGES) break;
+        if (attempts >= maxAttempts) break;
 
         inFlightEnsureRef.current = true;
         try {
@@ -925,7 +1002,8 @@ export function useTanstackTransactionAdapter(
         if (seq !== ensureSeqRef.current) break;
       }
 
-      dbg('ensureLoaded: end', { attempts });
+      ensureMaxedRef.current = (attempts >= maxAttempts) || !hasNextPage;
+      dbg('ensureLoaded: end', { attempts, maxed: ensureMaxedRef.current });
     }
 
     run();
@@ -935,11 +1013,12 @@ export function useTanstackTransactionAdapter(
       // bump seq to signal abandonment to any in-flight run
       ensureSeqRef.current = (ensureSeqRef.current ?? 0) + 1;
     };
-  }, [pagination.pageIndex, pagination.pageSize, initialTransactions, hasNextPage, fetchMore, newItemsCount, fastModeActive]);
+  }, [pagination.pageIndex, pagination.pageSize, initialTransactions, filteredTransactions, tokenFilter, swapOnly, hasNextPage, fetchMore, newItemsCount, fastModeActive]);
 
   // Idle prefetch next API page (when current page is fully loaded), pause on hidden tab
   useEffect(() => {
     if (fastModeActive) return; // no idle prefetch in fast mode (single request per page)
+    if (swapOnly) return; // avoid duplicate prefetch in reef-swap mode
     if (typeof document === 'undefined') return;
     if (document.hidden) return; // do not prefetch when hidden
     if (pagination.pageIndex === 0) return; // no idle prefetch on first page
@@ -1031,8 +1110,8 @@ export function useTanstackTransactionAdapter(
 
   // Clear override once real computed count has caught up
   useEffect(() => {
-    // For filtered views or when exact total is known, override is unnecessary — clear it
-    if (tokenFilter !== 'all' || hasExactTotal) {
+    // For filtered views (excluding swapOnly) or when exact total is known, override is unnecessary — clear it
+    if ((tokenFilter !== 'all' && !swapOnly) || hasExactTotal) {
       if (pageCountOverride) setPageCountOverride(0);
       return;
     }
@@ -1043,36 +1122,53 @@ export function useTanstackTransactionAdapter(
     if (pageCountOverride && computed >= pageCountOverride) {
       setPageCountOverride(0);
     }
-  }, [tokenFilter, hasExactTotal, initialTransactions, pagination.pageSize, hasNextPage, pageCountOverride]);
+  }, [tokenFilter, swapOnly, hasExactTotal, initialTransactions, pagination.pageSize, hasNextPage, pageCountOverride]);
 
   const goToPage = useCallback((idx: number) => {
     const rawTarget = Math.max(0, Math.floor(idx));
-    // If we know the exact last page, clamp to it (adjusted for anchor)
-    let clamped = rawTarget;
-    if (typeof totalCount === 'number' && Number.isFinite(totalCount)) {
-      const size = pagination.pageSize;
-      const effectiveTotal = Math.max(0, totalCount - (newItemsCount || 0));
-      const lastIndex = Math.max(0, Math.ceil(effectiveTotal / size) - 1);
-      clamped = Math.min(rawTarget, lastIndex);
-    } else if (tokenFilter !== 'all') {
-      // In filtered mode, clamp to the last page of the filtered list
-      const size = pagination.pageSize;
-      const itemsLoaded = (filteredTransactions || []).length;
-      const lastIndex = Math.max(0, Math.ceil(Math.max(0, itemsLoaded) / size) - 1);
-      clamped = Math.min(rawTarget, lastIndex);
+    const size = pagination.pageSize;
+    // Treat non-swap views as filtered
+    const isFilteredMode = (tokenFilter !== 'all') || swapOnly || true;
+
+    // Prevent rapid forward nav while ensureLoaded is fetching for filtered/swap views
+    if (isFilteredMode && inFlightEnsureRef.current && rawTarget > pagination.pageIndex) {
+      dbg('goToPage: forward nav ignored during in-flight ensureLoaded', { rawTarget });
+      return;
     }
 
-    // Inflate override so TanStack won't clamp the next render when total is unknown
-    const minForCurrent = clamped + 1;
-    const minForNext = (tokenFilter === 'all' && hasNextPage) ? clamped + 2 : minForCurrent;
-    if (tokenFilter === 'all') {
-      setPageCountOverride(prev => Math.max(prev || 0, minForNext));
-    } else {
+    // If we know exact total, clamp strictly
+    if (typeof totalCount === 'number' && Number.isFinite(totalCount)) {
+      const effectiveTotal = Math.max(0, totalCount - (newItemsCount || 0));
+      const lastIndex = Math.max(0, Math.ceil(effectiveTotal / size) - 1);
+      let clamped = Math.min(rawTarget, lastIndex);
+      if (tokenFilter === 'all' && !hasNextPage) {
+        const aggTotal = Math.max(0, (initialTransactions || []).length - (newItemsCount || 0));
+        const lastIndexAgg = Math.max(0, Math.ceil(aggTotal / size) - 1);
+        clamped = Math.min(clamped, lastIndexAgg);
+      }
       setPageCountOverride(0);
+      setPagination(p => ({ ...p, pageIndex: clamped }));
+      return;
     }
-    // Directly set pagination to bypass table's clamping
+
+    // When total unknown: if in filtered/swap view and there is no next page, clamp to last existing page
+    if (isFilteredMode && !hasNextPage) {
+      const itemsLoaded = (filteredTransactions || []).length;
+      const lastIndex = Math.max(0, Math.ceil(Math.max(0, itemsLoaded) / size) - 1);
+      const clamped = Math.min(rawTarget, lastIndex);
+      setPageCountOverride(0);
+      setPagination(p => ({ ...p, pageIndex: clamped }));
+      return;
+    }
+
+    // Otherwise (unknown total and may have next pages), allow deep jump but set a safe override
+    const clamped = rawTarget;
+    const minForCurrent = clamped + 1;
+    const minForNext = ((((tokenFilter === 'all') || swapOnly) && hasNextPage) ? clamped + 2 : minForCurrent);
+    if ((tokenFilter === 'all') || swapOnly) setPageCountOverride(prev => Math.max(prev || 0, minForNext));
+    else setPageCountOverride(0);
     setPagination(p => ({ ...p, pageIndex: clamped }));
-  }, [hasNextPage, totalCount, pagination.pageSize, newItemsCount, tokenFilter, filteredTransactions]);
+  }, [hasNextPage, totalCount, pagination.pageSize, newItemsCount, tokenFilter, swapOnly, filteredTransactions, initialTransactions]);
 
   return {
     table,

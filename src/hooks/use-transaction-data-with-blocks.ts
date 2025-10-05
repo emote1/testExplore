@@ -43,6 +43,7 @@ export function useTransactionDataWithBlocks(
   tokenMinRaw: string | bigint | null = null,
   tokenMaxRaw: string | bigint | null = null,
   erc20Only: boolean = false,
+  swapOnly: boolean = false,
 ): UseTransactionDataReturn {
 
   const { resolveAddress, resolveEvmAddress } = useAddressResolver();
@@ -87,7 +88,7 @@ export function useTransactionDataWithBlocks(
     resolveAndSet();
   }, [accountAddress, resolveAddress, resolveEvmAddress]);
 
-  const pagedDoc = ((tokenIds && tokenIds.length > 0) || reefOnly)
+  const pagedDoc = ((tokenIds && tokenIds.length > 0) || reefOnly || swapOnly)
     ? PAGINATED_TRANSFERS_MIN_QUERY
     : PAGINATED_TRANSFERS_QUERY;
 
@@ -97,7 +98,7 @@ export function useTransactionDataWithBlocks(
       {
         variables: {
           first: limit,
-          where: buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress, direction, minReefRaw, maxReefRaw, reefOnly, tokenIds, tokenMinRaw, tokenMaxRaw, erc20Only }),
+          where: buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress, direction, minReefRaw, maxReefRaw, reefOnly, tokenIds, tokenMinRaw, tokenMaxRaw, erc20Only, excludeSwapLegs: !swapOnly }),
           orderBy: ((minReefRaw || maxReefRaw || tokenMinRaw || tokenMaxRaw) ? ['amount_ASC', 'id_ASC'] : ['timestamp_DESC', 'id_DESC']) as TransferOrderByInput[],
         },
         skip: !resolvedAddress && !resolvedEvmAddress,
@@ -113,35 +114,42 @@ export function useTransactionDataWithBlocks(
     setPartnersByHash({});
   }, [resolvedAddress, resolvedEvmAddress, direction, minReefRaw, maxReefRaw, reefOnly, tokenIds, tokenMinRaw, tokenMaxRaw]);
 
-  // When strict token server filter is active (tokenIds provided), fetch partner legs for swaps
+  // Fetch partner legs only for Swap view; All/Incoming/Outgoing don't need partner legs
   useEffect(() => {
-    // Only for strict token filter (non-empty tokenIds) and when we have page data
-    if (!tokenIds || tokenIds.length === 0) return;
+    // Only when we have page data and Swap view is active
+    const wantPartners = !!swapOnly;
+    if (!wantPartners) return;
     const edges = data?.transfersConnection.edges || [];
     const nodes = edges.map((e) => e?.node).filter(Boolean) as Array<any>;
     if (nodes.length === 0) return;
 
     const missing: string[] = [];
+    const byHash: Record<string, any[]> = {};
     for (const n of nodes) {
       const h = getString(n, ['extrinsicHash']);
-      const act = (n as any)?.reefswapAction;
-      if (!h || !act) continue; // not a swap extrinsic
-      if (!partnersByHash[h]) missing.push(h);
+      if (!h) continue;
+      (byHash[h] = byHash[h] || []).push(n);
+    }
+    for (const [h, arr] of Object.entries(byHash)) {
+      if (partnersByHash[h]) continue;
+      const hasFlag = arr.some((g) => Boolean((g as any)?.reefswapAction));
+      // Light mode: only fetch partners for flagged extrinsics
+      if (hasFlag) missing.push(h);
     }
     if (missing.length === 0) return;
+    const missingLimited = missing.slice(0, 20); // conservative batch size for Swap mode
 
     (async () => {
       try {
-        // Base address/direction filter without token/amount constraints
-        const base = buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress, direction: 'any' });
-        const where: any = base ? { AND: [base, { extrinsicHash_in: missing }] } : { extrinsicHash_in: missing };
+        // Important: do NOT restrict by address here; partner legs may not involve the user
+        const where: any = { extrinsicHash_in: missingLimited };
         const { data: q } = await (client as ApolloClient<NormalizedCacheObject>).query(
           {
             query: TRANSFERS_POLLING_QUERY as unknown as TypedDocumentNode<any, any>,
             variables: {
               where,
               // conservative cap: expect a handful of legs per extrinsic
-              limit: Math.min(missing.length * 10, 500),
+              limit: Math.min(missingLimited.length * 10, 400),
             },
             fetchPolicy: 'network-only',
           }
@@ -165,11 +173,12 @@ export function useTransactionDataWithBlocks(
         console.warn('[tx][partners] fetch failed', e);
       }
     })();
-  }, [client, data, tokenIds, resolvedAddress, resolvedEvmAddress, partnersByHash]);
+  }, [client, data, swapOnly, resolvedAddress, resolvedEvmAddress, partnersByHash]);
 
   // Fetch fees for extrinsics present in current edges,
   // but skip ones that already contain inline signedData.fee.partialFee
   useEffect(() => {
+    if (swapOnly) return; // lighten Swap mode
     const edges = data?.transfersConnection.edges || [];
     const nodes = edges.map((e) => e?.node).filter(Boolean) as Array<any>;
     if (nodes.length === 0) return;
@@ -211,10 +220,11 @@ export function useTransactionDataWithBlocks(
       });
 
     return () => { cancelled = true; };
-  }, [client, data, feesByHash]);
+  }, [client, data, feesByHash, swapOnly]);
 
   // Fetch extrinsicId (block-extrinsic) for nodes missing it
   useEffect(() => {
+    if (swapOnly) return; // lighten Swap mode
     const edges = data?.transfersConnection.edges || [];
     const nodes = edges.map((e) => e?.node).filter(Boolean) as Array<any>;
     if (nodes.length === 0) return;
@@ -249,7 +259,7 @@ export function useTransactionDataWithBlocks(
       });
 
     return () => { cancelled = true; };
-  }, [client, data, exIdsByHash]);
+  }, [client, data, exIdsByHash, swapOnly]);
 
   // Lazy fetch token metadata (contractData) for tokens on current page that lack cached meta
   useEffect(() => {
@@ -289,9 +299,9 @@ export function useTransactionDataWithBlocks(
       return [];
     }
 
-    // Merge partner legs (if any) before mapping/aggregation
+    // Merge partner legs (if any) before mapping/aggregation in Swap mode only
     const partnerList = Object.values(partnersByHash).flat();
-    const combinedEdges = partnerList.length > 0
+    const combinedEdges = swapOnly && partnerList.length > 0
       ? [...(edges as unknown as Array<{ node: any }>), ...partnerList.map((n) => ({ node: n }))]
       : (edges as unknown as Array<{ node: any }>);
 
@@ -344,7 +354,7 @@ export function useTransactionDataWithBlocks(
       }
     }
 
-    // Group by extrinsicHash to detect swaps (incoming + outgoing different tokens)
+    // Group by extrinsicHash to detect swaps (incoming + outgoing different tokens). Only for Swap view.
     const byHash = new Map<string, UiTransfer[]>();
     for (const t of unique) {
       const h = t.extrinsicHash || t.id;
@@ -352,18 +362,17 @@ export function useTransactionDataWithBlocks(
       arr.push(t);
       byHash.set(h, arr);
     }
-
+    if (!swapOnly) {
+      // All/Incoming/Outgoing: return plain transfers without building SWAP rows
+      return unique;
+    }
     const aggregated: UiTransfer[] = [];
     for (const [hash, group] of byHash.entries()) {
       const fungible = group.filter(g => !g.isNft);
       const incoming = fungible.filter(g => g.type === 'INCOMING');
       const outgoing = fungible.filter(g => g.type === 'OUTGOING');
 
-      const inTokenIds = Array.from(new Set(incoming.map(g => g.token.id)));
-      const outTokenIds = Array.from(new Set(outgoing.map(g => g.token.id)));
-
-      const isSwapCandidate = incoming.length > 0 && outgoing.length > 0 && inTokenIds.length === 1 && outTokenIds.length === 1 && inTokenIds[0] !== outTokenIds[0];
-      if (!isSwapCandidate) {
+      if (!(incoming.length > 0 && outgoing.length > 0)) {
         aggregated.push(...group);
         continue;
       }
@@ -380,6 +389,12 @@ export function useTransactionDataWithBlocks(
       }
       const maxIn = pickMax(incoming);
       const maxOut = pickMax(outgoing);
+
+      // Build SWAP only if dominant tokens differ; otherwise keep individual legs
+      if (maxIn.token.id === maxOut.token.id) {
+        aggregated.push(...group);
+        continue;
+      }
 
       const ts = maxIn.timestamp || maxOut.timestamp;
       const success = group.every(g => g.success);
@@ -484,7 +499,7 @@ export function useTransactionDataWithBlocks(
           // Use polling query since it exposes offset/limit on plain list
           query: TRANSFERS_POLLING_QUERY as unknown as TypedDocumentNode<any, any>,
           variables: {
-            where: buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress, direction, minReefRaw, maxReefRaw, reefOnly, tokenIds, tokenMinRaw, tokenMaxRaw, erc20Only }),
+            where: buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress, direction, minReefRaw, maxReefRaw, reefOnly, tokenIds, tokenMinRaw, tokenMaxRaw, erc20Only, excludeSwapLegs: !swapOnly }),
             orderBy: ((minReefRaw || maxReefRaw || tokenMinRaw || tokenMaxRaw) ? ['amount_ASC', 'id_ASC'] : ['timestamp_DESC', 'id_DESC']) as TransferOrderByInput[],
             offset: Math.max(0, Math.floor(offset) || 0),
             limit: Math.max(1, Math.floor(limit) || 1),
@@ -493,7 +508,48 @@ export function useTransactionDataWithBlocks(
         }
       );
 
-      const list = (q?.transfers || []) as Array<any>;
+      let list = (q?.transfers || []) as Array<any>;
+      // Light mode: skip partner fetch in window path to avoid extra queries
+      if (!swapOnly) {
+        try {
+          const byHash: Record<string, any[]> = {};
+          for (const n of list) {
+            const h = getString(n, ['extrinsicHash']);
+            if (!h) continue;
+            (byHash[h] = byHash[h] || []).push(n);
+          }
+          const missing: string[] = [];
+          for (const [h, arr] of Object.entries(byHash)) {
+            const hasFlag = arr.some((g) => Boolean((g as any)?.reefswapAction));
+            const fungible = arr.filter((g) => !Boolean((g as any)?.isNft));
+            const hasIn = fungible.some((g) => String((g as any)?.type) === 'INCOMING');
+            const hasOut = fungible.some((g) => String((g as any)?.type) === 'OUTGOING');
+            if (hasFlag || !(hasIn && hasOut)) missing.push(h);
+          }
+          if (missing.length > 0) {
+            // Important: do NOT restrict by address here; partner legs may not involve the user
+            const where: any = { extrinsicHash_in: missing, reefswapAction_isNull: false };
+            const { data: q2 } = await (client as ApolloClient<NormalizedCacheObject>).query(
+              {
+                query: TRANSFERS_POLLING_QUERY as unknown as TypedDocumentNode<any, any>,
+                variables: { where, limit: Math.min(missing.length * 20, 500) },
+                fetchPolicy: 'network-only',
+              }
+            );
+            const partners = (q2?.transfers || []) as Array<any>;
+            if (partners.length > 0) {
+              const seen = new Set(list.map((n) => n?.id));
+              for (const p of partners) {
+                if (!p?.id || seen.has(p.id)) continue;
+                list.push(p);
+                seen.add(p.id);
+              }
+            }
+          }
+        } catch (_e) {
+          // best-effort; ignore partner errors in window mode
+        }
+      }
       if (!list.length) return [];
 
       // Map to UI model

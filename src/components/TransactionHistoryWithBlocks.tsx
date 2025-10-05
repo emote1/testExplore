@@ -29,6 +29,7 @@ const BalancesTable = React.lazy(() =>
 // Top-level TransactionsView so it does not remount on each parent render.
 function TransactionsView({ addr }: { addr: string }) {
   const [direction, setDirection] = React.useState<TransactionDirection>('any');
+  const [txType, setTxType] = React.useState<'all' | 'incoming' | 'outgoing' | 'swap'>('all');
   // tokenFilter supports: 'all' | 'reef' | 'usdc' | <contractAddress>
   const [tokenFilter, setTokenFilter] = React.useState<string>('all');
   const MRD_CONTRACT = '0x95a2AF50040B7256a4B4c405a4AfD4DD573DA115';
@@ -117,7 +118,8 @@ function TransactionsView({ addr }: { addr: string }) {
   const tokenFiltersActive = tokenFilter !== 'all' && !isRangeInvalid;
   const appliedTokenMinRaw = tokenFiltersActive ? minTokenRaw : null;
   const appliedTokenMaxRaw = tokenFiltersActive ? maxTokenRaw : null;
-  const { table, isLoading, error, showNewItems, goToPage, isPageLoading, pageLoadProgress, hasExactTotal, fastModeActive } = useTanstackTransactionAdapter(addr, direction, appliedMinRaw, appliedMaxRaw, tokenFilter, appliedTokenMinRaw, appliedTokenMaxRaw, false);
+  const swapOnly = txType === 'swap';
+  const { table, isLoading, error, showNewItems, goToPage, isPageLoading, pageLoadProgress, hasExactTotal, fastModeActive } = useTanstackTransactionAdapter(addr, direction, appliedMinRaw, appliedMaxRaw, tokenFilter, appliedTokenMinRaw, appliedTokenMaxRaw, false, swapOnly);
 
   // After table is ready, try to detect decimals for a custom 0x token from current page rows
   React.useEffect(() => {
@@ -186,16 +188,26 @@ function TransactionsView({ addr }: { addr: string }) {
   const [toastTransfer, setToastTransfer] = React.useState<UiTransfer | null>(null);
   const toastTimerRef = React.useRef<number | undefined>(undefined);
 
-  // --- URL sync (dir, min) --------------------------------------------------
+  // Keep direction in sync with txType
+  React.useEffect(() => {
+    if (txType === 'incoming' || txType === 'outgoing') setDirection(txType);
+    else setDirection('any');
+  }, [txType]);
+
+  // --- URL sync (type/dir, min/max, token) ----------------------------------
   // Initialize from URL on first mount
   React.useEffect(() => {
     try {
       const url = new URL(window.location.href);
       const params = url.searchParams;
+      const type = params.get('type');
       const dir = params.get('dir');
       const min = params.get('min');
       const max = params.get('max');
       const tok = params.get('token');
+      if (type === 'swap') setTxType('swap');
+      else if (dir === 'incoming' || dir === 'outgoing') setTxType(dir as any);
+      else setTxType('all');
       if (dir === 'incoming' || dir === 'outgoing' || dir === 'any') setDirection(dir as TransactionDirection);
       if (typeof min === 'string' && min.length > 0) setMinReefInput(min);
       if (typeof max === 'string' && max.length > 0) setMaxReefInput(max);
@@ -205,14 +217,20 @@ function TransactionsView({ addr }: { addr: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Reflect changes back to URL (replaceState) when direction/min/max/token changes
+  // Reflect changes back to URL (replaceState) when type/dir/min/max/token change
   React.useEffect(() => {
     try {
       const url = new URL(window.location.href);
       const params = url.searchParams;
-      // Update dir
-      if (direction && direction !== 'any') params.set('dir', direction);
-      else params.delete('dir');
+      // Update type/dir
+      if (txType === 'swap') {
+        params.set('type', 'swap');
+        params.delete('dir');
+      } else {
+        params.delete('type');
+        if (direction && direction !== 'any') params.set('dir', direction);
+        else params.delete('dir');
+      }
       // Update min
       if (debouncedMinReefInput && debouncedMinReefInput.trim()) params.set('min', debouncedMinReefInput.trim());
       else params.delete('min');
@@ -230,7 +248,7 @@ function TransactionsView({ addr }: { addr: string }) {
       const newUrl = `${url.pathname}${search ? `?${search}` : ''}${url.hash}`;
       window.history.replaceState({}, '', newUrl);
     } catch {}
-  }, [direction, debouncedMinReefInput, debouncedMaxReefInput, tokenFilter]);
+  }, [txType, direction, debouncedMinReefInput, debouncedMaxReefInput, tokenFilter]);
 
   const onNewTransfer = React.useCallback((newTransfer: UiTransfer) => {
     if (!newTransfer) return;
@@ -284,26 +302,31 @@ function TransactionsView({ addr }: { addr: string }) {
       <div className="mb-3">
         <SquidHealthIndicator />
       </div>
-      {/* Direction + Token + Min/Max REEF filter */}
+      {/* Type + Token + Min/Max TOKEN filter */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
         <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-600">Direction:</span>
+          <span className="text-sm text-gray-600">Type:</span>
           <div className="inline-flex rounded-md shadow-sm border overflow-hidden" role="group">
             <button
               type="button"
-              className={`px-3 py-1.5 text-sm ${direction === 'any' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-              onClick={() => setDirection('any')}
+              className={`px-3 py-1.5 text-sm ${txType === 'all' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+              onClick={() => setTxType('all')}
             >All</button>
             <button
               type="button"
-              className={`px-3 py-1.5 text-sm border-l ${direction === 'incoming' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-              onClick={() => setDirection('incoming')}
+              className={`px-3 py-1.5 text-sm border-l ${txType === 'incoming' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+              onClick={() => setTxType('incoming')}
             >Incoming</button>
             <button
               type="button"
-              className={`px-3 py-1.5 text-sm border-l ${direction === 'outgoing' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-              onClick={() => setDirection('outgoing')}
+              className={`px-3 py-1.5 text-sm border-l ${txType === 'outgoing' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+              onClick={() => setTxType('outgoing')}
             >Outgoing</button>
+            <button
+              type="button"
+              className={`px-3 py-1.5 text-sm border-l ${txType === 'swap' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+              onClick={() => setTxType('swap')}
+            >Swap</button>
           </div>
           <span className="ml-4 text-sm text-gray-600">Token:</span>
           <select

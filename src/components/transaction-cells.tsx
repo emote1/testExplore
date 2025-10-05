@@ -1,6 +1,6 @@
 import type { CellContext, HeaderContext } from '@tanstack/react-table';
 import type { UiTransfer } from '../data/transfer-mapper';
-import { formatTimestamp, formatTokenAmount, formatTimestampFull } from '../utils/formatters';
+import { formatTimestamp, formatTokenAmount, formatTimestampFull, parseTimestampToDate } from '../utils/formatters';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { ExternalLink } from './ui/external-link';
@@ -99,7 +99,16 @@ export function AmountHeader(ctx: HeaderContext<UiTransfer, unknown>) {
 }
 
 export function TimestampCell(ctx: CellContext<UiTransfer, unknown>) {
+  const t = ctx.row.original as UiTransfer;
   const ts = ctx.row.getValue('timestamp') as string;
+  const d = parseTimestampToDate(ts);
+  const invalid = !d || isNaN(d.getTime()) || d.getFullYear() < 2015;
+  // Fallback for reef-swap rows without real timestamp: show block height
+  if ((t.method === 'swap' || t.type === 'SWAP') && invalid) {
+    const block = (t as any)?.blockHeight;
+    const label = typeof block === 'number' ? `Block #${block}` : '—';
+    return <span className="whitespace-nowrap">{label}</span>;
+  }
   const display = formatTimestamp(ts);
   const full = formatTimestampFull(ts);
   return (
@@ -131,8 +140,11 @@ export function AmountCellComponent({ ctx }: AmountCellProps) {
   if (transfer.method === 'swap' && transfer.swapInfo) {
     const sold = transfer.swapInfo.sold;
     const bought = transfer.swapInfo.bought;
-    const soldFmt = formatTokenAmount(sold.amount, sold.token.decimals, sold.token.name);
-    const boughtFmt = formatTokenAmount(bought.amount, bought.token.decimals, bought.token.name);
+    const soldRaw = String(sold.amount || '0');
+    const boughtRaw = String(bought.amount || '0');
+    const soldAbs = soldRaw.startsWith('-') ? soldRaw.slice(1) : soldRaw;
+    const boughtAbs = boughtRaw.startsWith('-') ? boughtRaw.slice(1) : boughtRaw;
+    const boughtFmt = formatTokenAmount(boughtAbs, bought.token.decimals, bought.token.name);
 
     function toNumeric(amount: string, decimals: number): number | null {
       if (!/^\d+$/.test(amount || '')) return null;
@@ -148,6 +160,9 @@ export function AmountCellComponent({ ctx }: AmountCellProps) {
         return null;
       }
     }
+    function isZero(amount: string): boolean {
+      try { return BigInt(amount || '0') === 0n; } catch { return true; }
+    }
     function rateStr(): string {
       const soldNum = toNumeric(sold.amount, sold.token.decimals);
       const boughtNum = toNumeric(bought.amount, bought.token.decimals);
@@ -156,12 +171,34 @@ export function AmountCellComponent({ ctx }: AmountCellProps) {
       if (!Number.isFinite(r)) return '—';
       return r.toLocaleString('en-US', { maximumFractionDigits: 6 });
     }
+    // For the 'for …' line: if value is extremely small (< 1e-6), increase precision and prefix with ≈
+    function formatForLabel(rawAmount: string, token: { decimals: number; name: string }): string {
+      const raw = String(rawAmount || '0');
+      const abs = raw.startsWith('-') ? raw.slice(1) : raw;
+      const n = toNumeric(abs, token.decimals);
+      if (n != null && n > 0 && n < 1e-6) {
+        const precise = formatTokenAmount(abs, token.decimals, token.name, { maximumFractionDigits: Math.min(18, token.decimals) });
+        return `≈ ${precise}`;
+      }
+      return formatTokenAmount(abs, token.decimals, token.name);
+    }
     const feeFmt = formatTokenAmount(transfer.feeAmount || '0', 18, 'REEF');
 
+    const lines: JSX.Element[] = [];
+    if (!isZero(bought.amount)) {
+      lines.push(
+        <span key="bought" className="text-green-600">Bought: +{boughtFmt}</span>
+      );
+    }
+    if (!isZero(sold.amount)) {
+      const soldLabel = formatForLabel(soldAbs, sold.token);
+      lines.push(
+        <span key="sold" className="text-xs text-gray-700">Sold: {soldLabel}</span>
+      );
+    }
     const content = (
       <div className="flex flex-col">
-        <span className="text-red-600">Sold: -{soldFmt}</span>
-        <span className="text-green-600">Bought: +{boughtFmt}</span>
+        {lines.length > 0 ? lines : <span className="text-gray-500">—</span>}
       </div>
     );
 
@@ -171,6 +208,8 @@ export function AmountCellComponent({ ctx }: AmountCellProps) {
           <TooltipTrigger asChild>{content}</TooltipTrigger>
           <TooltipContent>
             <div className="space-y-1">
+              <div className="text-xs text-gray-700">Bought: {boughtFmt}</div>
+              <div className="text-xs text-gray-700">Sold: {formatForLabel(soldAbs, sold.token)}</div>
               <div className="text-xs text-gray-700">Rate: 1 {sold.token.name} = {rateStr()} {bought.token.name}</div>
               <div className="text-xs text-gray-700">Fee: {feeFmt}</div>
             </div>
@@ -223,7 +262,7 @@ export function ValueCell(ctx: CellContext<UiTransfer, unknown>) {
     const n = toNumeric(amount, token.decimals);
     if (n == null || n <= 0) return null;
     let usdPerUnit: number | undefined;
-    if (token.name === 'REEF' && token.decimals === 18 && typeof meta?.reefUsd === 'number') usdPerUnit = meta.reefUsd as number;
+    if ((token.name || '').toUpperCase() === 'REEF' && typeof meta?.reefUsd === 'number') usdPerUnit = meta.reefUsd as number;
     else if (token.decimals > 0 && token.id && meta?.pricesById) usdPerUnit = meta.pricesById[(token.id || '').toLowerCase()] ?? undefined;
     if (typeof usdPerUnit !== 'number' || !Number.isFinite(usdPerUnit)) return null;
     const usd = n * usdPerUnit;
@@ -236,21 +275,12 @@ export function ValueCell(ctx: CellContext<UiTransfer, unknown>) {
     if (!soldUsd && !boughtUsd) return <span className="block text-right">—</span>;
     if (soldUsd && boughtUsd) {
       return (
-        <div className="flex flex-col items-end">
-          <span className="whitespace-nowrap text-gray-700">≈ {soldUsd} → {boughtUsd}</span>
-          <span className="whitespace-nowrap font-medium text-gray-900">{boughtUsd}</span>
-        </div>
+        <span className="block text-right whitespace-nowrap text-gray-700">≈ {soldUsd} → {boughtUsd}</span>
       );
     }
-    // Fallbacks when price known only for one side
+    // Fallbacks when price known only for one side: show single approx line
     const approx = soldUsd ?? boughtUsd;
-    const final = boughtUsd ?? approx;
-    return (
-      <div className="flex flex-col items-end">
-        <span className="whitespace-nowrap text-gray-700">≈ {approx}</span>
-        <span className="whitespace-nowrap font-medium text-gray-900">{final}</span>
-      </div>
-    );
+    return <span className="block text-right whitespace-nowrap text-gray-700">{approx ?? '—'}</span>;
   }
 
   const usd = usdFor(t.token as any, t.amount);

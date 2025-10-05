@@ -69,12 +69,16 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
     // Sort ascending and limit to avoid overflow
     return Array.from(pages).sort((a, b) => a - b).slice(0, 12);
   }, [pageCount, hasExactTotal]);
+  // Validate and clamp jump target to [1..pageCount]
+  const jumpMax = Math.max(1, pageCount || 1);
+  const jumpNum = (() => { const n = Number(jumpInput); return Number.isFinite(n) ? Math.floor(n) : NaN; })();
+  const jumpValid = Number.isFinite(jumpNum) && jumpNum >= 1 && jumpNum <= jumpMax;
   function handleGo() {
-    const n = Number(jumpInput);
-    if (!Number.isFinite(n)) return;
-    const target = Math.max(1, Math.floor(n));
-    if (goToPage) goToPage(target - 1);
-    else table.setPageIndex(target - 1);
+    if (!jumpValid) return;
+    if (isPageLoading) return; // avoid deep jump while current page is loading
+    const clamped = Math.min(Math.max(1, jumpNum as number), jumpMax);
+    if (goToPage) goToPage(clamped - 1);
+    else table.setPageIndex(clamped - 1);
   }
 
   return (
@@ -267,7 +271,7 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
         </span>
         <button 
           onClick={() => { if (goToPage) goToPage(pageIndex + 1); else table.nextPage(); }}
-          disabled={!table.getCanNextPage() || isFetching}
+          disabled={!table.getCanNextPage() || isFetching || !!isPageLoading}
           className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
         >
           <span className="inline-flex items-center gap-2">
@@ -297,7 +301,7 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
             />
             <button
               onClick={handleGo}
-              disabled={isFetching}
+              disabled={isFetching || !jumpValid || !!isPageLoading}
               className="px-3 py-1 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
               data-testid="goto-page-button"
             >
@@ -310,7 +314,7 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
               <button
                 key={p}
                 onClick={() => { if (goToPage) goToPage(p - 1); else table.setPageIndex(p - 1); }}
-                disabled={isFetching || (p - 1) === pageIndex}
+                disabled={isFetching || (p - 1) === pageIndex || !!isPageLoading}
                 className={`px-2 py-1 text-sm rounded-md border ${((p - 1) === pageIndex) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
               >
                 {p}
