@@ -18,12 +18,15 @@ export function TypeCell(ctx: CellContext<UiTransfer, unknown>) {
     const classes = 'font-semibold bg-indigo-100 text-indigo-800 hover:bg-indigo-100/80';
     return <Badge className={classes}>SWAP</Badge>;
   }
+  // ERC tokens: incoming => BUY, outgoing => SELL (per user requirement)
   const isIncoming = type === 'INCOMING';
+  const isErcToken = !t.isNft && (t.token?.name !== 'REEF') && ((t.token?.decimals ?? 18) > 0);
+  const label = isErcToken ? (isIncoming ? 'BUY' : 'SELL') : type.toUpperCase();
   const classes = `font-semibold ${isIncoming
     ? 'bg-green-100 text-green-800 hover:bg-green-100/80'
     : 'bg-yellow-100 text-yellow-800 hover:bg-yellow-100/80'
   }`;
-  return <Badge className={classes}>{type.toUpperCase()}</Badge>;
+  return <Badge className={classes}>{label}</Badge>;
 }
 
 export function TimestampHeader(ctx: HeaderContext<UiTransfer, unknown>) {
@@ -160,9 +163,6 @@ export function AmountCellComponent({ ctx }: AmountCellProps) {
         return null;
       }
     }
-    function isZero(amount: string): boolean {
-      try { return BigInt(amount || '0') === 0n; } catch { return true; }
-    }
     function rateStr(): string {
       const soldNum = toNumeric(sold.amount, sold.token.decimals);
       const boughtNum = toNumeric(bought.amount, bought.token.decimals);
@@ -184,21 +184,26 @@ export function AmountCellComponent({ ctx }: AmountCellProps) {
     }
     const feeFmt = formatTokenAmount(transfer.feeAmount || '0', 18, 'REEF');
 
-    const lines: JSX.Element[] = [];
-    if (!isZero(bought.amount)) {
-      lines.push(
-        <span key="bought" className="text-green-600">Bought: +{boughtFmt}</span>
-      );
-    }
-    if (!isZero(sold.amount)) {
+    // Single-line BUY/SELL presentation for swaps (ERC-focused):
+    // - If bought leg is ERC (non-REEF, decimals>0) → show "+<bought> TOKEN" in green
+    // - Else if sold leg is ERC → show "−<sold> TOKEN" in yellow
+    // - Else fallback to showing +bought
+    const isErc = (tok?: { name?: string; decimals: number }) => !!tok && tok.decimals > 0 && (tok.name || '').toUpperCase() !== 'REEF';
+    const boughtIsErc = isErc(bought.token);
+    const soldIsErc = isErc(sold.token);
+    let primaryEl: JSX.Element | null = null;
+    if (boughtIsErc || !soldIsErc) {
+      // Prefer bought side when ERC (or when neither is ERC)
+      const cls = 'text-green-600';
+      primaryEl = <span className={cls}>+{boughtFmt}</span>;
+    } else {
       const soldLabel = formatForLabel(soldAbs, sold.token);
-      lines.push(
-        <span key="sold" className="text-xs text-gray-700">Sold: {soldLabel}</span>
-      );
+      const cls = 'text-yellow-700';
+      primaryEl = <span className={cls}>−{soldLabel}</span>;
     }
     const content = (
       <div className="flex flex-col">
-        {lines.length > 0 ? lines : <span className="text-gray-500">—</span>}
+        {primaryEl ?? <span className="text-gray-500">—</span>}
       </div>
     );
 
@@ -223,7 +228,13 @@ export function AmountCellComponent({ ctx }: AmountCellProps) {
     transfer.token.decimals,
     transfer.token.name
   );
-  return <span>{formattedAmount}</span>;
+  const isIncoming = transfer.type === 'INCOMING';
+  const isErcToken = !transfer.isNft && (transfer.token?.name !== 'REEF') && ((transfer.token?.decimals ?? 18) > 0);
+  const prefix = isErcToken ? (isIncoming ? '+' : '−') : '';
+  const cls = isErcToken
+    ? (isIncoming ? 'text-green-600' : 'text-yellow-700')
+    : '';
+  return <span className={cls}>{prefix}{formattedAmount}</span>;
 }
 
 export function AmountCell(ctx: CellContext<UiTransfer, unknown>) {

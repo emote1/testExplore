@@ -15,10 +15,14 @@ import { transactionColumns } from '../components/transaction-columns';
 import { UiTransfer } from '../data/transfer-mapper';
 import { PAGINATION_CONFIG } from '../constants/pagination';
 import { ApolloError, useApolloClient, type ApolloClient, type NormalizedCacheObject } from '@apollo/client';
-import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
-import { VERIFIED_CONTRACTS_BY_NAME_QUERY } from '@/data/verified-contracts';
 import { useTokenUsdPrices, type TokenInput } from '@/hooks/use-token-usd-prices';
 import { useReefPrice } from '@/hooks/use-reef-price';
+import { USDC_ID_SET, USDC_SESSION_SET, MRD_ID_SET, MRD_SESSION_SET, isUsdcId, isMrdId } from '@/tokens/token-ids';
+import { useEnsureLoaded } from './use-ensure-loaded';
+import { usePageCount } from './use-page-count';
+import { useFastWindow } from './use-fast-window';
+import { useAnchor } from './use-anchor';
+import { useTokenBootstrap } from './use-token-bootstrap';
 
 const addressPageMemory = new Map<string, number>();
 
@@ -31,63 +35,9 @@ const DEBUG_TX_PAGINATION = ((import.meta as any).env?.VITE_TX_PAGINATION_DEBUG 
     console.debug('[TxPagination]', ...args);
   }
 
-  // Feature flag: bootstrap USDC ids via verifiedContracts query (disabled by default)
-  const ENABLE_USDC_BOOTSTRAP = ((import.meta as any).env?.VITE_ENABLE_USDC_BOOTSTRAP === '1'
-    || (import.meta as any).env?.VITE_ENABLE_USDC_BOOTSTRAP === 'true');
+  // Local storage helpers moved to tokens/token-ids
 
-  // Local storage helpers to persist discovered ERC20 contract ids between sessions
-  const STORAGE_AVAILABLE = typeof window !== 'undefined' && !!window.localStorage;
-  const USDC_STORAGE_KEY = 'reef.session.usdc.ids.v1';
-  const MRD_STORAGE_KEY = 'reef.session.mrd.ids.v1';
-  const IDS_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-  function loadIds(key: string): string[] {
-    try {
-      if (!STORAGE_AVAILABLE) return [];
-      const raw = window.localStorage.getItem(key);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      if (!parsed || !Array.isArray(parsed.ids) || typeof parsed.ts !== 'number') return [];
-      if (Date.now() - parsed.ts > IDS_TTL_MS) return [];
-      return (parsed.ids as string[]).map(s => String(s).toLowerCase()).filter(Boolean);
-    } catch { return []; }
-  }
-  function saveIds(key: string, ids: Set<string>) {
-    try {
-      if (!STORAGE_AVAILABLE) return;
-      const arr = Array.from(ids);
-      window.localStorage.setItem(key, JSON.stringify({ ids: arr, ts: Date.now() }));
-    } catch { /* ignore */ }
-  }
-
-// --- Module-level token sets to avoid re-allocations per render ---
-const USDC_ENV_RAW = (import.meta as any)?.env?.VITE_USDC_CONTRACT_IDS as string | undefined;
-const USDC_ENV = (USDC_ENV_RAW || '')
-  .split(',')
-  .map((s: string) => s.trim().toLowerCase())
-  .filter(Boolean);
-const USDC_DEFAULTS = ['0x7922d8785d93e692bb584e659b607fa821e6a91a'];
-const USDC_ID_SET = new Set<string>(USDC_ENV.length > 0 ? USDC_ENV : USDC_DEFAULTS);
-const USDC_SESSION_SET = new Set<string>();
-const isUsdcId = (id?: string) => {
-  if (!id) return false;
-  const s = String(id).toLowerCase();
-  return USDC_ID_SET.has(s) || USDC_SESSION_SET.has(s);
-};
-// Session-level accumulator for any USDC contract ids observed in data (monotonic, avoids oscillation)
-
-const MRD_ENV_RAW = (import.meta as any)?.env?.VITE_MRD_CONTRACT_IDS as string | undefined;
-const MRD_ENV = (MRD_ENV_RAW || '')
-  .split(',')
-  .map((s: string) => s.trim().toLowerCase())
-  .filter(Boolean);
-const MRD_DEFAULTS = ['0x95a2af50040b7256a4b4c405a4afd4dd573da115'];
-const MRD_ID_SET = new Set<string>(MRD_ENV.length > 0 ? MRD_ENV : MRD_DEFAULTS);
-const MRD_SESSION_SET = new Set<string>();
-const isMrdId = (id?: string) => {
-  if (!id) return false;
-  const s = String(id).toLowerCase();
-  return MRD_ID_SET.has(s) || MRD_SESSION_SET.has(s);
-};
+// --- Token id sets moved to '@/tokens/token-ids' ---
 
 export interface TanstackTransactionAdapterReturn {
   table: Table<UiTransfer>;
@@ -168,13 +118,7 @@ export function useTanstackTransactionAdapter(
 
   // Determine server-side token constraints when strict filter is enabled (computed post-load)
   const isHexAddress = (v: string) => /^0x[0-9a-fA-F]{40}$/.test(v);
-  function arraysEqual(a: string[] | null, b: string[] | null): boolean {
-    if (a === b) return true;
-    if (!a || !b) return false;
-    if (a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i]) return false;
-    return true;
-  }
+  
 
   // Use effective server token ids (null when soft fallback is active)
   const effectiveServerTokenIds = softFallbackActive ? null : serverTokenIds;
@@ -184,9 +128,11 @@ export function useTanstackTransactionAdapter(
     let n: number = PAGINATION_CONFIG.API_FETCH_PAGE_SIZE as unknown as number;
     // Swap mode: use smaller pages to reduce payload per request
     if (swapOnly) n = Math.min(n, 20);
+    // Token-filtered Swap: align server page size to UI page size to avoid over-fetch
+    if (swapOnly && tokenFilter !== 'all') n = Math.min(n, pagination.pageSize);
     if (effectiveServerTokenIds && direction !== 'any') n = Math.min(n, 30);
     return n;
-  }, [effectiveServerTokenIds, direction, swapOnly]);
+  }, [effectiveServerTokenIds, direction, swapOnly, tokenFilter, pagination.pageSize]);
 
   // When in soft fallback mode for a specific token, narrow to ERC20 only
   const erc20Only = useMemo(() => {
@@ -218,215 +164,23 @@ export function useTanstackTransactionAdapter(
   const totalCount = swapOnly ? undefined : baseAdapter.totalCount;
   const fetchWindow = baseAdapter.fetchWindow;
 
-  // Reset serverTokenIds when strict filter is off or token group is not supported
-  useEffect(() => {
-    if (!effectiveStrict || tokenFilter === 'all' || tokenFilter === 'reef') {
-      if (!arraysEqual(serverTokenIds, null)) setServerTokenIds(null);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveStrict, tokenFilter]);
-
-  // Hex address: update once on filter change, preserve checksum casing
-  useEffect(() => {
-    if (!effectiveStrict) return;
-    if (!isHexAddress(tokenFilter)) return;
-    const next = [tokenFilter];
-    const tid = (typeof window !== 'undefined') ? window.setTimeout(() => {
-      if (!arraysEqual(serverTokenIds, next)) setServerTokenIds(next);
-    }, 150) : undefined;
-    return () => { if (typeof window !== 'undefined' && tid) window.clearTimeout(tid); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveStrict, tokenFilter]);
-
-  // Seed ids immediately when strict filter is enabled to avoid initial query without tokenIds
-  useEffect(() => {
-    if (!effectiveStrict) return;
-    if (serverTokenIds && serverTokenIds.length > 0) return;
-    const isHex = (v: string) => /^0x[0-9a-fA-F]{40}$/.test(v);
-    if (tokenFilter === 'usdc') {
-      const next = Array.from(new Set<string>([...USDC_ID_SET, ...USDC_SESSION_SET]));
-      if (next.length > 0 && !arraysEqual(serverTokenIds, next)) {
-        setServerTokenIds(next);
-        if (softFallbackActive) setSoftFallbackActive(false);
-      }
-    } else if (tokenFilter === 'mrd') {
-      const next = Array.from(new Set<string>([...MRD_ID_SET, ...MRD_SESSION_SET]));
-      if (next.length > 0 && !arraysEqual(serverTokenIds, next)) {
-        setServerTokenIds(next);
-        if (softFallbackActive) setSoftFallbackActive(false);
-      }
-    } else if (isHex(tokenFilter)) {
-      const next = [tokenFilter];
-      if (!arraysEqual(serverTokenIds, next)) {
-        setServerTokenIds(next);
-        if (softFallbackActive) setSoftFallbackActive(false);
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveStrict, tokenFilter]);
-
-  // On first mount, load persisted session ids
-  useEffect(() => {
-    const usdc = loadIds(USDC_STORAGE_KEY);
-    for (const id of usdc) USDC_SESSION_SET.add(id);
-    const mrd = loadIds(MRD_STORAGE_KEY);
-    for (const id of mrd) MRD_SESSION_SET.add(id);
-  }, []);
-
-  // USDC: use stable, predefined id set (unioned with any session-observed USDC ids) to avoid oscillation
-  useEffect(() => {
-    if (!effectiveStrict) return;
-    if (tokenFilter !== 'usdc') return;
-    const next = Array.from(new Set<string>([...USDC_ID_SET, ...USDC_SESSION_SET]));
-    const tid = (typeof window !== 'undefined') ? window.setTimeout(() => {
-      if (!arraysEqual(serverTokenIds, next)) setServerTokenIds(next);
-    }, 150) : undefined;
-    return () => { if (typeof window !== 'undefined' && tid) window.clearTimeout(tid); };
-  }, [effectiveStrict, tokenFilter, serverTokenIds]);
-
-  // MRD: same logic as USDC
-  useEffect(() => {
-    if (!effectiveStrict) return;
-    if (tokenFilter !== 'mrd') return;
-    const next = Array.from(new Set<string>([...MRD_ID_SET, ...MRD_SESSION_SET]));
-    const tid = (typeof window !== 'undefined') ? window.setTimeout(() => {
-      if (!arraysEqual(serverTokenIds, next)) setServerTokenIds(next);
-    }, 150) : undefined;
-    return () => { if (typeof window !== 'undefined' && tid) window.clearTimeout(tid); };
-  }, [effectiveStrict, tokenFilter, serverTokenIds]);
-
-  // Activate soft fallback when strict USDC/MRD filter returns no items on first load
-  useEffect(() => {
-    // Disable soft fallback for enforced strict tokens (USDC/MRD/custom 0x)
-    if (enforceStrict) {
-      if (softFallbackActive) setSoftFallbackActive(false);
-      if (softFallbackAttempted) setSoftFallbackAttempted(false);
-      return;
-    }
-    const eligible = (tokenFilter === 'usdc' || tokenFilter === 'mrd');
-    if (!effectiveStrict || !eligible) {
-      if (softFallbackActive) setSoftFallbackActive(false);
-      if (softFallbackAttempted) setSoftFallbackAttempted(false);
-      return;
-    }
-    if (isLoading) return;
-    // Включать fallback только после попытки строгого фильтра (когда ids известны)
-    if (!serverTokenIds || serverTokenIds.length === 0) return;
-    const count = (initialTransactions || []).length;
-    if (count === 0 && !softFallbackActive && !softFallbackAttempted) {
-      setSoftFallbackActive(true);
-      setSoftFallbackAttempted(true);
-      if (DEBUG_TX_PAGINATION) console.debug('[ERC20][fallback] activating soft fallback (no items under strict filter)', { tokenFilter });
-    }
-  }, [effectiveStrict, tokenFilter, isLoading, initialTransactions, softFallbackActive, softFallbackAttempted, serverTokenIds]);
-
-  // Exit soft fallback once we have concrete server token ids (observed via session/bootstrap)
-  useEffect(() => {
-    if (enforceStrict) { if (softFallbackActive) setSoftFallbackActive(false); return; }
-    if (!softFallbackActive) return;
-    const eligible = (tokenFilter === 'usdc' || tokenFilter === 'mrd');
-    if (!effectiveStrict || !eligible) { setSoftFallbackActive(false); return; }
-    // Exit fallback only after we've actually observed ids on the page (session sets filled)
-    const discovered = tokenFilter === 'usdc' ? (USDC_SESSION_SET.size > 0) : (MRD_SESSION_SET.size > 0);
-    if (discovered) {
-      setSoftFallbackActive(false);
-      if (DEBUG_TX_PAGINATION) console.debug('[ERC20][fallback] discovered ids via session, returning to strict mode');
-    }
-  }, [softFallbackActive, effectiveStrict, tokenFilter, initialTransactions, enforceStrict]);
-
-  // Bootstrap USDC ids by querying verified contracts by name once when strict filter is enabled
-  useEffect(() => {
-    if (!effectiveStrict) { setUsdcBootstrapDone(false); return; }
-    if (tokenFilter !== 'usdc') { setUsdcBootstrapDone(false); return; }
-    if (usdcBootstrapDone) return;
-    // Only attempt bootstrap if feature is enabled AND strict filter явно не дал результатов (soft fallback активен)
-    if (!ENABLE_USDC_BOOTSTRAP) { setUsdcBootstrapDone(true); return; }
-    if (!softFallbackActive) return; // запускать только когда строгий фильтр ничего не вернул
-    // Если уже нашли id в этой сессии — пропускаем
-    if (USDC_SESSION_SET.size > 0) { setUsdcBootstrapDone(true); return; }
-    let cancelled = false;
-    (async () => {
-      try {
-        const names = ['USDC', 'USDC.e', 'USD Coin'];
-        const { data } = await (apollo as ApolloClient<NormalizedCacheObject>).query({
-          query: VERIFIED_CONTRACTS_BY_NAME_QUERY as unknown as TypedDocumentNode<any, any>,
-          variables: { names, needle: 'usdc' },
-          fetchPolicy: 'cache-first',
-          errorPolicy: 'ignore',
-        });
-        const list = (data?.verifiedContracts ?? []) as Array<{ id?: string; name?: string }>;
-        let added = 0;
-        for (const it of list) {
-          const id = String(it?.id || '').toLowerCase();
-          if (!id) continue;
-          if (!USDC_SESSION_SET.has(id)) { USDC_SESSION_SET.add(id); added += 1; }
-        }
-        if (added > 0 && !cancelled) {
-          const next = Array.from(new Set<string>([...USDC_ID_SET, ...USDC_SESSION_SET]));
-          if (!arraysEqual(serverTokenIds, next)) setServerTokenIds(next);
-        }
-      } catch (_e) {
-        // ignore, fallback to defaults
-      } finally {
-        if (!cancelled) setUsdcBootstrapDone(true);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [effectiveStrict, tokenFilter, apollo, usdcBootstrapDone, softFallbackActive]);
-
-  // Observe current page for any tokens named USDC (including synonyms and swap legs) and extend session set
-  useEffect(() => {
-    if (!effectiveStrict) return;
-    if (tokenFilter !== 'usdc') return;
-    const list = initialTransactions || [];
-    let added = 0;
-    const nameSynonyms = new Set(['usdc', 'usdc.e', 'usd coin']);
-    for (const t of list) {
-      const tok = (t as any)?.token as { id?: string; name?: string } | undefined;
-      const addIf = (maybe?: { id?: string; name?: string }) => {
-        const id = (maybe?.id || '').toLowerCase();
-        if (!id) return;
-        const nm = (maybe?.name || '').toString().toLowerCase();
-        if (nm && nameSynonyms.has(nm) && !USDC_SESSION_SET.has(id)) { USDC_SESSION_SET.add(id); added += 1; }
-      };
-      if (tok) addIf(tok);
-      const s = (t as any)?.swapInfo;
-      if (s) { addIf(s.sold?.token); addIf(s.bought?.token); }
-    }
-    if (added > 0) {
-      const next = Array.from(new Set<string>([...USDC_ID_SET, ...USDC_SESSION_SET]));
-      if (!arraysEqual(serverTokenIds, next)) setServerTokenIds(next);
-      saveIds(USDC_STORAGE_KEY, USDC_SESSION_SET);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveStrict, tokenFilter, initialTransactions]);
-
-  // Observe current page for MRD tokens (case-insensitive) and extend session set
-  useEffect(() => {
-    if (!effectiveStrict) return;
-    if (tokenFilter !== 'mrd') return;
-    const list = initialTransactions || [];
-    let added = 0;
-    const nameSynonyms = new Set(['mrd']);
-    for (const t of list) {
-      const tok = (t as any)?.token as { id?: string; name?: string } | undefined;
-      const addIf = (maybe?: { id?: string; name?: string }) => {
-        const id = (maybe?.id || '').toLowerCase();
-        if (!id) return;
-        const nm = (maybe?.name || '').toString().toLowerCase();
-        if (nm && nameSynonyms.has(nm) && !MRD_SESSION_SET.has(id)) { MRD_SESSION_SET.add(id); added += 1; }
-      };
-      if (tok) addIf(tok);
-      const s = (t as any)?.swapInfo;
-      if (s) { addIf(s.sold?.token); addIf(s.bought?.token); }
-    }
-    if (added > 0) {
-      const next = Array.from(new Set<string>([...MRD_ID_SET, ...MRD_SESSION_SET]));
-      if (!arraysEqual(serverTokenIds, next)) setServerTokenIds(next);
-      saveIds(MRD_STORAGE_KEY, MRD_SESSION_SET);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveStrict, tokenFilter, initialTransactions]);
+  useTokenBootstrap({
+    effectiveStrict,
+    tokenFilter,
+    enforceStrict,
+    isLoading,
+    initialTransactions,
+    serverTokenIds,
+    setServerTokenIds: (val) => setServerTokenIds(val),
+    softFallbackActive,
+    setSoftFallbackActive: (v) => setSoftFallbackActive(v),
+    softFallbackAttempted,
+    setSoftFallbackAttempted: (v) => setSoftFallbackAttempted(v),
+    apollo: apollo as ApolloClient<NormalizedCacheObject>,
+    usdcBootstrapDone,
+    setUsdcBootstrapDone: (v) => setUsdcBootstrapDone(v),
+    dbg,
+  });
 
   // Client-side filter
   // - In Swap tab (swapOnly=true): include only swap rows
@@ -531,20 +285,12 @@ export function useTanstackTransactionAdapter(
 
   // Apollo cache is the single source of truth; pages are merged by typePolicies
 
-  // Virtual shift anchor: keep view stable when new items prepend
-  const [anchorFirstId, setAnchorFirstId] = useState<string | undefined>(undefined);
-  // Reset anchor when address changes
+  // Reset page on filter/view change (direction, token filter, swap view)
   useEffect(() => {
-    dbg('anchor: reset due to address change', { address });
-    setAnchorFirstId(undefined);
-  }, [address]);
-
-  // Reset anchor and page index when direction or min/max REEF or token filter changes
-  useEffect(() => {
-    dbg('anchor: reset due to direction/min/max/token change', { direction, minReefRaw, maxReefRaw, tokenFilter });
-    setAnchorFirstId(undefined);
+    // reset page on filter change to keep behavior
     setPagination(p => ({ ...p, pageIndex: 0 }));
-  }, [direction, minReefRaw, maxReefRaw, tokenFilter]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [direction, minReefRaw, maxReefRaw, tokenFilter, swapOnly]);
 
   // Disable client sorting entirely; server provides ordering when needed
   useEffect(() => {
@@ -562,78 +308,16 @@ export function useTanstackTransactionAdapter(
       : 0;
     setPagination(p => ({ ...p, pageIndex: nextIdx }));
   }, [address]);
-  // Initialize anchor to current first id once data is available
-  useEffect(() => {
-    if (!anchorFirstId && initialTransactions && initialTransactions.length > 0) {
-      const id = initialTransactions[0]!.id;
-      dbg('anchor: init to current first id', { id });
-      setAnchorFirstId(id);
-    }
-  }, [anchorFirstId, initialTransactions]);
-  // If anchor is no longer found (e.g., cache reset), re-anchor to current first
-  useEffect(() => {
-    if (!initialTransactions || initialTransactions.length === 0) return;
-    if (!anchorFirstId) return;
-    const missing = initialTransactions.findIndex(t => t.id === anchorFirstId) === -1;
-    if (!missing) return;
-    if (pagination.pageIndex === 0) {
-      const id = initialTransactions[0]!.id;
-      dbg('anchor: not found on page 1, re-anchor to current first', { prev: anchorFirstId, next: id });
-      setAnchorFirstId(id);
-    } else {
-      dbg('anchor: not found on deep page, keep previous anchor (stability)');
-    }
-  }, [initialTransactions, anchorFirstId, pagination.pageIndex]);
-  // Track index of anchor and freeze newItemsCount on deep pages if anchor disappears
-  const anchorIndex = useMemo(() => {
-    if (!initialTransactions || initialTransactions.length === 0) return -1;
-    if (!anchorFirstId) return -1;
-    return initialTransactions.findIndex(t => t.id === anchorFirstId);
-  }, [initialTransactions, anchorFirstId]);
-  const lastKnownNewItemsCountRef = useRef(0);
-  useEffect(() => {
-    if (anchorIndex >= 0) {
-      lastKnownNewItemsCountRef.current = anchorIndex;
-    }
-  }, [anchorIndex]);
-  // Number of new items prepended since anchor was set
-  const newItemsCount = useMemo(() => {
-    if (!anchorFirstId) return 0;
-    if (anchorIndex >= 0) return anchorIndex;
-    // Anchor missing: keep previous offset on deep pages, reset on page 1
-    return pagination.pageIndex > 0 ? lastKnownNewItemsCountRef.current : 0;
-  }, [anchorFirstId, anchorIndex, pagination.pageIndex]);
-
-  // Log when newItemsCount changes
-  useEffect(() => {
-    if (!DEBUG_TX_PAGINATION) return;
-    const firstId = initialTransactions && initialTransactions[0] ? initialTransactions[0].id : undefined;
-    dbg('newItemsCount updated', { newItemsCount, anchorFirstId, firstId });
-  }, [newItemsCount, anchorFirstId, initialTransactions]);
-  const showNewItems = useCallback((anchorId?: string) => {
-    if (anchorId) {
-      setAnchorFirstId(anchorId);
-      return;
-    }
-    // Fallback: if we don't know the newest id yet, try to use current first id; otherwise clear.
-    if (initialTransactions && initialTransactions.length > 0) {
-      setAnchorFirstId(initialTransactions[0]!.id);
-    } else {
-      setAnchorFirstId(undefined);
-    }
-  }, [initialTransactions]);
-
-  // If user is on page 1, always reveal newly prepended items by re-anchoring
-  // to the current first id. This avoids a "blink with no change" on the first
-  // subscription tick (when the detector is primed and no onNewTransfer fires).
-  useEffect(() => {
-    if (pagination.pageIndex !== 0) return; // only auto-reveal on page 1
-    if (newItemsCount <= 0) return; // nothing new to reveal
-    if (!initialTransactions || initialTransactions.length === 0) return;
-    const id = initialTransactions[0]!.id;
-    dbg('anchor: auto re-anchor on page 1 to reveal new items', { id, newItemsCount });
-    setAnchorFirstId(id);
-  }, [pagination.pageIndex, newItemsCount, initialTransactions]);
+  const { newItemsCount, showNewItems } = useAnchor({
+    address,
+    direction,
+    minReefRaw,
+    maxReefRaw,
+    tokenFilter,
+    initialTransactions,
+    pageIndex: pagination.pageIndex,
+    dbg,
+  });
 
   // Allow temporarily inflating pageCount to avoid TanStack setPageIndex clamping
   const [pageCountOverride, setPageCountOverride] = useState<number>(0);
@@ -643,53 +327,15 @@ export function useTanstackTransactionAdapter(
     setPageCountOverride(0);
   }, [address]);
 
-  // Fast offset-window mode: after threshold pages, fetch page window via offset/limit
-  // Disabled for filtered views to avoid inconsistencies
-  const fastModeActive = useMemo(() => {
-    return (tokenFilter === 'all' && !swapOnly) && !!PAGINATION_CONFIG.ENABLE_FAST_OFFSET_MODE && (pagination.pageIndex >= PAGINATION_CONFIG.FAST_OFFSET_MODE_THRESHOLD_PAGES);
-  }, [pagination.pageIndex, tokenFilter, swapOnly]);
-
-  const [fastPageData, setFastPageData] = useState<UiTransfer[] | null>(null);
-  const [isFastLoading, setIsFastLoading] = useState<boolean>(false);
-  const fastSeqRef = useRef(0);
-
-  useEffect(() => {
-    // Clear fast data when leaving fast mode or when address changes
-    if (!fastModeActive) {
-      setFastPageData(null);
-      setIsFastLoading(false);
-      return;
-    }
-
-    // If address just changed, clear stale fast data and skip this cycle
-    if (prevAddressRef.current !== address) {
-      setFastPageData(null);
-      setIsFastLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    const seq = ++fastSeqRef.current;
-    const { pageIndex, pageSize } = pagination;
-    const offset = Math.max(0, (newItemsCount || 0) + pageIndex * pageSize);
-    setIsFastLoading(true);
-    fetchWindow(offset, pageSize, { fetchFees: false })
-      .then((data) => {
-        if (cancelled) return;
-        if (seq !== fastSeqRef.current) return;
-        setFastPageData(data);
-      })
-      .catch(() => {
-        // keep previous data if any; UI will show whatever is available
-      })
-      .finally(() => {
-        if (cancelled) return;
-        if (seq !== fastSeqRef.current) return;
-        setIsFastLoading(false);
-      });
-
-    return () => { cancelled = true; };
-  }, [fastModeActive, pagination.pageIndex, pagination.pageSize, newItemsCount, fetchWindow, address]);
+  // Fast offset-window mode (extracted)
+  const { fastModeActive, fastPageData, isFastLoading } = useFastWindow({
+    tokenFilter,
+    swapOnly,
+    pagination,
+    fetchWindow,
+    newItemsCount,
+    address,
+  });
 
   // After effects ran, record current address to detect changes on next commit
   useEffect(() => {
@@ -702,57 +348,26 @@ export function useTanstackTransactionAdapter(
     addressPageMemory.set(address, pagination.pageIndex);
   }, [address, pagination.pageIndex]);
 
-  // All view now excludes swaps server-side, so it can rely on exact total like REEF
-  const hasExactTotal = useMemo(
-    () => ((((tokenFilter === 'all') && !swapOnly) || tokenFilter === 'reef') && typeof totalCount === 'number' && Number.isFinite(totalCount)),
-    [totalCount, tokenFilter, swapOnly]
-  );
-  const pageCount = useMemo(() => {
-    // Prefer exact total if available; adjust for virtual anchor shift
-    const size = pagination.pageSize;
-    const effectiveTotal = hasExactTotal
-      ? Math.max(0, (totalCount as number))
-      : undefined;
-
-    if (hasExactTotal) {
-      const computed = Math.ceil((effectiveTotal ?? 0) / size);
-      // If we're in All mode and have reached the end (no next page),
-      // clamp to the number of aggregated UI rows actually loaded to avoid phantom pages
-      let adjusted = computed;
-      if (tokenFilter === 'all' && !hasNextPage) {
-        const aggTotal = Math.max(0, (initialTransactions || []).length - (newItemsCount || 0));
-        const aggPages = Math.ceil(aggTotal / size);
-        adjusted = Math.min(computed, Math.max(aggPages, pagination.pageIndex + 1));
-      }
-      // Never report less than the current page (prevents transient shrink)
-      return Math.max(adjusted, pagination.pageIndex + 1);
-    }
-
-    // Fallback heuristic
-    if (swapOnly) {
-      // Treat Swap-only like All-mode for navigation with phantom next page
-      const itemsLoadedRaw = Math.max(0, (initialTransactions || []).length - (newItemsCount || 0));
-      const pagesLoaded = itemsLoadedRaw > 0 ? Math.ceil(itemsLoadedRaw / size) : 0;
-      const computed = hasNextPage ? pagesLoaded + 1 : pagesLoaded;
-      const minForCurrent = pagination.pageIndex + 1;
-      const minForNext = hasNextPage ? pagination.pageIndex + 2 : minForCurrent;
-      const withOverride = Math.max(computed, minForNext, pageCountOverride || 0);
-      return withOverride;
-    }
-    // All/Incoming/Outgoing act like filtered views because swaps are excluded
-    const itemsLoaded = (filteredTransactions || []).length;
-    const pagesLoaded = itemsLoaded > 0 ? Math.ceil(itemsLoaded / size) : 0;
-    const computed = hasNextPage ? pagesLoaded + 1 : pagesLoaded;
-    return Math.max(computed, pagination.pageIndex + 1);
-  }, [hasExactTotal, totalCount, newItemsCount, initialTransactions, filteredTransactions, tokenFilter, swapOnly, pagination.pageSize, hasNextPage, pagination.pageIndex, pageCountOverride]);
+  const { hasExactTotal, pageCount } = usePageCount({
+    pagination,
+    tokenFilter,
+    swapOnly,
+    totalCount,
+    newItemsCount,
+    initialTransactions,
+    filteredTransactions,
+    hasNextPage,
+    pageCountOverride,
+    strictServerActive: (!swapOnly && tokenFilter !== 'all' && Array.isArray(effectiveServerTokenIds) && effectiveServerTokenIds.length > 0),
+  });
 
   const dataForCurrentPage = useMemo(() => {
     if (fastModeActive && fastPageData) {
       return fastPageData;
     }
     const { pageIndex, pageSize } = pagination;
-    // Treat non-swap views as filtered: we exclude SWAP rows from All/Incoming/Outgoing
-    const isFiltered = (tokenFilter !== 'all') || swapOnly || true;
+    // Non-swap views are filtered if tokenFilter != 'all' or Swap tab is active
+    const isFiltered = (tokenFilter !== 'all') || swapOnly;
     const start = (isFiltered ? 0 : newItemsCount) + pageIndex * pageSize;
     const end = start + pageSize;
     return (filteredTransactions || []).slice(start, end);
@@ -854,8 +469,7 @@ export function useTanstackTransactionAdapter(
       return { isPageLoading: isFastLoading, pageLoadProgress: isFastLoading ? 0 : 1 };
     }
     const { pageIndex, pageSize } = pagination;
-    // Treat non-swap views as filtered
-    const isFiltered = (tokenFilter !== 'all') || swapOnly || true;
+    const isFiltered = (tokenFilter !== 'all') || swapOnly;
     const itemsLoaded = swapOnly
       ? (initialTransactions || []).length
       : (isFiltered ? (filteredTransactions || []).length : (initialTransactions || []).length);
@@ -946,74 +560,21 @@ export function useTanstackTransactionAdapter(
   const prevPageIndexRef = useRef<number>(pagination.pageIndex);
 
   // Ensure enough items are loaded for the current page; supports deep page jumps.
-  useEffect(() => {
-    if (fastModeActive) return; // skip sequential ensure loop in fast mode
-    // Run ensureLoaded for swapOnly too, to pull more reef-swap pages when user navigates
-    let cancelled = false;
-    const seq = (ensureSeqRef.current = (ensureSeqRef.current ?? 0) + 1);
-    ensureMaxedRef.current = false;
-
-    async function run() {
-      // Avoid overlapping runs
-      if (inFlightEnsureRef.current) return;
-
-      const { pageIndex, pageSize } = pagination;
-      const ladderPages = swapOnly ? 1 : Math.max(1, PAGINATION_CONFIG.NON_FAST_LADDER_UI_PAGES || 1);
-      // Treat non-swap views as filtered
-      const isFilteredMode = (tokenFilter !== 'all') || swapOnly || true;
-      // For filtered/swap views, we need enough FILTERED rows to fill the target window
-      const requiredCount = isFilteredMode
-        ? (pageIndex + ladderPages) * pageSize
-        : (newItemsCount + (pageIndex + ladderPages) * pageSize);
-      let attempts = 0;
-      const maxAttempts = (PAGINATION_CONFIG.MAX_SEQUENTIAL_FETCH_PAGES || 20);
-      dbg('ensureLoaded: start', {
-        pageIndex,
-        pageSize,
-        requiredCount,
-        newItemsCount,
-        itemsLoaded: isFilteredMode ? (filteredTransactions || []).length : (initialTransactions || []).length,
-        hasNextPage,
-      });
-
-      // Loop while we need more items and we can fetch more
-      while (!cancelled) {
-        const itemsLoaded = isFilteredMode ? (filteredTransactions || []).length : (initialTransactions || []).length;
-        // For swapOnly/filtered views allow fetching even when base list is empty
-        if (!isFilteredMode) {
-          if (!initialTransactions || initialTransactions.length === 0) { dbg('ensureLoaded: base query not ready'); break; }
-        }
-        if (itemsLoaded >= requiredCount) break;
-        if (!hasNextPage) break;
-        if (attempts >= maxAttempts) break;
-
-        inFlightEnsureRef.current = true;
-        try {
-          dbg('ensureLoaded: fetchMore', { attempt: attempts + 1, itemsLoaded, requiredCount });
-          await fetchMore();
-        } catch {
-          break; // surface errors via error state; stop loop
-        } finally {
-          inFlightEnsureRef.current = false;
-        }
-        attempts++;
-
-        // If deps changed, abandon this run to avoid racing
-        if (seq !== ensureSeqRef.current) break;
-      }
-
-      ensureMaxedRef.current = (attempts >= maxAttempts) || !hasNextPage;
-      dbg('ensureLoaded: end', { attempts, maxed: ensureMaxedRef.current });
-    }
-
-    run();
-
-    return () => {
-      cancelled = true;
-      // bump seq to signal abandonment to any in-flight run
-      ensureSeqRef.current = (ensureSeqRef.current ?? 0) + 1;
-    };
-  }, [pagination.pageIndex, pagination.pageSize, initialTransactions, filteredTransactions, tokenFilter, swapOnly, hasNextPage, fetchMore, newItemsCount, fastModeActive]);
+  useEnsureLoaded(
+    {
+      fastModeActive,
+      swapOnly,
+      pagination,
+      initialTransactions,
+      filteredTransactions,
+      tokenFilter,
+      hasNextPage,
+      fetchMore,
+      newItemsCount,
+      dbg,
+    },
+    { inFlightEnsureRef, ensureSeqRef, ensureMaxedRef },
+  );
 
   // Idle prefetch next API page (when current page is fully loaded), pause on hidden tab
   useEffect(() => {
@@ -1127,8 +688,7 @@ export function useTanstackTransactionAdapter(
   const goToPage = useCallback((idx: number) => {
     const rawTarget = Math.max(0, Math.floor(idx));
     const size = pagination.pageSize;
-    // Treat non-swap views as filtered
-    const isFilteredMode = (tokenFilter !== 'all') || swapOnly || true;
+    const isFilteredMode = (tokenFilter !== 'all') || swapOnly;
 
     // Prevent rapid forward nav while ensureLoaded is fetching for filtered/swap views
     if (isFilteredMode && inFlightEnsureRef.current && rawTarget > pagination.pageIndex) {
@@ -1164,8 +724,9 @@ export function useTanstackTransactionAdapter(
     // Otherwise (unknown total and may have next pages), allow deep jump but set a safe override
     const clamped = rawTarget;
     const minForCurrent = clamped + 1;
-    const minForNext = ((((tokenFilter === 'all') || swapOnly) && hasNextPage) ? clamped + 2 : minForCurrent);
-    if ((tokenFilter === 'all') || swapOnly) setPageCountOverride(prev => Math.max(prev || 0, minForNext));
+    const applyOverride = (tokenFilter === 'all') || (swapOnly && tokenFilter === 'all');
+    const minForNext = ((applyOverride && hasNextPage) ? clamped + 2 : minForCurrent);
+    if (applyOverride) setPageCountOverride(prev => Math.max(prev || 0, minForNext));
     else setPageCountOverride(0);
     setPagination(p => ({ ...p, pageIndex: clamped }));
   }, [hasNextPage, totalCount, pagination.pageSize, newItemsCount, tokenFilter, swapOnly, filteredTransactions, initialTransactions]);

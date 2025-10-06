@@ -71,6 +71,12 @@ export function useSwapEvents(address: string | null, pageSize: number, enabled:
       timestamp?: string | number | null;
       seen: number;
       hasInputs: boolean;
+      // Explicit sold/bought tracking inferred from inputs/outputs
+      soldIndex?: 1 | 2; // 1 -> token1, 2 -> token2
+      boughtIndex?: 1 | 2;
+      soldBI: bigint;
+      boughtBI: bigint;
+      // Legacy accumulators (kept for fallback when inputs are missing)
       a1BI: bigint; // corresponds to token2
       a2BI: bigint; // corresponds to token1
     }>();
@@ -99,6 +105,10 @@ export function useSwapEvents(address: string | null, pageSize: number, enabled:
           timestamp: (n as any)?.timestamp ?? null,
           seen: 0,
           hasInputs: false,
+          soldIndex: undefined,
+          boughtIndex: undefined,
+          soldBI: 0n,
+          boughtBI: 0n,
           a1BI: 0n,
           a2BI: 0n,
         };
@@ -119,23 +129,32 @@ export function useSwapEvents(address: string | null, pageSize: number, enabled:
       const out2 = bi(n?.amount2);
       if (in1 > 0n || in2 > 0n) {
         g.hasInputs = true;
-        // token2 bought amount comes from out2 when token1 was input, and vice versa
-        const token2Amt = in1 > 0n ? out2 : in2; // if token1 input -> token2 output; else token2 input (sold)
-        const token1Amt = in1 > 0n ? in1 : out1; // if token1 input (sold) -> use in1; else token1 output (bought)
-        if (token2Amt > g.a1BI) g.a1BI = token2Amt;
-        if (token1Amt > g.a2BI) g.a2BI = token1Amt;
+        if (in1 > 0n) {
+          // Sold token1 for token2
+          g.soldIndex = 1; if (in1 > g.soldBI) g.soldBI = in1;
+          g.boughtIndex = 2; if (out2 > g.boughtBI) g.boughtBI = out2;
+        } else {
+          // Sold token2 for token1
+          g.soldIndex = 2; if (in2 > g.soldBI) g.soldBI = in2;
+          g.boughtIndex = 1; if (out1 > g.boughtBI) g.boughtBI = out1;
+        }
+        // Keep legacy accumulators for compatibility
+        if (out2 > g.a1BI) g.a1BI = out2; // token2 output when token1 input
+        if (out1 > g.a2BI) g.a2BI = out1; // token1 output when token2 input
       } else {
-        // Fallback for older schemas: amount1 with token2, amount2 with token1
+        // Fallback for older schemas without inputs: treat amount1/amount2 as outputs
         try {
           if (n?.amount1 !== undefined && n?.amount1 !== null) {
             const a = bi(n.amount1);
-            if (a > g.a1BI) g.a1BI = a; // token2 amount
+            if (a > g.boughtBI) { g.boughtIndex = 1; g.boughtBI = a; }
+            if (a > g.a1BI) g.a1BI = a; // legacy
           }
         } catch {}
         try {
           if (n?.amount2 !== undefined && n?.amount2 !== null) {
             const a = bi(n.amount2);
-            if (a > g.a2BI) g.a2BI = a; // token1 amount
+            if (a > g.boughtBI) { g.boughtIndex = 2; g.boughtBI = a; }
+            if (a > g.a2BI) g.a2BI = a; // legacy
           }
         } catch {}
       }
@@ -143,25 +162,31 @@ export function useSwapEvents(address: string | null, pageSize: number, enabled:
     // No legacy hydration: rely on amountIn*/amount* present in reef-swap schema
 
     const page = Array.from(groups.values()).map(g => {
-      const amountTok1 = g.a2BI.toString(); // token1 uses amount2
-      const amountTok2 = g.a1BI.toString(); // token2 uses amount1
+      // Prefer explicit sold/bought when inputs were present; else fallback to legacy accumulators
+      const soldIdx: 1 | 2 = (g.soldIndex ?? (g.boughtIndex === 1 ? 2 : 1)) as 1 | 2;
+      const boughtIdx: 1 | 2 = (g.boughtIndex ?? (soldIdx === 1 ? 2 : 1)) as 1 | 2;
+      const soldAmt = (g.hasInputs ? g.soldBI : (soldIdx === 1 ? g.a2BI : g.a1BI)).toString();
+      const boughtAmt = (g.hasInputs ? g.boughtBI : (boughtIdx === 2 ? g.a1BI : g.a2BI)).toString();
+      const soldTok = soldIdx === 1 ? g.token1 : g.token2;
+      const boughtTok = boughtIdx === 2 ? g.token2 : g.token1;
+
       const t: UiTransfer = {
         id: `${g.key}:swap`,
         from: g.from,
         to: g.to,
         type: 'SWAP',
         method: 'swap',
-        amount: amountTok2,
+        amount: boughtAmt,
         isNft: false,
         tokenId: null,
-        token: { id: g.token2.id, name: g.token2.name, decimals: g.token2.decimals },
+        token: { id: boughtTok.id, name: boughtTok.name, decimals: boughtTok.decimals },
         timestamp: (g.timestamp ?? String(g.blockHeight)) as any,
         success: true,
         extrinsicHash: '',
         feeAmount: '0',
         swapInfo: {
-          sold:   { amount: amountTok1, token: { id: g.token1.id, name: g.token1.name, decimals: g.token1.decimals } },
-          bought: { amount: amountTok2, token: { id: g.token2.id, name: g.token2.name, decimals: g.token2.decimals } },
+          sold:   { amount: soldAmt,   token: { id: soldTok.id,   name: soldTok.name,   decimals: soldTok.decimals } },
+          bought: { amount: boughtAmt, token: { id: boughtTok.id, name: boughtTok.name, decimals: boughtTok.decimals } },
         },
       };
       return t;

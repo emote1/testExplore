@@ -264,7 +264,7 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
           <span>
             Page{' '}
             <strong>
-              {table.getState().pagination.pageIndex + 1} of {hasExactTotal ? String(table.getPageCount()) : `~${table.getPageCount()}`}
+              {table.getState().pagination.pageIndex + 1} of {(() => { const pc = table.getPageCount(); return (!hasExactTotal && pc > 1) ? `~${pc}` : String(pc); })()}
             </strong>
           </span>
           {/* Progress moved to centered overlay above to avoid duplication */}
