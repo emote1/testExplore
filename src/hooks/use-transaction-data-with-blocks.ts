@@ -8,7 +8,6 @@ import type { TransferOrderByInput, TransfersFeeQueryQuery as TransfersFeeQuery,
 import { mapTransfersToUiTransfers, type UiTransfer, hasTokenMetaCached, primeTokenMetaCacheFromContracts } from '../data/transfer-mapper';
 import { VerifiedContractsByIdsDocument } from '@/gql/graphql';
 import { useAddressResolver } from './use-address-resolver';
-import { fetchFeesByExtrinsicHashes, getCachedFee, fetchExtrinsicIdsByHashes, getCachedExtrinsicId } from '../data/transfers';
 import { buildTransferWhereFilter, type TransactionDirection } from '@/utils/transfer-query';
 import { getNumber, getString } from '@/utils/object';
 
@@ -52,8 +51,7 @@ export function useTransactionDataWithBlocks(
 
   const [isResolvingAddress, setIsResolvingAddress] = useState(false);
   const client = useApolloClient();
-  const [feesByHash, setFeesByHash] = useState<Record<string, string>>({});
-  const [exIdsByHash, setExIdsByHash] = useState<Record<string, string>>({});
+  // Removed per cleanup: local fee/id caches (fees shown from API; modal updates cache on demand)
   // Partner legs for swaps (filled when strict server token filter is active)
   const [partnersByHash, setPartnersByHash] = useState<Record<string, any[]>>({});
   // Bump to force re-map when lazy metadata arrives
@@ -109,8 +107,6 @@ export function useTransactionDataWithBlocks(
 
   // Reset fees when address changes
   useEffect(() => {
-    setFeesByHash({});
-    setExIdsByHash({});
     setPartnersByHash({});
   }, [resolvedAddress, resolvedEvmAddress, direction, minReefRaw, maxReefRaw, reefOnly, tokenIds, tokenMinRaw, tokenMaxRaw]);
 
@@ -175,91 +171,10 @@ export function useTransactionDataWithBlocks(
     })();
   }, [client, data, swapOnly, resolvedAddress, resolvedEvmAddress, partnersByHash]);
 
-  // Fetch fees for extrinsics present in current edges,
-  // but skip ones that already contain inline signedData.fee.partialFee
-  useEffect(() => {
-    if (swapOnly) return; // lighten Swap mode
-    const edges = data?.transfersConnection.edges || [];
-    const nodes = edges.map((e) => e?.node).filter(Boolean) as Array<any>;
-    if (nodes.length === 0) return;
+  // Background fee fetching disabled: fee now loads lazily in TransactionDetailsModal
+  // useEffect intentionally removed to reduce list overhead.
 
-    // Prime state cache with inline fees from signedData
-    const inlineMap: Record<string, string> = {};
-    for (const n of nodes) {
-      const h = getString(n, ['extrinsicHash']);
-      const inlineFee = getString(n, ['signedData', 'fee', 'partialFee']);
-      if (h && inlineFee && feesByHash[h] === undefined) {
-        inlineMap[h] = inlineFee;
-      }
-    }
-    if (Object.keys(inlineMap).length > 0) {
-      setFeesByHash((prev) => ({ ...prev, ...inlineMap }));
-    }
-
-    // Build fetch list only for those without inline fee and not cached
-    const missing: string[] = [];
-    for (const n of nodes) {
-      const h = getString(n, ['extrinsicHash']);
-      if (!h) continue;
-      const hasInline = getString(n, ['signedData', 'fee', 'partialFee']);
-      if (hasInline) continue;
-      if (feesByHash[h] === undefined && getCachedFee(h) === undefined) {
-        missing.push(h);
-      }
-    }
-    if (missing.length === 0) return;
-
-    let cancelled = false;
-    fetchFeesByExtrinsicHashes(client as ApolloClient<NormalizedCacheObject>, missing)
-      .then((map) => {
-        if (cancelled) return;
-        setFeesByHash((prev) => ({ ...prev, ...map }));
-      })
-      .catch((e) => {
-        console.warn('[fees] batch fetch failed', e);
-      });
-
-    return () => { cancelled = true; };
-  }, [client, data, feesByHash, swapOnly]);
-
-  // Fetch extrinsicId (block-extrinsic) for nodes missing it
-  useEffect(() => {
-    if (swapOnly) return; // lighten Swap mode
-    const edges = data?.transfersConnection.edges || [];
-    const nodes = edges.map((e) => e?.node).filter(Boolean) as Array<any>;
-    if (nodes.length === 0) return;
-
-    const missing: string[] = [];
-    for (const n of nodes) {
-      const h = getString(n, ['extrinsicHash']);
-      const exId = getString(n, ['extrinsicId']);
-      if (!h) continue;
-      if (exId) {
-        if (!exIdsByHash[h]) {
-          setExIdsByHash((prev) => ({ ...prev, [h]: exId }));
-        }
-        continue;
-      }
-      if (!getCachedExtrinsicId(h) && !exIdsByHash[h]) {
-        missing.push(h);
-      }
-    }
-    if (missing.length === 0) return;
-
-    let cancelled = false;
-    fetchExtrinsicIdsByHashes(client as ApolloClient<NormalizedCacheObject>, missing)
-      .then((map: Record<string, string>) => {
-        if (cancelled) return;
-        if (Object.keys(map).length > 0) {
-          setExIdsByHash((prev) => ({ ...prev, ...map }));
-        }
-      })
-      .catch((e: unknown) => {
-        console.warn('[exId] batch fetch failed', e);
-      });
-
-    return () => { cancelled = true; };
-  }, [client, data, exIdsByHash, swapOnly]);
+  // Background extrinsicId fetching disabled: resolve when needed in details view.
 
   // Lazy fetch token metadata (contractData) for tokens on current page that lack cached meta
   useEffect(() => {
@@ -309,12 +224,7 @@ export function useTransactionDataWithBlocks(
       combinedEdges,
       resolvedAddress ?? resolvedEvmAddress ?? undefined
     );
-    // inject fees
-    const enriched = mapped.map((t) => ({
-      ...t,
-      feeAmount: t.extrinsicHash ? (feesByHash[t.extrinsicHash] ?? getCachedFee(t.extrinsicHash) ?? t.feeAmount) : t.feeAmount,
-      extrinsicId: t.extrinsicId ?? (t.extrinsicHash ? (exIdsByHash[t.extrinsicHash] ?? getCachedExtrinsicId(t.extrinsicHash)) : undefined),
-    }));
+    const enriched = mapped;
 
     // Enforce global stable order matching server order
     if (minReefRaw || maxReefRaw) {
@@ -398,7 +308,6 @@ export function useTransactionDataWithBlocks(
 
       const ts = maxIn.timestamp || maxOut.timestamp;
       const success = group.every(g => g.success);
-      const fee = group.find(g => g.feeAmount && g.feeAmount !== '0')?.feeAmount || '0';
 
       // Try to capture a concrete transfer id for linking (find triple anywhere, strip leading zeros)
       function extractTripleId(src?: string): string | undefined {
@@ -439,7 +348,7 @@ export function useTransactionDataWithBlocks(
         timestamp: ts,
         success,
         extrinsicHash: hash,
-        feeAmount: fee,
+        // fee is resolved lazily in modal by extrinsic hash/id
         blockHeight: (maxIn.blockHeight ?? maxOut.blockHeight),
         extrinsicIndex: (maxIn.extrinsicIndex ?? maxOut.extrinsicIndex),
         eventIndex: (maxIn.eventIndex ?? maxOut.eventIndex),
@@ -478,7 +387,7 @@ export function useTransactionDataWithBlocks(
     }
 
     return aggregated;
-  }, [data, resolvedAddress, resolvedEvmAddress, feesByHash, exIdsByHash, minReefRaw, maxReefRaw, partnersByHash, metaVersion]);
+  }, [data, resolvedAddress, resolvedEvmAddress, minReefRaw, maxReefRaw, partnersByHash, metaVersion]);
 
   const fetchMore = useCallback(async () => {
     if (!apolloFetchMore || !data?.transfersConnection.pageInfo.hasNextPage) return;
@@ -490,9 +399,9 @@ export function useTransactionDataWithBlocks(
   }, [apolloFetchMore, data]);
 
   // Fast windowed fetch by offset/limit with same where/orderBy
-  const fetchWindow = useCallback(async (offset: number, limit: number, opts?: { fetchFees?: boolean }): Promise<UiTransfer[]> => {
+  const fetchWindow = useCallback(async (offset: number, limit: number, _opts?: { fetchFees?: boolean }): Promise<UiTransfer[]> => {
     if (!resolvedAddress && !resolvedEvmAddress) return [];
-    const fetchFees = opts?.fetchFees ?? true;
+    // Ignored: fees are no longer fetched in windowed path; modal handles it lazily
     try {
       const { data: q } = await (client as ApolloClient<NormalizedCacheObject>).query(
         {
@@ -558,27 +467,11 @@ export function useTransactionDataWithBlocks(
         resolvedAddress ?? resolvedEvmAddress ?? undefined
       );
 
-      // Inject fees using cache, then fetch missing in bulk
+      // Inject fees using cache only; do not fetch here (modal handles lazy fetch)
       const enrichedPrimed = mapped.map((t) => {
-        const inlineFee = getString((t as any), ['signedData', 'fee', 'partialFee']);
-        const fee = t.extrinsicHash ? (inlineFee ?? getCachedFee(t.extrinsicHash)) : undefined;
-        return { ...t, feeAmount: fee ?? t.feeAmount };
+        // leave fees to modal; no feeAmount on list rows
+        return t;
       });
-
-      const missing: string[] = [];
-      for (const t of enrichedPrimed) {
-        const h = t.extrinsicHash;
-        if (!h) continue;
-        const already = getCachedFee(h);
-        if (already === undefined && (!t.feeAmount || t.feeAmount === '0')) missing.push(h);
-      }
-      if (fetchFees && missing.length > 0) {
-        const feeMap = await fetchFeesByExtrinsicHashes(client as ApolloClient<NormalizedCacheObject>, missing);
-        for (const t of enrichedPrimed) {
-          const h = t.extrinsicHash;
-          if (h && feeMap[h] !== undefined) (t as any).feeAmount = feeMap[h];
-        }
-      }
 
       // Enforce global order consistent with server
       if (minReefRaw || maxReefRaw) {

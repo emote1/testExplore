@@ -1,7 +1,7 @@
 import { useRef, useEffect, useMemo, useState } from 'react';
 import { useQuery, useApolloClient } from '@apollo/client';
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
-import type { ApolloClient, NormalizedCacheObject } from '@apollo/client';
+// removed unused ApolloClient types
 import { mapTransfersToUiTransfers, type UiTransfer } from '../data/transfer-mapper';
 import type {
   TransferOrderByInput,
@@ -11,7 +11,6 @@ import type {
   TransfersFeeQueryQueryVariables,
 } from '@/gql/graphql';
 import { TRANSFERS_POLLING_QUERY, PAGINATED_TRANSFERS_QUERY } from '../data/transfers';
-import { fetchFeesByExtrinsicHashes, getCachedFee } from '../data/transfers';
 import { PAGINATION_CONFIG } from '../constants/pagination';
 import { useAddressResolver } from './use-address-resolver';
 import { buildTransferWhereFilter, type TransactionDirection } from '@/utils/transfer-query';
@@ -37,7 +36,6 @@ export function useTransferSubscription({
   maxReefRaw = null,
 }: UseTransferSubscriptionProps) {
   const detectorRef = useRef(createNewItemDetector<UiTransfer>({ key: (t) => t.id, max: MAX_SEEN_IDS }));
-  const [feesByHash, setFeesByHash] = useState<Record<string, string>>({});
   const client = useApolloClient();
   const { resolveAddress, resolveEvmAddress } = useAddressResolver();
   const [resolvedAddress, setResolvedAddress] = useState<string | null>(null);
@@ -102,7 +100,6 @@ export function useTransferSubscription({
   // Clear tracking when address (input) or resolved values change
   useEffect(() => {
     detectorRef.current.reset();
-    setFeesByHash({});
   }, [address, resolvedAddress, resolvedEvmAddress, direction, minReefRaw, maxReefRaw]);
 
 
@@ -167,28 +164,14 @@ export function useTransferSubscription({
 
     // Debug ui mapped log removed
 
-    // Pre-fetch fees only for those without inline fee from signedData
-    const missing = uiTransfers
-      .filter(t => t.extrinsicHash && (!t.feeAmount || t.feeAmount === '0'))
-      .map(t => t.extrinsicHash!)
-      .filter(h => feesByHash[h] === undefined && getCachedFee(h) === undefined);
-    let cancelled = false;
-    if (missing.length > 0) {
-      fetchFeesByExtrinsicHashes(client as ApolloClient<NormalizedCacheObject>, missing)
-        .then(map => { if (!cancelled) setFeesByHash(prev => ({ ...prev, ...map })); })
-        .catch(e => console.warn('[fees][sub] batch fetch failed', e));
-      // no need to block notifications
-    }
+    // Background fee prefetch disabled: fees load lazily in TransactionDetailsModal
 
     if (uiTransfers.length === 0) return;
 
     // Detect and notify only truly new transfers (first call primes and returns [])
     const newTransfers = detectorRef.current.detectNew(uiTransfers);
     // Debug detectNew log removed
-    const readyNewTransfers = newTransfers.map((transfer) => {
-      const fee = transfer.extrinsicHash ? (feesByHash[transfer.extrinsicHash] ?? getCachedFee(transfer.extrinsicHash)) : undefined;
-      return { ...transfer, feeAmount: fee ?? transfer.feeAmount };
-    });
+    const readyNewTransfers = newTransfers;
 
     // Always reconcile the cache with the latest polled top list to ensure
     // newest transfers appear even on the first tick (when detector primes)
@@ -316,6 +299,6 @@ export function useTransferSubscription({
           }
         });
     }
-    return () => { cancelled = true; };
-  }, [data, error, onNewTransfer, resolvedAddress, resolvedEvmAddress, client, feesByHash, direction, minReefRaw, maxReefRaw]);
+    return undefined;
+  }, [data, error, onNewTransfer, resolvedAddress, resolvedEvmAddress, client, direction, minReefRaw, maxReefRaw]);
 }

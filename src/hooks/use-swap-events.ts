@@ -183,7 +183,6 @@ export function useSwapEvents(address: string | null, pageSize: number, enabled:
         timestamp: (g.timestamp ?? String(g.blockHeight)) as any,
         success: true,
         extrinsicHash: '',
-        feeAmount: '0',
         swapInfo: {
           sold:   { amount: soldAmt,   token: { id: soldTok.id,   name: soldTok.name,   decimals: soldTok.decimals } },
           bought: { amount: boughtAmt, token: { id: boughtTok.id, name: boughtTok.name, decimals: boughtTok.decimals } },

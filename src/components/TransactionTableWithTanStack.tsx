@@ -7,6 +7,7 @@ import { useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { transactionColumns } from './transaction-columns';
 import type { UiTransfer } from '../data/transfer-mapper';
+import { TransactionDetailsModal } from './TransactionDetailsModal';
 // Token USD prices are computed in the adapter and passed via table meta
 
 interface TransactionTableWithTanStackProps {
@@ -31,6 +32,7 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
   const rows = table.getRowModel().rows;
   const enableVirtual = rows.length > 30;
   const parentRef = useRef<HTMLDivElement | null>(null);
+  const [detailsFor, setDetailsFor] = useState<UiTransfer | null>(null);
   const rowVirtualizer = useVirtualizer({
     count: enableVirtual ? rows.length : 0,
     getScrollElement: () => parentRef.current,
@@ -75,10 +77,16 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
   const jumpValid = Number.isFinite(jumpNum) && jumpNum >= 1 && jumpNum <= jumpMax;
   function handleGo() {
     if (!jumpValid) return;
-    if (isPageLoading) return; // avoid deep jump while current page is loading
     const clamped = Math.min(Math.max(1, jumpNum as number), jumpMax);
     if (goToPage) goToPage(clamped - 1);
     else table.setPageIndex(clamped - 1);
+  }
+
+  // Open details modal for a row; ignore clicks originating from links/buttons
+  function onRowClick(e: React.MouseEvent, transfer: UiTransfer) {
+    const target = e.target as HTMLElement;
+    if (target.closest('a,button,[role="button"],.no-row-open')) return;
+    setDetailsFor(transfer);
   }
 
   return (
@@ -103,8 +111,7 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
                       ${header.column.id === 'actions' ? 'w-8 text-center px-1' : ''}
                       ${header.column.id === 'timestamp' ? 'w-52 md:w-60 text-left' : ''}
                       ${header.column.id === 'value' ? 'w-28 md:w-32 text-right px-2' : ''}
-                      ${header.column.id === 'feeAmount' ? 'w-20 text-right px-1' : ''}
-                      ${!(header.column.id === 'actions' || header.column.id === 'timestamp' || header.column.id === 'value' || header.column.id === 'feeAmount') ? 'text-left' : ''}
+                      ${!(header.column.id === 'actions' || header.column.id === 'timestamp' || header.column.id === 'value') ? 'text-left' : ''}
                     `}
                   >
                     {header.isPlaceholder
@@ -152,7 +159,8 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
                       key={row.id}
                       data-testid="tx-row"
                       data-transfer-id={row.original.id}
-                      className={`transition-colors duration-700 ${newTransfers.includes(row.original.id) ? 'bg-blue-100' : ''}`}
+                      onClick={(e) => onRowClick(e, row.original)}
+                      className={`transition-colors duration-700 cursor-pointer hover:bg-gray-50 ${newTransfers.includes(row.original.id) ? 'bg-blue-100' : ''}`}
                     >
                       {row.getVisibleCells().map(cell => (
                         <td
@@ -161,7 +169,6 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
                             cell.column.id === 'actions' ? 'px-1 py-3 text-center w-8' :
                             cell.column.id === 'timestamp' ? 'px-2 py-3 whitespace-nowrap' :
                             cell.column.id === 'value' ? 'px-2 py-3 text-right whitespace-nowrap' :
-                            cell.column.id === 'feeAmount' ? 'px-1 py-3 text-right' :
                             (cell.column.id === 'from' || cell.column.id === 'to') ? 'px-3 py-3' :
                             'px-4 py-3'
                           }
@@ -196,7 +203,8 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
                     key={row.id}
                     data-testid="tx-row"
                     data-transfer-id={row.original.id}
-                    className={`transition-colors duration-700 ${newTransfers.includes(row.original.id) ? 'bg-blue-100' : ''}`}
+                    onClick={(e) => onRowClick(e, row.original)}
+                    className={`transition-colors duration-700 cursor-pointer hover:bg-gray-50 ${newTransfers.includes(row.original.id) ? 'bg-blue-100' : ''}`}
                   >
                     {row.getVisibleCells().map(cell => (
                       <td
@@ -205,7 +213,6 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
                           cell.column.id === 'actions' ? 'px-1 py-3 text-center w-8' :
                           cell.column.id === 'timestamp' ? 'px-2 py-3 whitespace-nowrap' :
                           cell.column.id === 'value' ? 'px-2 py-3 text-right whitespace-nowrap' :
-                          cell.column.id === 'feeAmount' ? 'px-1 py-3 text-right' :
                           (cell.column.id === 'from' || cell.column.id === 'to') ? 'px-3 py-3' :
                           'px-4 py-3'
                         }
@@ -271,7 +278,7 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
         </span>
         <button 
           onClick={() => { if (goToPage) goToPage(pageIndex + 1); else table.nextPage(); }}
-          disabled={!table.getCanNextPage() || isFetching || !!isPageLoading}
+          disabled={!table.getCanNextPage() || isFetching}
           className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
         >
           <span className="inline-flex items-center gap-2">
@@ -301,7 +308,7 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
             />
             <button
               onClick={handleGo}
-              disabled={isFetching || !jumpValid || !!isPageLoading}
+              disabled={isFetching || !jumpValid}
               className="px-3 py-1 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
               data-testid="goto-page-button"
             >
@@ -314,7 +321,7 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
               <button
                 key={p}
                 onClick={() => { if (goToPage) goToPage(p - 1); else table.setPageIndex(p - 1); }}
-                disabled={isFetching || (p - 1) === pageIndex || !!isPageLoading}
+                disabled={isFetching || (p - 1) === pageIndex}
                 className={`px-2 py-1 text-sm rounded-md border ${((p - 1) === pageIndex) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
               >
                 {p}
@@ -323,6 +330,14 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
           </div>
         </div>
       </div>
+      {/* Details modal */}
+      <TransactionDetailsModal
+        open={!!detailsFor}
+        transfer={detailsFor}
+        onClose={() => setDetailsFor(null)}
+        pricesById={(table.options as any)?.meta?.pricesById}
+        reefUsd={(table.options as any)?.meta?.reefUsd}
+      />
     </div>
   );
 };

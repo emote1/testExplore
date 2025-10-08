@@ -9,7 +9,6 @@ import {
   AmountHeader,
   AmountCellComponent,
   ValueCell,
-  FeeCell,
   ActionsCell,
   StatusCell,
 } from './transaction-cells';
@@ -59,11 +58,6 @@ export const transactionColumns: ColumnDef<UiTransfer>[] = [
     header: 'VALUE',
     cell: ValueCell,
     enableSorting: false,
-  },
-  {
-    accessorKey: 'feeAmount',
-    header: 'FEE',
-    cell: FeeCell,
   },
   {
     id: 'actions',

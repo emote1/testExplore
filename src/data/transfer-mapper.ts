@@ -35,7 +35,6 @@ export interface UiTransfer {
   success: boolean;
 
   extrinsicHash: string;
-  feeAmount: string;
   /** Present on subsquid for swap-related legs */
   reefswapAction?: string | null;
 
@@ -178,10 +177,6 @@ export function mapTransfersToUiTransfers(
       const transfer = edge.node;
       const { name: tokenName, decimals: tokenDecimals } = parseTokenData(transfer);
       const isNft = transfer.type === 'ERC721' || transfer.type === 'ERC1155';
-      // Try to get fee from inline signedData (provided by squid similar to Reefscan)
-      // signedData is a JSON scalar; use loose typing
-      const partialFee = getString(transfer, ['signedData', 'fee', 'partialFee']);
-
       const swapFlag = getString(transfer as any, ['reefswapAction']) ?? null;
       return {
         id: transfer.id,
@@ -201,7 +196,6 @@ export function mapTransfersToUiTransfers(
         success: transfer.success,
 
         extrinsicHash: transfer.extrinsicHash || '',
-        feeAmount: partialFee ?? '0',
         reefswapAction: swapFlag,
         method: swapFlag ? 'swap' : 'transfer',
         blockHeight: getNumber(transfer as any, ['blockHeight']) ?? undefined,

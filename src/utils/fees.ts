@@ -49,6 +49,18 @@ function toBigIntSafe(value: unknown): bigint | null {
  * Handles array and object shapes. Returns decimal string. Falls back to '0'.
  */
 export function extractFeeFromEventData(data: unknown): string {
+  // Some indexers return event.data as stringified JSON. Try to parse.
+  if (typeof data === 'string') {
+    const s = data.trim();
+    if (s.startsWith('{') || s.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(s);
+        return extractFeeFromEventData(parsed);
+      } catch {
+        // fall through to numeric/hex handling below
+      }
+    }
+  }
   // Array form: [who, actual_fee, tip]
   if (Array.isArray(data)) {
     const actual = toBigIntSafe(data[1]) ?? 0n;

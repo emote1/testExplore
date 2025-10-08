@@ -1,10 +1,10 @@
 import type { CellContext, HeaderContext } from '@tanstack/react-table';
 import type { UiTransfer } from '../data/transfer-mapper';
-import { formatTimestamp, formatTokenAmount, formatTimestampFull, parseTimestampToDate } from '../utils/formatters';
+import { formatTokenAmount, formatTimestampFull, parseTimestampToDate, formatTimeOfDay } from '../utils/formatters';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { ExternalLink } from './ui/external-link';
-import { ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { ArrowUpDown, ArrowUp, ArrowDown, Clock } from 'lucide-react';
 import { AddressDisplay } from './AddressDisplay';
 import { Tooltip, TooltipTrigger, TooltipProvider, TooltipContent } from './ui/tooltip';
 import { REEFSCAN_ORIGIN } from '@/constants/reefscan';
@@ -112,13 +112,38 @@ export function TimestampCell(ctx: CellContext<UiTransfer, unknown>) {
     const label = typeof block === 'number' ? `Block #${block}` : '—';
     return <span className="whitespace-nowrap">{label}</span>;
   }
-  const display = formatTimestamp(ts);
-  const full = formatTimestampFull(ts);
+  const full = formatTimestampFull(ts, 'en-US');
+  const timePart = formatTimeOfDay(ts, 'en-US', false);
+  const now = Date.now();
+  const diffDays = d ? Math.floor(Math.max(0, now - d.getTime()) / (24 * 60 * 60 * 1000)) : 0;
+  let topBase = '';
+  let bottomBase = '';
+  if (!d) {
+    topBase = timePart;
+    bottomBase = '';
+  } else if (diffDays < 7) {
+    // < 7 days: show weekday + time on top, and month + day below
+    topBase = `${d.toLocaleDateString('en-US', { weekday: 'short' })} ${timePart}`;
+    bottomBase = d.toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
+  } else {
+    // >= 7 days: show compact '<N>d ago' on top and month + day below
+    const n = diffDays;
+    topBase = `${n}d ago`;
+    bottomBase = d.toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
+  }
+  const top = (topBase || '').toLowerCase();
+  const bottom = (bottomBase || '').toLowerCase();
   return (
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
-          <span className="cursor-help">{display}</span>
+          <div className="cursor-help inline-flex items-start gap-2">
+            <Clock className="h-3.5 w-3.5 text-gray-400 mt-[2px]" />
+            <div className="leading-tight">
+              <div className="font-semibold text-gray-800">{top}</div>
+              <div className="text-[11px] text-gray-500">{bottom}</div>
+            </div>
+          </div>
         </TooltipTrigger>
         <TooltipContent>
           <span>{full}</span>
@@ -182,7 +207,7 @@ export function AmountCellComponent({ ctx }: AmountCellProps) {
       }
       return formatTokenAmount(abs, token.decimals, token.name);
     }
-    const feeFmt = formatTokenAmount(transfer.feeAmount || '0', 18, 'REEF');
+    // Fee is shown only in the modal, not in the table
 
     // Single-line BUY/SELL presentation for swaps (ERC-focused):
     // - If bought leg is ERC (non-REEF, decimals>0) → show "+<bought> TOKEN" in green
@@ -216,7 +241,6 @@ export function AmountCellComponent({ ctx }: AmountCellProps) {
               <div className="text-xs text-gray-700">Bought: {boughtFmt}</div>
               <div className="text-xs text-gray-700">Sold: {formatForLabel(soldAbs, sold.token)}</div>
               <div className="text-xs text-gray-700">Rate: 1 {sold.token.name} = {rateStr()} {bought.token.name}</div>
-              <div className="text-xs text-gray-700">Fee: {feeFmt}</div>
             </div>
           </TooltipContent>
         </Tooltip>
@@ -239,16 +263,6 @@ export function AmountCellComponent({ ctx }: AmountCellProps) {
 
 export function AmountCell(ctx: CellContext<UiTransfer, unknown>) {
   return <AmountCellComponent ctx={ctx} />;
-}
-
-export function FeeCell(ctx: CellContext<UiTransfer, unknown>) {
-  const transfer = ctx.row.original;
-  const formattedFee = formatTokenAmount(
-    transfer.feeAmount || '0',
-    18, // REEF decimals
-    'REEF'
-  );
-  return <span>{formattedFee}</span>;
 }
 
 // Standalone USD value column
