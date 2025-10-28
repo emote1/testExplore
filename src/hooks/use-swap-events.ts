@@ -1,8 +1,10 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import type { UiTransfer } from '@/data/transfer-mapper';
 import { reefSwapClient } from '@/reef-swap-client';
+import { fetchAnyTransferIndicesOnce } from '@/data/transfers';
 import { POOL_EVENTS_CONNECTION_DOCUMENT } from '@/data/reef-swap';
 import type { ApolloClient, NormalizedCacheObject } from '@apollo/client';
+import { useApolloClient } from '@apollo/client';
 import { useAddressResolver } from './use-address-resolver';
 
 export interface UseSwapEventsReturn {
@@ -13,9 +15,18 @@ export interface UseSwapEventsReturn {
   fetchMore: () => Promise<void>;
 }
 
+// Env knobs to control network load
+const ENV = ((import.meta as unknown as { env?: Record<string, string | undefined> }).env) ?? {};
+// Prefetch eventIndex via transfers endpoint for better Reefscan links.
+// Disabled by default to minimize network requests.
+const PREFETCH_EVENT_INDEX = ENV.VITE_PREFETCH_EVENT_INDEX === 'true';
+// Safety cap per page when prefetch enabled
+const PREFETCH_EVENT_CAP = Math.max(0, Math.min(50, Number(ENV.VITE_PREFETCH_EVENT_CAP ?? '0')));
+
 
 export function useSwapEvents(address: string | null, pageSize: number, enabled: boolean = true): UseSwapEventsReturn {
   const client = reefSwapClient as ApolloClient<NormalizedCacheObject>;
+  const historyClient = useApolloClient() as ApolloClient<NormalizedCacheObject>;
   const { resolveEvmAddress } = useAddressResolver();
   const [items, setItems] = useState<UiTransfer[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
@@ -69,6 +80,7 @@ export function useSwapEvents(address: string | null, pageSize: number, enabled:
       blockHeight: number;
       indexInBlock: number;
       timestamp?: string | number | null;
+      eventIndex?: number;
       seen: number;
       hasInputs: boolean;
       // Explicit sold/bought tracking inferred from inputs/outputs
@@ -87,7 +99,7 @@ export function useSwapEvents(address: string | null, pageSize: number, enabled:
       const to = String(n?.toAddress || '');
       // Prefer grouping by id base: strip the last numeric segment (…-00001, …-00002) -> same swap
       const rawId = String(n?.id || '');
-      const m = /^(.+)-\d+$/.exec(rawId);
+      const m = /^(.+)-(\d+)$/.exec(rawId);
       const key = m ? m[1] : `${n?.blockHeight}-${n?.indexInBlock}`;
       const token1 = n?.pool?.token1;
       const token2 = n?.pool?.token2;
@@ -103,6 +115,7 @@ export function useSwapEvents(address: string | null, pageSize: number, enabled:
           blockHeight: Number(n?.blockHeight || 0),
           indexInBlock: Number(n?.indexInBlock || 0),
           timestamp: (n as any)?.timestamp ?? null,
+          eventIndex: undefined,
           seen: 0,
           hasInputs: false,
           soldIndex: undefined,
@@ -114,6 +127,14 @@ export function useSwapEvents(address: string | null, pageSize: number, enabled:
         };
         groups.set(key, g);
       }
+      // derive event index from the last numeric segment of id if present
+      try {
+        const evStr = (m?.[2] ?? rawId.match(/-(\d+)$/)?.[1]) as string | undefined;
+        const ev = evStr ? Number(evStr) : NaN;
+        if (Number.isFinite(ev)) {
+          g.eventIndex = Math.max(g.eventIndex ?? -1, ev);
+        }
+      } catch {}
       // preserve first observed from/to, but if empty, try to fill from subsequent legs
       if (!g.from && from) g.from = from;
       if (!g.to && to) g.to = to;
@@ -161,6 +182,31 @@ export function useSwapEvents(address: string | null, pageSize: number, enabled:
     }
     // No legacy hydration: rely on amountIn*/amount* present in reef-swap schema
 
+    // Optional: resolve accurate transfer eventIndex via transfers endpoint (batched would be better).
+    // Kept behind env flag to avoid extra network load by default.
+    if (PREFETCH_EVENT_INDEX && PREFETCH_EVENT_CAP > 0) {
+      try {
+        let resolved = 0;
+        for (const g of groups.values()) {
+          if (resolved >= PREFETCH_EVENT_CAP) break;
+          const hasBI = Number.isFinite(g.blockHeight) && Number.isFinite(g.indexInBlock);
+          if (!hasBI) continue;
+          // Skip if we already have a plausible small eventIndex (< 10)
+          if (typeof g.eventIndex === 'number' && Number.isFinite(g.eventIndex) && g.eventIndex >= 0 && g.eventIndex < 10) continue;
+          try {
+            const res = await fetchAnyTransferIndicesOnce(historyClient, {
+              height: Number(g.blockHeight),
+              index: Number(g.indexInBlock),
+            });
+            if (res?.eventIndex != null && Number.isFinite(Number(res.eventIndex))) {
+              g.eventIndex = Number(res.eventIndex);
+            }
+          } catch {}
+          resolved += 1;
+        }
+      } catch {}
+    }
+
     const page = Array.from(groups.values()).map(g => {
       // Prefer explicit sold/bought when inputs were present; else fallback to legacy accumulators
       const soldIdx: 1 | 2 = (g.soldIndex ?? (g.boughtIndex === 1 ? 2 : 1)) as 1 | 2;
@@ -169,6 +215,14 @@ export function useSwapEvents(address: string | null, pageSize: number, enabled:
       const boughtAmt = (g.hasInputs ? g.boughtBI : (boughtIdx === 2 ? g.a1BI : g.a2BI)).toString();
       const soldTok = soldIdx === 1 ? g.token1 : g.token2;
       const boughtTok = boughtIdx === 2 ? g.token2 : g.token1;
+
+      const eventIndex = typeof g.eventIndex === 'number' && Number.isFinite(g.eventIndex) ? g.eventIndex : undefined;
+      const extrinsicId = Number.isFinite(g.blockHeight) && Number.isFinite(g.indexInBlock)
+        ? `${Number(g.blockHeight)}-${Number(g.indexInBlock)}`
+        : undefined;
+      const preferredTransferId = (extrinsicId && eventIndex != null)
+        ? `${Number(g.blockHeight)}-${Number(g.indexInBlock)}-${eventIndex}`
+        : undefined;
 
       const t: UiTransfer = {
         id: `${g.key}:swap`,
@@ -183,9 +237,15 @@ export function useSwapEvents(address: string | null, pageSize: number, enabled:
         timestamp: (g.timestamp ?? String(g.blockHeight)) as any,
         success: true,
         extrinsicHash: '',
+        // Provide minimal positioning + identity for Reefscan link
+        blockHeight: Number.isFinite(g.blockHeight) ? Number(g.blockHeight) : undefined,
+        extrinsicIndex: Number.isFinite(g.indexInBlock) ? Number(g.indexInBlock) : undefined,
+        eventIndex,
+        extrinsicId,
         swapInfo: {
           sold:   { amount: soldAmt,   token: { id: soldTok.id,   name: soldTok.name,   decimals: soldTok.decimals } },
           bought: { amount: boughtAmt, token: { id: boughtTok.id, name: boughtTok.name, decimals: boughtTok.decimals } },
+          preferredTransferId: preferredTransferId,
         },
       };
       return t;

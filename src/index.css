@@ -21,9 +21,9 @@ body {
   line-height: 1.5;
   font-weight: 400;
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
+  color-scheme: light;
+  color: #213547;
+  background-color: #ffffff;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -161,9 +161,27 @@ button:focus-visible {
 
 @layer base {
   * {
-    @apply border-border;
+    border-color: hsl(var(--border));
   }
   body {
-    @apply bg-background text-foreground;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
   }
+}
+
+/* Minimal Pro + Motion: live insert wash for table rows */
+@keyframes row-wash-anim {
+  0% { background-color: rgba(37, 99, 235, 0.18); }
+  70% { background-color: rgba(37, 99, 235, 0.08); }
+  100% { background-color: transparent; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@layer utilities {
+  .row-wash { animation: row-wash-anim 1200ms ease-out 1; }
+  .fade-in { animation: fade-in 150ms ease-out 1; }
 }

@@ -88,6 +88,12 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
     if (target.closest('a,button,[role="button"],.no-row-open')) return;
     setDetailsFor(transfer);
   }
+  function onRowKeyDown(e: React.KeyboardEvent, transfer: UiTransfer) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      setDetailsFor(transfer);
+    }
+  }
 
   return (
     <div className="relative p-4 bg-white rounded-lg shadow-md overflow-hidden">
@@ -125,7 +131,7 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
               </tr>
             ))}
           </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
+          <tbody className="bg-white divide-y divide-gray-200 fade-in">
             {rows.length === 0 && (isLoading || isPageLoading) ? (
               <tr>
                 <td colSpan={transactionColumns.length} className="text-center py-6 text-gray-600">
@@ -160,7 +166,10 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
                       data-testid="tx-row"
                       data-transfer-id={row.original.id}
                       onClick={(e) => onRowClick(e, row.original)}
-                      className={`transition-colors duration-700 cursor-pointer hover:bg-gray-50 ${newTransfers.includes(row.original.id) ? 'bg-blue-100' : ''}`}
+                      onKeyDown={(e) => onRowKeyDown(e, row.original)}
+                      tabIndex={0}
+                      aria-label="Open transaction details"
+                      className={`group transition-colors transition-transform duration-200 cursor-pointer hover:bg-gray-50 hover:-translate-y-px focus-visible:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 focus-visible:ring-offset-white ${newTransfers.includes(row.original.id) ? 'row-wash' : ''}`}
                     >
                       {row.getVisibleCells().map(cell => (
                         <td
@@ -204,7 +213,10 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
                     data-testid="tx-row"
                     data-transfer-id={row.original.id}
                     onClick={(e) => onRowClick(e, row.original)}
-                    className={`transition-colors duration-700 cursor-pointer hover:bg-gray-50 ${newTransfers.includes(row.original.id) ? 'bg-blue-100' : ''}`}
+                    onKeyDown={(e) => onRowKeyDown(e, row.original)}
+                    tabIndex={0}
+                    aria-label="Open transaction details"
+                    className={`group transition-colors transition-transform duration-200 cursor-pointer hover:bg-gray-50 hover:-translate-y-px focus-visible:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 focus-visible:ring-offset-white ${newTransfers.includes(row.original.id) ? 'row-wash' : ''}`}
                   >
                     {row.getVisibleCells().map(cell => (
                       <td

@@ -1,9 +1,41 @@
-import { ApolloClient, InMemoryCache, HttpLink, ApolloLink } from '@apollo/client';
+import { ApolloClient, InMemoryCache, HttpLink, ApolloLink, split } from '@apollo/client';
 import type { TransfersFeeQueryQuery } from '@/gql/graphql';
+import { getMainDefinition } from '@apollo/client/utilities';
+import { GraphQLWsLink } from '@apollo/client/link/subscriptions';
+import { createClient as createWSClient } from 'graphql-ws';
 
 const httpLink = new HttpLink({
   uri: 'https://squid.subsquid.io/reef-explorer/graphql',
 });
+
+let lastRetryTries = 0;
+const wsClient = createWSClient({
+  url: 'wss://squid.subsquid.io/reef-explorer/graphql',
+  lazy: true,
+  keepAlive: 15000,
+  retryWait: async (tries) => {
+    lastRetryTries = tries;
+    const base = Math.min(30000, 1000 * Math.pow(2, Math.min(tries - 1, 5)));
+    const jitter = Math.floor(base * 0.2 * Math.random());
+    const delay = base + jitter;
+    try { window.dispatchEvent(new CustomEvent('ws-retry', { detail: { tries, delayMs: delay } })); } catch {}
+    await new Promise((r) => setTimeout(r, delay));
+  },
+  shouldRetry: () => true,
+  on: {
+    opened: () => { try { window.dispatchEvent(new CustomEvent('ws-opened')); } catch {} },
+    connected: () => { try { window.dispatchEvent(new CustomEvent('ws-connected')); } catch {} },
+    closed: (ev) => {
+      const anyEv: any = ev as any;
+      try { window.dispatchEvent(new CustomEvent('ws-closed', { detail: { code: anyEv?.code, reason: anyEv?.reason, wasClean: anyEv?.wasClean, tries: lastRetryTries } })); } catch {}
+    },
+    error: (err) => {
+      try { window.dispatchEvent(new CustomEvent('ws-error', { detail: { message: (err as any)?.message ?? String(err) } })); } catch {}
+    },
+  },
+});
+
+const wsLink = new GraphQLWsLink(wsClient);
 
 // Lightweight timing hook (now silent). Keeps structure for potential future use.
 const shouldLogTiming = (import.meta.env.VITE_APOLLO_TIMING === '1' || import.meta.env.VITE_APOLLO_TIMING === 'true');
@@ -18,7 +50,16 @@ const timingLink = new ApolloLink((operation, forward) => {
     return result;
   });
 });
-const link = shouldLogTiming ? ApolloLink.from([timingLink, httpLink]) : httpLink;
+const httpBaseLink = shouldLogTiming ? ApolloLink.from([timingLink, httpLink]) : httpLink;
+
+const link = split(
+  ({ query }) => {
+    const def = getMainDefinition(query) as any;
+    return def.kind === 'OperationDefinition' && def.operation === 'subscription';
+  },
+  wsLink,
+  httpBaseLink
+);
 
 export const cache = new InMemoryCache({
   typePolicies: {
