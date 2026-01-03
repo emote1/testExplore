@@ -1,3 +1,4 @@
+import { isReefToken, toFloatAmount } from '@/utils/token-helpers';
 import { useEffect, useState } from 'react';
 import { useApolloClient } from '@apollo/client';
 import type { ApolloClient, NormalizedCacheObject } from '@apollo/client';
@@ -7,8 +8,8 @@ import { ExternalLink } from './ui/external-link';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { REEFSCAN_ORIGIN } from '@/constants/reefscan';
-import { formatTimestampFull, formatTokenAmount, formatFee, shortenHash } from '@/utils/formatters';
-import { fetchFeeUnifiedOnce, fetchFeeDeepLookupOnce, fetchExtrinsicIdentityOnce, fetchAnyTransferIndicesOnce } from '@/data/transfers';
+import { formatTimestampFull, formatTokenAmount, shortenHash } from '@/utils/formatters';
+import { fetchExtrinsicIdentityOnce, fetchAnyTransferIndicesOnce } from '@/data/transfers';
 import { Copy, Check, ChevronRight, ChevronDown, Info } from 'lucide-react';
 import { useReefPriceHistory } from '@/hooks/use-reef-price-history';
 import { useTokenUsdThenFromSwap } from '@/hooks/use-token-usd-then';
@@ -23,24 +24,11 @@ interface TransactionDetailsModalProps {
 }
 
 // Numeric helpers for USD computation and formatting
-function toNumericAmount(amount: string, decimals: number): number | null {
-  if (!/^[0-9]+$/.test(String(amount || ''))) return null;
-  try {
-    const bi = BigInt(amount);
-    const d = Math.max(0, decimals || 0);
-    const div = 10n ** BigInt(d);
-    const ip = div === 0n ? 0n : bi / (div || 1n);
-    const fp = div === 0n ? '0' : (bi % div).toString().padStart(d, '0');
-    const n = d === 0 ? Number(ip) : parseFloat(`${ip}.${fp}`);
-    return Number.isFinite(n) ? n : null;
-  } catch { return null; }
-}
-
 function usdNumberFor(token: { id?: string; name?: string; decimals: number }, amount: string, pricesById?: Record<string, number | null>, reefUsd?: number | null): number | null {
-  const n = toNumericAmount(amount, token.decimals);
-  if (n == null || n <= 0) return null;
+  const n = toFloatAmount(amount, token.decimals);
+  if (n <= 0) return null;
   let usdPerUnit: number | undefined;
-  if ((token.name || '').toUpperCase() === 'REEF' && typeof reefUsd === 'number') usdPerUnit = reefUsd as number;
+  if (isReefToken(token) && typeof reefUsd === 'number') usdPerUnit = reefUsd as number;
   else if (token.decimals > 0 && token.id && pricesById) usdPerUnit = pricesById[(token.id || '').toLowerCase()] ?? undefined;
   if (typeof usdPerUnit !== 'number' || !Number.isFinite(usdPerUnit)) return null;
   const usd = n * usdPerUnit;
@@ -126,8 +114,6 @@ export function TransactionDetailsModal({ open, transfer, onClose, pricesById, r
   // Keep hooks above any conditional returns to preserve hook order
   const [expandTech, setExpandTech] = useState(false);
   const [copied, setCopied] = useState<{ hash?: boolean; exid?: boolean; idx?: boolean; from?: boolean; to?: boolean }>({});
-  const [feeRaw, setFeeRaw] = useState<string | null>(null);
-  const [isDeepLookupLoading, setIsDeepLookupLoading] = useState(false);
   const [exHashLocal, setExHashLocal] = useState<string | null>(null);
   const [exIdLocal, setExIdLocal] = useState<string | null>(null);
   const [blockLocal, setBlockLocal] = useState<number | null>(null);
@@ -185,35 +171,6 @@ export function TransactionDetailsModal({ open, transfer, onClose, pricesById, r
       }).catch(() => {});
     } catch {}
   }
-
-  // Lazy-load fee when modal opens using a single unified request.
-  useEffect(() => {
-    if (!open) { setFeeRaw(null); return; }
-    const hash = transfer?.extrinsicHash;
-    const idFromField = transfer?.extrinsicId;
-    const idFromIndices = (transfer as any)?.blockHeight != null && (transfer as any)?.extrinsicIndex != null
-      ? `${Number((transfer as any).blockHeight)}-${Number((transfer as any).extrinsicIndex)}`
-      : undefined;
-    const extrinsicId = idFromField || idFromIndices;
-    if (!hash && !extrinsicId) { setFeeRaw(null); return; }
-    let cancelled = false;
-    (async () => {
-      try {
-        const height = Number((transfer as any)?.blockHeight);
-        const index = Number((transfer as any)?.extrinsicIndex);
-        const fee = await fetchFeeUnifiedOnce(apollo, {
-          hash: hash || undefined,
-          extrinsicId: extrinsicId || undefined,
-          height: Number.isFinite(height) ? height : undefined,
-          index: Number.isFinite(index) ? index : undefined,
-        });
-        if (!cancelled) setFeeRaw(fee || null);
-      } catch {
-        if (!cancelled) setFeeRaw(null);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [open, transfer?.extrinsicHash, (transfer as any)?.extrinsicId, (transfer as any)?.blockHeight, (transfer as any)?.extrinsicIndex, apollo]);
 
   // On-demand resolve extrinsic identity (hash/id) if missing (typical for swap items)
   useEffect(() => {
@@ -275,37 +232,10 @@ export function TransactionDetailsModal({ open, transfer, onClose, pricesById, r
     return () => { cancelled = true; };
   }, [open, transfer?.extrinsicHash, transfer?.extrinsicId, (transfer as any)?.blockHeight, (transfer as any)?.extrinsicIndex, (transfer as any)?.eventIndex, apollo]);
 
-  const handleDeepLookup = async () => {
-    if (!transfer || isDeepLookupLoading) return;
-    const hash = transfer?.extrinsicHash;
-    const idFromField = transfer?.extrinsicId;
-    const idFromIndices = (transfer as any)?.blockHeight != null && (transfer as any)?.extrinsicIndex != null
-      ? `${Number((transfer as any).blockHeight)}-${Number((transfer as any).extrinsicIndex)}`
-      : undefined;
-    const extrinsicId = idFromField || idFromIndices;
-    const height = Number((transfer as any)?.blockHeight);
-    const index = Number((transfer as any)?.extrinsicIndex);
-    setIsDeepLookupLoading(true);
-    try {
-      const fee = await fetchFeeDeepLookupOnce(apollo, {
-        hash: hash || undefined,
-        extrinsicId: extrinsicId || undefined,
-        height: Number.isFinite(height) ? height : undefined,
-        index: Number.isFinite(index) ? index : undefined,
-      }, 120);
-      setFeeRaw(fee || null);
-    } catch {
-      // ignore
-    } finally {
-      setIsDeepLookupLoading(false);
-    }
-  };
-
   if (!open || !transfer) return null;
 
   const isSwap = transfer.method === 'swap' && transfer.swapInfo;
   const ts = formatTimestampFull(transfer.timestamp, 'en-US');
-  const feeFmt = feeRaw && feeRaw !== '0' ? formatFee(feeRaw, 'REEF') : '—';
   const exHashShow = transfer.extrinsicHash || exHashLocal || '';
   const exIdShow = transfer.extrinsicId || exIdLocal || '';
   const blockShow = Number.isFinite(Number((transfer as any)?.blockHeight)) ? Number((transfer as any).blockHeight) : (blockLocal ?? undefined);
@@ -323,12 +253,12 @@ export function TransactionDetailsModal({ open, transfer, onClose, pricesById, r
 
   // Regular transfer (non-swap)
   const nowUsdTransfer = !isSwap ? usdNumberFor(transfer.token as any, transfer.amount, pricesById, reefUsd) : null;
-  let blockUsdTransfer = (!isSwap && reefUsdBlock != null && (transfer.token?.name || '').toUpperCase() === 'REEF')
-    ? (() => { const q = toNumericAmount(transfer.amount, transfer.token.decimals); return (q != null) ? (q * reefUsdBlock) : null; })()
+  let blockUsdTransfer = (!isSwap && reefUsdBlock != null && isReefToken(transfer.token))
+    ? (() => { const q = toFloatAmount(transfer.amount, transfer.token.decimals); return (q > 0) ? (q * reefUsdBlock) : null; })()
     : null;
   if (!isSwap && blockUsdTransfer == null && usdThenPerUnitNormal != null) {
-    const q = toNumericAmount(transfer.amount, transfer.token.decimals);
-    blockUsdTransfer = (q != null) ? (q * usdThenPerUnitNormal) : null;
+    const q = toFloatAmount(transfer.amount, transfer.token.decimals);
+    blockUsdTransfer = (q > 0) ? (q * usdThenPerUnitNormal) : null;
   }
   const deltaTransfer = (nowUsdTransfer != null && blockUsdTransfer != null && blockUsdTransfer > 0)
     ? ((nowUsdTransfer - blockUsdTransfer) / blockUsdTransfer * 100)
@@ -337,10 +267,10 @@ export function TransactionDetailsModal({ open, transfer, onClose, pricesById, r
   // Swap legs
   const boughtTok = isSwap ? transfer.swapInfo!.bought.token : null;
   const soldTok = isSwap ? transfer.swapInfo!.sold.token : null;
-  const boughtQty = isSwap ? toNumericAmount(transfer.swapInfo!.bought.amount, boughtTok!.decimals) : null;
-  const soldQty = isSwap ? toNumericAmount(transfer.swapInfo!.sold.amount, soldTok!.decimals) : null;
-  const boughtIsReef = isSwap ? ((boughtTok!.name || '').toUpperCase() === 'REEF') : false;
-  const soldIsReef = isSwap ? ((soldTok!.name || '').toUpperCase() === 'REEF') : false;
+  const boughtQty = isSwap ? toFloatAmount(transfer.swapInfo!.bought.amount, boughtTok!.decimals) : null;
+  const soldQty = isSwap ? toFloatAmount(transfer.swapInfo!.sold.amount, soldTok!.decimals) : null;
+  const boughtIsReef = isSwap ? isReefToken(boughtTok!) : false;
+  const soldIsReef = isSwap ? isReefToken(soldTok!) : false;
   const nowUsdBought = isSwap ? usdNumberFor(boughtTok as any, transfer.swapInfo!.bought.amount, pricesById, reefUsd) : null;
   const nowUsdSold = isSwap ? usdNumberFor(soldTok as any, transfer.swapInfo!.sold.amount, pricesById, reefUsd) : null;
   let blockUsdBought: number | null = null;
@@ -472,30 +402,6 @@ export function TransactionDetailsModal({ open, transfer, onClose, pricesById, r
                   <tr>
                     <td className="py-1 text-gray-500">Type</td>
                     <td className="py-1 text-gray-900">{transfer.type}</td>
-                  </tr>
-                  {transfer.method ? (
-                    <tr>
-                      <td className="py-1 text-gray-500">Method</td>
-                      <td className="py-1 text-gray-900">{transfer.method}</td>
-                    </tr>
-                  ) : null}
-                  <tr>
-                    <td className="py-1 text-gray-500">Fee</td>
-                    <td className="py-1 text-gray-900">
-                      <div className="flex items-center gap-2">
-                        <span>{feeFmt}</span>
-                        {(feeRaw == null || feeRaw === '0') && (
-                          <button
-                            className="no-row-open inline-flex items-center gap-1 px-2 py-1 border rounded hover:bg-gray-50 text-sm text-gray-700 disabled:opacity-50"
-                            onClick={handleDeepLookup}
-                            disabled={isDeepLookupLoading}
-                            title="Retry deep lookup"
-                          >
-                            {isDeepLookupLoading ? 'Looking…' : 'Retry deep lookup'}
-                          </button>
-                        )}
-                      </div>
-                    </td>
                   </tr>
                 </tbody>
               </table>

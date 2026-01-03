@@ -20,11 +20,24 @@ const EXTRINSICS_STREAM = gql`
   }
 `;
 
+const TRANSFERS_STREAM = gql`
+  subscription TransfersFromHeight($fromHeight: Int!, $limit: Int!) {
+    transfers(
+      where: { blockHeight_gt: $fromHeight }
+      orderBy: [id_ASC]
+      limit: $limit
+    ) {
+      id
+      timestamp
+    }
+  }
+`;
+
 interface Sample { t: number; c: number }
 
-const STORAGE_KEY = 'tps_live_state_v1';
+const STORAGE_KEY = 'tps_live_state_v2';
 
-export function useTpsLive(windowSec = 60) {
+export function useTpsLive(windowSec = 60, source: 'extrinsics' | 'transfers' = 'extrinsics') {
   const [fromHeight, setFromHeight] = useState<number | null>(null);
   const [tps, setTps] = useState<number>(0);
   const [perMin, setPerMin] = useState<number>(0);
@@ -33,6 +46,9 @@ export function useTpsLive(windowSec = 60) {
   const lastTpsRef = useRef<number>(0);
   const lastPerMinRef = useRef<number>(0);
   const trendRef = useRef<number[]>([]);
+  // Track per-second counts for spiky visualization
+  const lastSecondRef = useRef<number>(Math.floor(Date.now() / 1000));
+  const currentSecondCountRef = useRef<number>(0);
 
   const { refetch: refetchLatest } = useQuery(LATEST_BLOCK, {
     fetchPolicy: 'network-only',
@@ -84,13 +100,27 @@ export function useTpsLive(windowSec = 60) {
     } catch {}
   }, [windowSec]);
 
-  useSubscription(EXTRINSICS_STREAM, {
+  const streamDoc = source === 'transfers' ? TRANSFERS_STREAM : EXTRINSICS_STREAM;
+  useSubscription(streamDoc, {
     skip: fromHeight == null,
     variables: { fromHeight: fromHeight ?? 0, limit: 5 },
     onData: ({ data }) => {
-      const xs = data?.data?.extrinsics as Array<{ id: string; block: { timestamp?: string } }> | undefined;
+      const payload: any = data?.data as any;
+      const xs = (source === 'transfers' ? payload?.transfers : payload?.extrinsics) as Array<any> | undefined;
       if (!xs || xs.length === 0) return;
       const now = Date.now();
+      const currentSecond = Math.floor(now / 1000);
+      
+      // Track per-second counts for spiky visualization
+      if (currentSecond !== lastSecondRef.current) {
+        // New second - push previous count to trend and reset
+        lastSecondRef.current = currentSecond;
+        currentSecondCountRef.current = xs.length;
+      } else {
+        // Same second - accumulate
+        currentSecondCountRef.current += xs.length;
+      }
+      
       pushSample(buf.current, now, xs.length, windowSec);
       const nextTps = currentTps(buf.current, windowSec);
       const nextPerMin = currentCount(buf.current);
@@ -109,6 +139,8 @@ export function useTpsLive(windowSec = 60) {
   useEffect(() => {
     let intervalId: number | null = null;
     function tick() {
+      const now = Date.now();
+      const currentSecond = Math.floor(now / 1000);
       const nextTps = currentTps(buf.current, windowSec);
       const nextPerMin = currentCount(buf.current);
       if (Math.abs(nextTps - lastTpsRef.current) >= 0.005) {
@@ -119,7 +151,22 @@ export function useTpsLive(windowSec = 60) {
         lastPerMinRef.current = nextPerMin;
         setPerMin(nextPerMin);
       }
-      trendRef.current.push(nextTps);
+      
+      // Push per-second count to trend (shows spikes when transactions arrive)
+      if (currentSecond !== lastSecondRef.current) {
+        // Finalize previous second's count and start new
+        trendRef.current.push(currentSecondCountRef.current);
+        lastSecondRef.current = currentSecond;
+        currentSecondCountRef.current = 0;
+      } else {
+        // Update last value with current second's count
+        if (trendRef.current.length > 0) {
+          trendRef.current[trendRef.current.length - 1] = currentSecondCountRef.current;
+        } else {
+          trendRef.current.push(currentSecondCountRef.current);
+        }
+      }
+      
       if (trendRef.current.length > windowSec) trendRef.current.shift();
       setTpsTrend([...trendRef.current]);
       // persist compact state

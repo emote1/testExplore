@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useReefPrice } from './use-reef-price';
 import { REEF_TOKEN_ADDRESS } from '@/utils/evm-call';
 import { TtlCache } from '../data/ttl-cache';
+import { safeBigInt } from '@/utils/token-helpers';
 
 export interface TokenInput {
   id: string;
@@ -63,13 +64,6 @@ async function graphFetch<T>(query: string, variables: Record<string, unknown>, 
   } catch {
     return null;
   }
-}
-
-function parseBig(v: unknown): bigint {
-  if (typeof v === 'bigint') return v;
-  if (typeof v === 'number') return BigInt(Math.trunc(v));
-  if (typeof v === 'string' && v.length) return BigInt(v);
-  return 0n;
 }
 
 async function fetchReservesViaGraph(tok: string, signal?: AbortSignal): Promise<GraphReservesRow | null> {
@@ -167,16 +161,16 @@ async function fetchTokenPriceUsd(token: TokenInput, reefUsd: number, signal?: A
     if (id === REEF_TOKEN_ADDRESS.toLowerCase()) return reefUsd;
     // GraphQL only: poolsReserves -> allPoolsList
     let row = await fetchReservesViaGraph(id, signal);
-    let r1 = row ? parseBig(row.reserved1) : 0n;
-    let r2 = row ? parseBig(row.reserved2) : 0n;
+    let r1 = row ? safeBigInt(row.reserved1) : 0n;
+    let r2 = row ? safeBigInt(row.reserved2) : 0n;
     let reefIs1 = row ? ((row.token1 || '').toLowerCase() === REEF_TOKEN_ADDRESS.toLowerCase()) : false;
 
     let tokDec = token.decimals ?? 18;
     if (!row || r1 <= 0n || r2 <= 0n) {
       const ap = await fetchReservesViaAllPoolsList(id, signal);
       if (!ap) return null;
-      r1 = parseBig(ap.reserved1);
-      r2 = parseBig(ap.reserved2);
+      r1 = safeBigInt(ap.reserved1);
+      r2 = safeBigInt(ap.reserved2);
       if (r1 <= 0n || r2 <= 0n) return null;
       const reefLower = REEF_TOKEN_ADDRESS.toLowerCase();
       const t1Lower = (ap.token1 || '').toLowerCase();
@@ -279,8 +273,8 @@ export function useTokenUsdPrices(tokens: TokenInput[]): TokenPricesResult {
         const row = batchMap.get(t.id) ?? null;
         if (row) {
           const reefIs1 = (row.token1 || '').toLowerCase() === REEF_TOKEN_ADDRESS.toLowerCase();
-          const r1 = parseBig(row.reserved1);
-          const r2 = parseBig(row.reserved2);
+          const r1 = safeBigInt(row.reserved1);
+          const r2 = safeBigInt(row.reserved2);
           const reefDec = 18;
           const tokDec = t.decimals ?? 18;
           const reserveReef = reefIs1 ? r1 : r2;

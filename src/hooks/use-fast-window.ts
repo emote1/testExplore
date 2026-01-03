@@ -7,7 +7,7 @@ interface UseFastWindowArgs {
   tokenFilter: string;
   swapOnly: boolean;
   pagination: PaginationState;
-  fetchWindow: (offset: number, limit: number, opts?: { fetchFees?: boolean }) => Promise<UiTransfer[]>;
+  fetchWindow: (offset: number, limit: number) => Promise<UiTransfer[]>;
   newItemsCount: number;
   address: string;
 }
@@ -42,7 +42,7 @@ export function useFastWindow({ tokenFilter, swapOnly, pagination, fetchWindow, 
     const { pageIndex, pageSize } = pagination;
     const offset = Math.max(0, (newItemsCount || 0) + pageIndex * pageSize);
     setIsFastLoading(true);
-    fetchWindow(offset, pageSize, { fetchFees: false })
+    fetchWindow(offset, pageSize)
       .then((data) => {
         if (cancelled) return;
         if (seq !== fastSeqRef.current) return;

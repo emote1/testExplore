@@ -1,3 +1,4 @@
+import { safeBigInt } from '@/utils/token-helpers';
 import { useQuery } from '@tanstack/react-query';
 import { apolloClient as client } from '../apollo-client';
 import { useAddressResolver } from './use-address-resolver';
@@ -615,8 +616,8 @@ async function resolveTokenURI(contractAddress: string, nftId: string | number, 
   if (!isValidEvmAddressFormat(contractAddress)) return null;
   const cached = readTokenUriCache(contractAddress, nftId);
   if (cached) return cached;
-  const idBig = BigInt(typeof nftId === 'string' ? (nftId.startsWith('0x') ? BigInt(nftId).toString() : nftId) : nftId);
-  const arg = toHex(BigInt(idBig));
+  const idBig = safeBigInt(nftId);
+  const arg = toHex(idBig);
   const sel721 = '0xc87b56dd';
   const sel1155 = '0x0e89341c';
 
@@ -885,7 +886,7 @@ export const useSqwidNfts = (address: string | null) => {
               const keys: (string | number)[] = [];
               for (const it of known) {
                 if (readTokenUriCache(contract, it.nftId)) continue;
-                const idBig = BigInt(typeof it.nftId === 'string' ? (it.nftId.startsWith('0x') ? BigInt(it.nftId).toString() : it.nftId) : it.nftId);
+                const idBig = safeBigInt(it.nftId);
                 const arg = toHex(idBig);
                 const sel = it.tokenType === 'ERC1155' ? '0x0e89341c' : '0xc87b56dd';
                 datas.push(sel + arg);

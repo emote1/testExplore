@@ -16,46 +16,34 @@ import {
 export const transactionColumns: ColumnDef<UiTransfer>[] = [
   {
     accessorKey: 'type',
-    header: 'TYPE',
+    header: 'Type',
     cell: TypeCell,
   },
   {
     accessorKey: 'timestamp',
     header: TimestampHeader,
     cell: TimestampCell,
+    enableSorting: false,
   },
   {
     accessorKey: 'from',
-    header: 'FROM',
+    header: 'From',
     cell: FromCell,
   },
   {
     accessorKey: 'to',
-    header: 'TO',
+    header: 'To',
     cell: ToCell,
   },
   {
     accessorKey: 'amount',
     header: AmountHeader,
     cell: (ctx) => <AmountCellComponent ctx={ctx} />,
-    sortingFn: (rowA, rowB, columnId) => {
-      const a = (rowA.getValue(columnId) as string) ?? '0';
-      const b = (rowB.getValue(columnId) as string) ?? '0';
-      try {
-        const ai = BigInt(a);
-        const bi = BigInt(b);
-        return ai === bi ? 0 : ai < bi ? -1 : 1;
-      } catch {
-        const na = Number(a);
-        const nb = Number(b);
-        if (!Number.isFinite(na) || !Number.isFinite(nb)) return String(a).localeCompare(String(b));
-        return na === nb ? 0 : na < nb ? -1 : 1;
-      }
-    },
+    enableSorting: false,
   },
   {
     id: 'value',
-    header: 'VALUE',
+    header: 'Value',
     cell: ValueCell,
     enableSorting: false,
   },

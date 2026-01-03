@@ -1,3 +1,4 @@
+import { safeBigInt } from '@/utils/token-helpers';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import type { UiTransfer } from '@/data/transfer-mapper';
 import { reefSwapClient } from '@/reef-swap-client';
@@ -6,6 +7,7 @@ import { POOL_EVENTS_CONNECTION_DOCUMENT } from '@/data/reef-swap';
 import type { ApolloClient, NormalizedCacheObject } from '@apollo/client';
 import { useApolloClient } from '@apollo/client';
 import { useAddressResolver } from './use-address-resolver';
+import { isValidEvmAddressFormat } from '@/utils/address-helpers';
 
 export interface UseSwapEventsReturn {
   items: UiTransfer[];
@@ -38,8 +40,6 @@ export function useSwapEvents(address: string | null, pageSize: number, enabled:
   const fetchMoreInFlightRef = useRef(false);
   const initKeyRef = useRef<string | null>(null);
 
-  const isEvmAddr = (s?: string | null) => !!s && /^0x[0-9a-fA-F]{40}$/.test(String(s));
-
   // Resolve substrate to EVM address (reef-swap uses EVM addresses)
   useEffect(() => {
     let cancelled = false;
@@ -61,7 +61,7 @@ export function useSwapEvents(address: string | null, pageSize: number, enabled:
     }
     // Use the adapter-provided pageSize directly (can be 20 in swap-only mode)
     const first = Math.min(100, Math.max(pageSize, 15));
-    if (!isEvmAddr(resolvedUser)) {
+    if (!isValidEvmAddressFormat(resolvedUser)) {
       return { page: [] as UiTransfer[], pageInfo: { hasNextPage: false, endCursor: null as string | null } };
     }
     const { data } = await client.query({
@@ -143,11 +143,10 @@ export function useSwapEvents(address: string | null, pageSize: number, enabled:
       // Prefer explicit input fields when available.
       // amountIn1 -> input of token1, amountIn2 -> input of token2
       // amount1  -> output of token1, amount2  -> output of token2 (per reef-explorer schema)
-      const bi = (x: any): bigint => { try { const v = BigInt(String(x ?? '0')); return v < 0n ? -v : v; } catch { return 0n; } };
-      const in1 = bi(n?.amountIn1);
-      const in2 = bi(n?.amountIn2);
-      const out1 = bi(n?.amount1);
-      const out2 = bi(n?.amount2);
+      const in1 = safeBigInt(n?.amountIn1, true);
+      const in2 = safeBigInt(n?.amountIn2, true);
+      const out1 = safeBigInt(n?.amount1, true);
+      const out2 = safeBigInt(n?.amount2, true);
       if (in1 > 0n || in2 > 0n) {
         g.hasInputs = true;
         if (in1 > 0n) {
@@ -166,14 +165,14 @@ export function useSwapEvents(address: string | null, pageSize: number, enabled:
         // Fallback for older schemas without inputs: treat amount1/amount2 as outputs
         try {
           if (n?.amount1 !== undefined && n?.amount1 !== null) {
-            const a = bi(n.amount1);
+            const a = safeBigInt(n.amount1, true);
             if (a > g.boughtBI) { g.boughtIndex = 1; g.boughtBI = a; }
             if (a > g.a1BI) g.a1BI = a; // legacy
           }
         } catch {}
         try {
           if (n?.amount2 !== undefined && n?.amount2 !== null) {
-            const a = bi(n.amount2);
+            const a = safeBigInt(n.amount2, true);
             if (a > g.boughtBI) { g.boughtIndex = 2; g.boughtBI = a; }
             if (a > g.a2BI) g.a2BI = a; // legacy
           }
@@ -269,7 +268,7 @@ export function useSwapEvents(address: string | null, pageSize: number, enabled:
     setHasMore(false);
     setError(undefined);
     setLoading(true);
-    if (!isEvmAddr(resolvedUser)) {
+    if (!isValidEvmAddressFormat(resolvedUser)) {
       setLoading(false);
       // Important: reset init flags so effect can rerun after resolver maps Substrate->EVM
       initInFlightRef.current = false;
@@ -292,9 +291,12 @@ export function useSwapEvents(address: string | null, pageSize: number, enabled:
               const b = (prev.swapInfo?.bought?.amount ?? '0');
               const s2 = (x.swapInfo?.sold?.amount ?? '0');
               const b2 = (x.swapInfo?.bought?.amount ?? '0');
-              const abs = (v: string) => { try { const bi = BigInt(String(v)); return bi < 0n ? -bi : bi; } catch { return 0n; } };
-              const sold = (abs(s2) > abs(s) ? abs(s2) : abs(s)).toString();
-              const bought = (abs(b2) > abs(b) ? abs(b2) : abs(b)).toString();
+              const sAbs = safeBigInt(s, true);
+              const s2Abs = safeBigInt(s2, true);
+              const bAbs = safeBigInt(b, true);
+              const b2Abs = safeBigInt(b2, true);
+              const sold = (s2Abs > sAbs ? s2Abs : sAbs).toString();
+              const bought = (b2Abs > bAbs ? b2Abs : bAbs).toString();
               prev.swapInfo!.sold.amount = sold;
               prev.swapInfo!.bought.amount = bought;
               prev.amount = bought;
@@ -335,10 +337,10 @@ export function useSwapEvents(address: string | null, pageSize: number, enabled:
             const b = (prevItem.swapInfo?.bought?.amount ?? '0');
             const s2 = (x.swapInfo?.sold?.amount ?? '0');
             const b2 = (x.swapInfo?.bought?.amount ?? '0');
-            const sAbs = (() => { try { const v = BigInt(String(s)); return v < 0n ? -v : v; } catch { return 0n; } })();
-            const s2Abs = (() => { try { const v = BigInt(String(s2)); return v < 0n ? -v : v; } catch { return 0n; } })();
-            const bAbs = (() => { try { const v = BigInt(String(b)); return v < 0n ? -v : v; } catch { return 0n; } })();
-            const b2Abs = (() => { try { const v = BigInt(String(b2)); return v < 0n ? -v : v; } catch { return 0n; } })();
+            const sAbs = safeBigInt(s, true);
+            const s2Abs = safeBigInt(s2, true);
+            const bAbs = safeBigInt(b, true);
+            const b2Abs = safeBigInt(b2, true);
             const sold = (s2Abs > sAbs ? s2Abs : sAbs).toString();
             const bought = (b2Abs > bAbs ? b2Abs : bAbs).toString();
             prevItem.swapInfo!.sold.amount = sold;

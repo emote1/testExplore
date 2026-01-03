@@ -1,5 +1,7 @@
 // src/utils/formatters.ts
 
+import { safeBigInt } from './token-helpers';
+
 export function parseTimestampToDate(input: string | number | Date): Date | null {
   // Already a Date
   if (input instanceof Date) {
@@ -99,10 +101,6 @@ const NUMBER_FORMAT_CONFIG = {
   smallValue: {
     maximumFractionDigits: 6,
   },
-  fee: {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 8,
-  },
 } as const;
 
 export function formatTokenAmount(
@@ -125,7 +123,7 @@ export function formatTokenAmount(
   }
 
   try {
-    const amount = BigInt(amountStr);
+    const amount = safeBigInt(amountStr);
     // IMPORTANT: use BigInt exponentiation to avoid RangeError from BigInt(10 ** decimals)
     const divisor = 10n ** BigInt(decimals);
     const integerPart = amount / divisor;
@@ -153,19 +151,6 @@ export function formatTokenAmount(
 
 export function formatAmount(amount: string, decimals: number, symbol: string, locale = 'en-US'): string {
   return formatTokenAmount(amount, decimals, symbol, undefined, true, locale);
-}
-
-const REEF_DECIMALS = 18;
-
-export function formatFee(feeAmount: string, feeTokenSymbol: string, locale = 'en-US'): string {
-  return formatTokenAmount(
-    feeAmount,
-    REEF_DECIMALS,
-    feeTokenSymbol,
-    NUMBER_FORMAT_CONFIG.fee,
-    false,
-    locale
-  );
 }
 
 // Relative time in days, e.g., "1 день назад", "5 дней назад" (ru) or "1 day ago" (en)

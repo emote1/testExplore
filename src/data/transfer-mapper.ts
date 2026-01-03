@@ -1,4 +1,6 @@
+import { isValidEvmAddressFormat } from '@/utils/address-helpers';
 import { getNumber, getString } from '@/utils/object';
+import { parseTokenMetadata, safeBigInt } from '@/utils/token-helpers';
 // Use minimal shapes instead of tight GraphQL-generated types so both
 // paginated and polling queries can reuse the mapper without type friction.
 
@@ -65,6 +67,8 @@ interface TransferLike {
   type: string;
   signedData?: unknown;
   extrinsicHash?: string | null;
+  fromEvmAddress?: string | null;
+  toEvmAddress?: string | null;
   from: { id: string };
   to: { id: string };
   token: TransferLikeToken;
@@ -89,19 +93,9 @@ export function primeTokenMetaCacheFromContracts(items: Array<{ id?: string | nu
   for (const it of items) {
     const id = (it?.id ?? '').toString();
     if (!id || tokenMetaCache.has(id)) continue;
-    const fallbackName = (it?.name ?? 'TOKEN').toString();
-    try {
-      const raw = it?.contractData;
-      const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      const nm = getString(data as any, ['symbol']) || fallbackName;
-      const dec = getNumber(data as any, ['decimals']) ?? 18;
-      tokenMetaCache.set(id, { name: nm, decimals: dec });
-      added += 1;
-    } catch {
-      // If parsing failed, store fallback to avoid refetch carousel
-      tokenMetaCache.set(id, { name: fallbackName, decimals: 18 });
-      added += 1;
-    }
+    const meta = parseTokenMetadata(it?.contractData, it?.name ?? 'TOKEN');
+    tokenMetaCache.set(id, { name: meta.name, decimals: meta.decimals });
+    added += 1;
   }
   return added;
 }
@@ -109,7 +103,16 @@ export function primeTokenMetaCacheFromContracts(items: Array<{ id?: string | nu
 const resolveTransferDirection = (
   transfer: Transfer,
   userAddress: string,
-): 'INCOMING' | 'OUTGOING' => (transfer.from.id.toLowerCase() === userAddress.toLowerCase() ? 'OUTGOING' : 'INCOMING');
+): 'INCOMING' | 'OUTGOING' => {
+  const ua = userAddress.toLowerCase();
+  if (isValidEvmAddressFormat(userAddress)) {
+    const fromEvm = (transfer.fromEvmAddress || '').toString().toLowerCase();
+    const toEvm = (transfer.toEvmAddress || '').toString().toLowerCase();
+    if (fromEvm && fromEvm === ua) return 'OUTGOING';
+    if (toEvm && toEvm === ua) return 'INCOMING';
+  }
+  return (transfer.from.id.toLowerCase() === ua ? 'OUTGOING' : 'INCOMING');
+};
 
 function parseTokenData(transfer: Transfer): { name: string; decimals: number } {
   if (transfer.type === 'ERC721' || transfer.type === 'ERC1155') {
@@ -139,24 +142,12 @@ function parseTokenData(transfer: Transfer): { name: string; decimals: number } 
     return { name: nm, decimals: 18 };
   }
 
-  try {
-    // contractData can be a stringified JSON, so we need to parse it safely.
-    const contractData: unknown = typeof contractDataRaw === 'string' 
-      ? JSON.parse(contractDataRaw)
-      : contractDataRaw;
-
-    const meta = {
-      name: getString(contractData, ['symbol']) || transfer.token.name,
-      decimals: getNumber(contractData, ['decimals']) ?? 18,
-    };
-    // Cache only when we had contractData to avoid caching placeholders
-    tokenMetaCache.set(transfer.token.id, meta);
-    return meta;
-  } catch (error) {
-    console.error('Failed to parse contractData:', contractDataRaw, error);
-    // Fallback to default values if parsing fails
-    return { name: transfer.token.name, decimals: 18 };
-  }
+  const meta = parseTokenMetadata(contractDataRaw, transfer.token.name);
+  const result = { name: meta.name, decimals: meta.decimals };
+  
+  // Cache only when we had contractData to avoid caching placeholders
+  tokenMetaCache.set(transfer.token.id, result);
+  return result;
 }
 
 
@@ -184,7 +175,7 @@ export function mapTransfersToUiTransfers(
         to: transfer.to.id,
         type: resolveTransferDirection(transfer, userAddress),
         amount: transfer.amount,
-        amountBI: (() => { try { return BigInt(transfer.amount || '0'); } catch { return undefined; } })(),
+        amountBI: safeBigInt(transfer.amount),
         isNft,
         tokenId: isNft ? transfer.amount : null, // Simplification, might need adjustment based on actual NFT logic
         token: {

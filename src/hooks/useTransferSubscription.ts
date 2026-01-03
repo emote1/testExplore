@@ -1,14 +1,15 @@
+import { sortTransfersByTimestamp, ensureUniqueTransfers } from '@/utils/transfer-helpers';
 import { useRef, useEffect, useMemo, useState } from 'react';
 import { useQuery, useApolloClient } from '@apollo/client';
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 // removed unused ApolloClient types
 import { mapTransfersToUiTransfers, type UiTransfer } from '../data/transfer-mapper';
-import type {
+import {
   TransferOrderByInput,
   TransfersPollingQueryQuery,
   TransfersPollingQueryQueryVariables,
-  TransfersFeeQueryQuery,
-  TransfersFeeQueryQueryVariables,
+  TransfersMinQueryQuery,
+  TransfersMinQueryQueryVariables,
 } from '@/gql/graphql';
 import { TRANSFERS_POLLING_QUERY, PAGINATED_TRANSFERS_QUERY } from '../data/transfers';
 import { PAGINATION_CONFIG } from '../constants/pagination';
@@ -37,7 +38,7 @@ export function useTransferSubscription({
 }: UseTransferSubscriptionProps) {
   const detectorRef = useRef(createNewItemDetector<UiTransfer>({ key: (t) => t.id, max: MAX_SEEN_IDS }));
   const client = useApolloClient();
-  const { resolveAddress, resolveEvmAddress } = useAddressResolver();
+  const { resolveBoth } = useAddressResolver();
   const [resolvedAddress, setResolvedAddress] = useState<string | null>(null);
   const [resolvedEvmAddress, setResolvedEvmAddress] = useState<string | null>(null);
 
@@ -53,13 +54,11 @@ export function useTransferSubscription({
     let cancelled = false;
     const run = async () => {
       try {
-        const [nativeId, evm] = await Promise.all([
-          resolveAddress(address),
-          resolveEvmAddress(address),
-        ]);
+        // Optimized: single query returns both nativeId and evmAddress
+        const { nativeId, evmAddress } = await resolveBoth(address);
         if (!cancelled) {
           setResolvedAddress(nativeId);
-          setResolvedEvmAddress(evm);
+          setResolvedEvmAddress(evmAddress);
         }
       } catch (error) {
         console.error('Failed to resolve address:', error);
@@ -71,7 +70,7 @@ export function useTransferSubscription({
     };
     run();
     return () => { cancelled = true; };
-  }, [address, resolveAddress, resolveEvmAddress]);
+  }, [address, resolveBoth]);
 
   const queryVariables = useMemo(() => {
     const where = buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress, direction, minReefRaw, maxReefRaw });
@@ -160,17 +159,16 @@ export function useTransferSubscription({
       token: { id: string; name: string };
     }>;
     const transferEdges = rawTransfers.map((transfer) => ({ node: transfer }));
-    const uiTransfers = mapTransfersToUiTransfers(transferEdges as unknown as (any | null)[], resolvedAddress ?? resolvedEvmAddress ?? undefined);
-
-    // Debug ui mapped log removed
-
-    // Background fee prefetch disabled: fees load lazily in TransactionDetailsModal
+    const uiTransfers = ensureUniqueTransfers(
+      sortTransfersByTimestamp(
+        mapTransfersToUiTransfers(transferEdges as unknown as (any | null)[], resolvedAddress ?? resolvedEvmAddress ?? undefined)
+      )
+    );
 
     if (uiTransfers.length === 0) return;
 
     // Detect and notify only truly new transfers (first call primes and returns [])
     const newTransfers = detectorRef.current.detectNew(uiTransfers);
-    // Debug detectNew log removed
     const readyNewTransfers = newTransfers;
 
     // Always reconcile the cache with the latest polled top list to ensure
@@ -198,9 +196,9 @@ export function useTransferSubscription({
       for (const where of whereVariants) {
         // Debug cache.reconcile prepend log removed
         try {
-          client.cache.updateQuery<TransfersFeeQueryQuery, TransfersFeeQueryQueryVariables>(
+          client.cache.updateQuery<TransfersMinQueryQuery, TransfersMinQueryQueryVariables>(
             {
-              query: PAGINATED_TRANSFERS_QUERY as unknown as TypedDocumentNode<TransfersFeeQueryQuery, TransfersFeeQueryQueryVariables>,
+              query: PAGINATED_TRANSFERS_QUERY as unknown as TypedDocumentNode<TransfersMinQueryQuery, TransfersMinQueryQueryVariables>,
               variables: {
                 first: PAGINATION_CONFIG.API_FETCH_PAGE_SIZE,
                 where,
@@ -284,7 +282,7 @@ export function useTransferSubscription({
       void client
         .refetchQueries({
           include: [
-            PAGINATED_TRANSFERS_QUERY as unknown as TypedDocumentNode<TransfersFeeQueryQuery, TransfersFeeQueryQueryVariables>,
+            PAGINATED_TRANSFERS_QUERY as unknown as TypedDocumentNode<TransfersMinQueryQuery, TransfersMinQueryQueryVariables>,
           ],
         })
         .then(() => {

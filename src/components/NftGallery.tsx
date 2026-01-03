@@ -1,5 +1,5 @@
 import React from 'react';
-import { Loader2, AlertTriangle } from 'lucide-react';
+import { Loader2, AlertTriangle, Grid3x3, Layers, Video, Image as ImageIcon } from 'lucide-react';
 import { Nft, Collection, useSqwidNfts } from '../hooks/use-sqwid-nfts';
 import { useSqwidCollectionInfinite } from '../hooks/use-sqwid-collection';
 import { useSqwidNftsInfinite } from '../hooks/use-sqwid-nfts-infinite';
@@ -13,10 +13,13 @@ import { PreviewPlaybackProvider } from './preview-playback';
 import { NftVideoThumb } from './media/nft-video-thumb';
 import { normalizeIpfs } from '../utils/ipfs';
 import { VirtualizedGrid } from './VirtualizedGrid';
+import { Button } from './ui/button';
+import { Badge } from './ui/badge';
 
 interface NftGalleryProps {
   address: string | null;
   enableOwnerInfinite?: boolean;
+  onCountsChange?: (count: number) => void;
 }
 
 // Minimal NFT shape used for grouping/aggregation within this component
@@ -238,7 +241,7 @@ function CollectionCard({ col, onClick }: { col: Collection; onClick: (c: Collec
   );
 }
 
-export function NftGallery({ address, enableOwnerInfinite = false }: NftGalleryProps) {
+export function NftGallery({ address, enableOwnerInfinite = false, onCountsChange }: NftGalleryProps) {
   const [selectedCollection, setSelectedCollection] = React.useState<Collection | null>(null);
   const [viewer, setViewer] = React.useState<{ src: string; poster?: string; mime?: string; name?: string } | null>(null);
   const { collections: ownerCollections, isLoading: isOwnerLoading, error: ownerError } = useSqwidCollectionsByOwner(address);
@@ -268,6 +271,16 @@ export function NftGallery({ address, enableOwnerInfinite = false }: NftGalleryP
   const { nfts: fallbackNfts, isLoading: isFallbackLoading } = useSqwidNfts(enableOwnerInfinite ? null : address);
   const { getAddressType } = useAddressResolver();
   const pagingRef = React.useRef<boolean>(false);
+
+  React.useEffect(() => {
+    if (!onCountsChange) return;
+    const isCountLoading = enableOwnerInfinite ? isOwnerInfLoading : isFallbackLoading;
+    if (isCountLoading) return;
+    const sourceNfts = enableOwnerInfinite ? infiniteNfts : fallbackNfts;
+    const value = Array.isArray(sourceNfts) ? sourceNfts.length : 0;
+    if (!Number.isFinite(value)) return;
+    onCountsChange(value);
+  }, [onCountsChange, enableOwnerInfinite, isOwnerInfLoading, isFallbackLoading, infiniteNfts, fallbackNfts]);
   // Overview Tabs & row-chunked reveal
   const [overviewTab, setOverviewTab] = React.useState<'collections' | 'video' | 'other'>('video');
   const ROWS_CHUNK = 4;
@@ -422,6 +435,14 @@ export function NftGallery({ address, enableOwnerInfinite = false }: NftGalleryP
   const videoNfts = React.useMemo(() => nftsWithoutCollection.filter(isVideoNft), [nftsWithoutCollection]);
   const otherNonVideoNfts = React.useMemo(() => nftsWithoutCollection.filter(n => !isVideoNft(n)), [nftsWithoutCollection]);
 
+  function badgeClass(isActive: boolean): string {
+    return isActive ? 'bg-white/20 text-white border-white/20' : 'bg-gray-100 text-gray-600 border-gray-200';
+  }
+
+  function pillClass(isActive: boolean, active: string, inactive: string): string {
+    return `rounded-full transition-all duration-300 ${isActive ? active : inactive}`;
+  }
+
   function sanitizeName(name?: string): string | undefined {
     if (!name) return name;
     return name.replace(/[\u200B-\u200D\uFEFF\u00A0]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -530,6 +551,11 @@ export function NftGallery({ address, enableOwnerInfinite = false }: NftGalleryP
       collection: { id: selectedCollection.id, name: selectedCollection.name, itemCount: selectedCollection.itemCount },
     }));
   }, [selectedCollection, collectionPageNfts]);
+
+  const selectedCollectionVideoCount = React.useMemo(() => {
+    try { return displayedNfts.filter(isVideoNft).length; } catch { return 0; }
+  }, [displayedNfts]);
+
   const displayedFiltered: Nft[] = React.useMemo(() => {
     return collectionFilter === 'video' ? displayedNfts.filter(isVideoNft) : displayedNfts;
   }, [displayedNfts, collectionFilter]);
@@ -566,8 +592,11 @@ export function NftGallery({ address, enableOwnerInfinite = false }: NftGalleryP
 
   if (!address) {
     return (
-      <div className="text-center py-8 bg-white rounded-lg shadow">
-        <p className="text-gray-500">Please enter an address to view NFTs.</p>
+      <div className="relative bg-white rounded-xl border border-gray-200 shadow-sm p-6 overflow-hidden">
+        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-blue-500/40 to-transparent opacity-60" />
+        <div className="text-center py-8">
+          <p className="text-gray-500">Please enter an address to view NFTs.</p>
+        </div>
       </div>
     );
   }
@@ -579,19 +608,25 @@ export function NftGallery({ address, enableOwnerInfinite = false }: NftGalleryP
   const isOwnerNftsLoading = enableOwnerInfinite ? isOwnerInfLoading : isFallbackLoading;
   if (isOwnerLoading || isOwnerNftsLoading) {
     return (
-      <div className="flex items-center justify-center p-8" role="status" aria-live="polite" aria-busy="true">
-        <Loader2 className="h-6 w-6 animate-spin" />
+      <div className="relative bg-white rounded-xl border border-gray-200 shadow-sm p-6 overflow-hidden" role="status" aria-live="polite" aria-busy="true">
+        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-blue-500/40 to-transparent opacity-60" />
+        <div className="flex items-center justify-center p-8">
+          <Loader2 className="h-6 w-6 animate-spin" />
+        </div>
       </div>
     );
   }
 
   if (ownerError) {
     return (
-      <div className="flex items-center gap-3 p-4 mb-4 text-red-700 bg-red-100 rounded-lg">
-        <AlertTriangle className="h-5 w-5" />
-        <div>
-          <h3 className="font-semibold">Error Fetching Collections</h3>
-          <p className="text-sm">{ownerError.message}</p>
+      <div className="relative bg-white rounded-xl border border-gray-200 shadow-sm p-6 overflow-hidden">
+        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-blue-500/40 to-transparent opacity-60" />
+        <div className="flex items-center gap-3 p-4 text-red-700 bg-red-100 rounded-lg">
+          <AlertTriangle className="h-5 w-5" />
+          <div>
+            <h3 className="font-semibold">Error Fetching Collections</h3>
+            <p className="text-sm">{ownerError.message}</p>
+          </div>
         </div>
       </div>
     );
@@ -605,7 +640,8 @@ export function NftGallery({ address, enableOwnerInfinite = false }: NftGalleryP
 
   if (!selectedCollection && totalItems === 0) {
     return (
-      <div className="rounded-xl border border-gray-200 bg-white p-4 shadow">
+      <div className="relative bg-white rounded-xl border border-gray-200 shadow-sm p-6 overflow-hidden">
+        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-blue-500/40 to-transparent opacity-60" />
         <h3 className="text-base font-semibold text-gray-900">No NFTs found for this address</h3>
         {isNonEvmInput ? (
           <p className="mt-1 text-sm text-gray-600" data-testid="nft-non-evm-note">
@@ -628,81 +664,103 @@ export function NftGallery({ address, enableOwnerInfinite = false }: NftGalleryP
 
   return (
     <PreviewPlaybackProvider maxConcurrent={1}>
-    <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold" data-testid="nft-header">
-            {selectedCollection ? selectedCollection.name : 'NFTs'}
-          </h2>
-          {selectedCollection && (
-            <div className="flex items-center gap-2">
-              <button type="button" className="inline-flex items-center gap-1 px-2 py-1 border rounded" onClick={() => setSelectedCollection(null)} data-testid="back-to-collections">
-                Back to Overview
-              </button>
-              <div className="inline-flex rounded border overflow-hidden" role="tablist" aria-label="Filter items">
-                <button
-                  type="button"
-                  className={`px-2 py-1 text-sm ${collectionFilter === 'all' ? 'bg-black text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-                  onClick={() => setCollectionFilter('all')}
-                  data-testid="filter-all"
-                >
-                  All
-                </button>
-                <button
-                  type="button"
-                  className={`px-2 py-1 text-sm border-l ${collectionFilter === 'video' ? 'bg-black text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-                  onClick={() => setCollectionFilter('video')}
-                  data-testid="filter-video"
-                >
-                  Videos
-                </button>
-                <select
-                  className="ml-2 border rounded px-2 py-1 text-sm"
-                  value={limit}
-                  onChange={(e) => setLimit(Number(e.target.value))}
-                  disabled={isCollectionLoading}
-                  aria-label="Items per page"
-                  data-testid="items-per-page"
-                >
-                  <option value={12}>12</option>
-                  <option value={24}>24</option>
-                  <option value={48}>48</option>
-                </select>
-              </div>
+    <div className="relative bg-white rounded-xl border border-gray-200 shadow-sm p-6 overflow-hidden space-y-6">
+      <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-blue-500/40 to-transparent opacity-60" />
+      <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold" data-testid="nft-header">{selectedCollection ? selectedCollection.name : 'NFTs'}</h2>
+            <p className="text-sm text-gray-500">Collections and items with media preview</p>
+          </div>
+
+          {selectedCollection ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="outline" size="sm" className="h-9 px-4 py-2 text-sm font-medium rounded-full" onClick={() => setSelectedCollection(null)} data-testid="back-to-collections">
+                <Grid3x3 className="w-3.5 h-3.5" />
+                Overview
+              </Button>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className={`h-9 px-4 py-2 text-sm font-medium ${pillClass(collectionFilter === 'all', 'bg-black text-white border-black', 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50')}`}
+                onClick={() => setCollectionFilter('all')}
+                data-testid="filter-all"
+              >
+                All
+                <Badge variant="secondary" className={`ml-2 ${badgeClass(collectionFilter === 'all')}`}>{displayedNfts.length}</Badge>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className={`h-9 px-4 py-2 text-sm font-medium ${pillClass(collectionFilter === 'video', 'bg-pink-600 hover:bg-pink-700 text-white border-pink-600', 'bg-white text-gray-700 border-gray-200 hover:bg-pink-50 hover:text-pink-700 hover:border-pink-300')}`}
+                onClick={() => setCollectionFilter('video')}
+                data-testid="filter-video"
+              >
+                <Video className="w-3.5 h-3.5" />
+                Videos
+                <Badge variant="secondary" className={`ml-2 ${badgeClass(collectionFilter === 'video')}`}>{selectedCollectionVideoCount}</Badge>
+              </Button>
+
+              <select
+                className="ml-2 border rounded-md px-2 py-1.5 text-sm bg-white"
+                value={limit}
+                onChange={(e) => setLimit(Number(e.target.value))}
+                disabled={isCollectionLoading}
+                aria-label="Items per page"
+                data-testid="items-per-page"
+              >
+                <option value={12}>12</option>
+                <option value={24}>24</option>
+                <option value={48}>48</option>
+              </select>
             </div>
-          )}
-          {!selectedCollection && (
-            <div className="flex items-center gap-2" role="tablist" aria-label="Overview sections">
-              <button
+          ) : (
+            <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Overview sections">
+              <Button
                 type="button"
                 role="tab"
                 aria-selected={overviewTab === 'collections'}
-                className={`px-2 py-1 border rounded ${overviewTab === 'collections' ? 'bg-black text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                variant="outline"
+                size="sm"
+                className={`h-9 px-4 py-2 text-sm font-medium ${pillClass(overviewTab === 'collections', 'bg-purple-600 hover:bg-purple-700 text-white border-purple-600', 'bg-white text-gray-700 border-gray-200 hover:bg-purple-50 hover:text-purple-700 hover:border-purple-300')}`}
                 onClick={() => setOverviewTab('collections')}
                 data-testid="tab-collections"
               >
+                <Layers className="w-3.5 h-3.5" />
                 Collections
-              </button>
-              <button
+                <Badge variant="secondary" className={`ml-2 ${badgeClass(overviewTab === 'collections')}`}>{collectionsWithCount.length}</Badge>
+              </Button>
+              <Button
                 type="button"
                 role="tab"
                 aria-selected={overviewTab === 'video'}
-                className={`px-2 py-1 border rounded ${overviewTab === 'video' ? 'bg-black text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                variant="outline"
+                size="sm"
+                className={`h-9 px-4 py-2 text-sm font-medium ${pillClass(overviewTab === 'video', 'bg-pink-600 hover:bg-pink-700 text-white border-pink-600', 'bg-white text-gray-700 border-gray-200 hover:bg-pink-50 hover:text-pink-700 hover:border-pink-300')}`}
                 onClick={() => setOverviewTab('video')}
                 data-testid="tab-video"
               >
+                <Video className="w-3.5 h-3.5" />
                 Video NFTs
-              </button>
-              <button
+                <Badge variant="secondary" className={`ml-2 ${badgeClass(overviewTab === 'video')}`}>{videoNfts.length}</Badge>
+              </Button>
+              <Button
                 type="button"
                 role="tab"
                 aria-selected={overviewTab === 'other'}
-                className={`px-2 py-1 border rounded ${overviewTab === 'other' ? 'bg-black text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                variant="outline"
+                size="sm"
+                className={`h-9 px-4 py-2 text-sm font-medium ${pillClass(overviewTab === 'other', 'bg-orange-600 hover:bg-orange-700 text-white border-orange-600', 'bg-white text-gray-700 border-gray-200 hover:bg-orange-50 hover:text-orange-700 hover:border-orange-300')}`}
                 onClick={() => setOverviewTab('other')}
                 data-testid="tab-other"
               >
+                <ImageIcon className="w-3.5 h-3.5" />
                 Other NFTs
-              </button>
+                <Badge variant="secondary" className={`ml-2 ${badgeClass(overviewTab === 'other')}`}>{otherNonVideoNfts.length}</Badge>
+              </Button>
             </div>
           )}
         </div>

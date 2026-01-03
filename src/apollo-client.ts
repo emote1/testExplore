@@ -1,11 +1,12 @@
 import { ApolloClient, InMemoryCache, HttpLink, ApolloLink, split } from '@apollo/client';
-import type { TransfersFeeQueryQuery } from '@/gql/graphql';
+import type { TransfersMinQueryQuery } from '@/gql/graphql';
 import { getMainDefinition } from '@apollo/client/utilities';
 import { GraphQLWsLink } from '@apollo/client/link/subscriptions';
 import { createClient as createWSClient } from 'graphql-ws';
 
 const httpLink = new HttpLink({
   uri: 'https://squid.subsquid.io/reef-explorer/graphql',
+  useGETForQueries: true,
 });
 
 let lastRetryTries = 0;
@@ -39,7 +40,7 @@ const wsLink = new GraphQLWsLink(wsClient);
 
 // Lightweight timing hook (now silent). Keeps structure for potential future use.
 const shouldLogTiming = (import.meta.env.VITE_APOLLO_TIMING === '1' || import.meta.env.VITE_APOLLO_TIMING === 'true');
-const measureOps = new Set(['TransfersFeeQuery', 'TransfersPollingQuery']);
+const measureOps = new Set(['PaginatedTransfers', 'TransfersPollingQuery']);
 const timingLink = new ApolloLink((operation, forward) => {
   const opName = operation.operationName || 'UnknownOp';
   const obs = forward(operation);
@@ -72,8 +73,8 @@ export const cache = new InMemoryCache({
           //   preserving already-loaded older pages to keep page boundaries stable during refresh.
           // - Subsequent pages (after != null): append while de-duplicating by node.id.
           merge(
-            existing: TransfersFeeQueryQuery['transfersConnection'] | undefined,
-            incoming: TransfersFeeQueryQuery['transfersConnection'],
+            existing: TransfersMinQueryQuery['transfersConnection'] | undefined,
+            incoming: TransfersMinQueryQuery['transfersConnection'],
             options
           ) {
             if (!incoming) return existing;
@@ -104,15 +105,19 @@ export const cache = new InMemoryCache({
                 }
               }
 
-              // Prefer existing pageInfo when we already have a longer list (deep pages loaded)
+              // Prefer incoming pageInfo when it is present; fall back to existing when incoming omitted it.
+              // This prevents count-only queries (which don't request pageInfo) from freezing pagination.
               const incomingPI = incoming?.pageInfo as any;
               const existingPI = existing?.pageInfo as any;
-              const mergedPageInfo = {
-                ...(incomingPI ?? {}),
-                // Favor existing state to avoid flipping back to true after we've reached the tail
-                hasNextPage: (existingPI?.hasNextPage ?? incomingPI?.hasNextPage ?? false) as boolean,
-                endCursor: (existingPI?.endCursor ?? incomingPI?.endCursor ?? null) as string | null,
-              };
+              const hasIncomingPI = incomingPI && (typeof incomingPI?.hasNextPage === 'boolean' || incomingPI?.endCursor != null);
+              const mergedPageInfo = hasIncomingPI
+                ? {
+                    ...(existingPI ?? {}),
+                    ...(incomingPI ?? {}),
+                    hasNextPage: (incomingPI?.hasNextPage ?? existingPI?.hasNextPage ?? false) as boolean,
+                    endCursor: (incomingPI?.endCursor ?? existingPI?.endCursor ?? null) as string | null,
+                  }
+                : (existingPI ?? incomingPI ?? { hasNextPage: false, endCursor: null });
 
               return {
                 ...incoming,
@@ -139,9 +144,13 @@ export const cache = new InMemoryCache({
                 mergedEdges.push(e);
               }
             }
+            const incomingPI = (incoming as any)?.pageInfo;
+            const existingPI = (existing as any)?.pageInfo;
+            const hasIncomingPI = incomingPI && (typeof incomingPI?.hasNextPage === 'boolean' || incomingPI?.endCursor != null);
             return {
               ...incoming,
               edges: mergedEdges,
+              pageInfo: hasIncomingPI ? { ...(existingPI ?? {}), ...(incomingPI ?? {}) } : (existingPI ?? incomingPI),
               // Preserve totalCount if it's not present in incoming payload (e.g., mocks)
               totalCount: (incoming as any)?.totalCount ?? (existing as any)?.totalCount,
             };

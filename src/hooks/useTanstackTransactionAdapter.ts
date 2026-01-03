@@ -1,3 +1,4 @@
+import { isValidEvmAddressFormat } from '@/utils/address-helpers';
 import { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
 import {
   useReactTable,
@@ -18,6 +19,7 @@ import { ApolloError, useApolloClient, type ApolloClient, type NormalizedCacheOb
 import { useTokenUsdPrices, type TokenInput } from '@/hooks/use-token-usd-prices';
 import { useReefPrice } from '@/hooks/use-reef-price';
 import { USDC_ID_SET, USDC_SESSION_SET, MRD_ID_SET, MRD_SESSION_SET, isUsdcId, isMrdId } from '@/tokens/token-ids';
+import { isReefToken } from '@/utils/token-helpers';
 import { useEnsureLoaded } from './use-ensure-loaded';
 import { usePageCount } from './use-page-count';
 import { useFastWindow } from './use-fast-window';
@@ -43,6 +45,9 @@ export interface TanstackTransactionAdapterReturn {
   table: Table<UiTransfer>;
   isLoading: boolean;
   error?: ApolloError | Error;
+  totalCount?: number;
+  loadedCount: number;
+  loadedCountsByType: { incoming: number; outgoing: number; swap: number };
   newItemsCount: number;
   showNewItems: (anchorId?: string) => void;
   /**
@@ -66,6 +71,8 @@ export interface TanstackTransactionAdapterReturn {
 // and any EVM contract address (0x...).
 type TokenFilter = string;
 
+import { useTransactionFilter } from './use-transaction-filter';
+
 export function useTanstackTransactionAdapter(
   address: string,
   direction: TransactionDirection = 'any',
@@ -78,8 +85,9 @@ export function useTanstackTransactionAdapter(
   swapOnly: boolean = false,
 ): TanstackTransactionAdapterReturn {
   const apollo = useApolloClient();
+  // ... (rest of imports and setup)
   // Enforce strict server token filter by default for USDC/MRD and custom 0x tokens
-  const enforceStrict = (tokenFilter === 'usdc' || tokenFilter === 'mrd' || /^0x[0-9a-fA-F]{40}$/.test(tokenFilter));
+  const enforceStrict = (tokenFilter === 'usdc' || tokenFilter === 'mrd' || isValidEvmAddressFormat(tokenFilter));
   const effectiveStrict = enforceStrict || strictServerTokenFilter;
   // Allow initial page jump via URL params (?page=6 or ?p=6) for E2E and deep-links.
   const initialPageIndex = useMemo(() => {
@@ -103,10 +111,9 @@ export function useTanstackTransactionAdapter(
   // Strict server token ids (exact-cased), computed after we have observed data or from input address
   const [serverTokenIds, setServerTokenIds] = useState<string[] | null>(() => {
     if (!effectiveStrict) return null;
-    const isHex = (v: string) => /^0x[0-9a-fA-F]{40}$/.test(v);
     if (tokenFilter === 'usdc') return Array.from(new Set<string>([...USDC_ID_SET, ...USDC_SESSION_SET]));
     if (tokenFilter === 'mrd') return Array.from(new Set<string>([...MRD_ID_SET, ...MRD_SESSION_SET]));
-    if (isHex(tokenFilter)) return [tokenFilter];
+    if (isValidEvmAddressFormat(tokenFilter)) return [tokenFilter];
     return null;
   });
   const [usdcBootstrapDone, setUsdcBootstrapDone] = useState<boolean>(false);
@@ -117,8 +124,6 @@ export function useTanstackTransactionAdapter(
   const [softFallbackAttempted, setSoftFallbackAttempted] = useState<boolean>(false);
 
   // Determine server-side token constraints when strict filter is enabled (computed post-load)
-  const isHexAddress = (v: string) => /^0x[0-9a-fA-F]{40}$/.test(v);
-  
 
   // Use effective server token ids (null when soft fallback is active)
   const effectiveServerTokenIds = softFallbackActive ? null : serverTokenIds;
@@ -136,7 +141,7 @@ export function useTanstackTransactionAdapter(
 
   // When in soft fallback mode for a specific token, narrow to ERC20 only
   const erc20Only = useMemo(() => {
-    return softFallbackActive && (tokenFilter === 'usdc' || tokenFilter === 'mrd' || isHexAddress(tokenFilter));
+    return softFallbackActive && (tokenFilter === 'usdc' || tokenFilter === 'mrd' || isValidEvmAddressFormat(tokenFilter));
   }, [softFallbackActive, tokenFilter]);
 
   // When swapOnly is true, use reef-swap path instead of transfers
@@ -182,99 +187,49 @@ export function useTanstackTransactionAdapter(
     dbg,
   });
 
-  // Client-side filter
-  // - In Swap tab (swapOnly=true): include only swap rows
-  // - In All transactions: exclude swap rows (show only direct transfers)
-  const filteredTransactions = useMemo(() => {
-    const all = initialTransactions || [];
-    const list = swapOnly
-      ? all.filter(t => (t as any).method === 'swap' || (t as any).type === 'SWAP')
-      : all.filter(t => (t as any).method !== 'swap' && (t as any).type !== 'SWAP');
-    if (tokenFilter === 'all') return list;
+  const filteredTransactions = useTransactionFilter({
+    initialTransactions,
+    tokenFilter,
+    tokenMinRaw,
+    tokenMaxRaw,
+    softFallbackActive,
+    serverTokenIds,
+    swapOnly,
+  });
 
-    const isReef = (tok?: { name?: string; decimals?: number }) => !!tok && tok.name === 'REEF' && (tok.decimals ?? 18) === 18;
+  const loadedCount = useMemo(() => (filteredTransactions || []).length, [filteredTransactions]);
 
-    const isAddress = (v: string) => /^0x[0-9a-fA-F]{40}$/.test(v);
-    const addrLower = isAddress(tokenFilter) ? tokenFilter.toLowerCase() : undefined;
-
-    const minRaw = tokenMinRaw != null && tokenMinRaw !== '' ? BigInt(String(tokenMinRaw)) : null;
-    const maxRaw = tokenMaxRaw != null && tokenMaxRaw !== '' ? BigInt(String(tokenMaxRaw)) : null;
-    const passesAmt = (amt: bigint): boolean => {
-      if (minRaw !== null && amt < minRaw) return false;
-      if (maxRaw !== null && amt > maxRaw) return false;
-      return true;
-    };
-
-    // Name-based fallback when strict server ids are not yet known or soft fallback is active
-    const useNameFallback = softFallbackActive || !serverTokenIds || serverTokenIds.length === 0;
-    const usdcNameSynonyms = new Set(['usdc', 'usdc.e', 'usd coin']);
-    const isUsdcByName = (tok?: { name?: string | null }) => {
-      const nm = (tok?.name || '').toString().toLowerCase();
-      return !!nm && usdcNameSynonyms.has(nm);
-    };
-
-    return list.filter(t => {
-      // Helper to test a token match and range against a transfer or swap legs
-      if (tokenFilter === 'reef') {
-        if (t.method === 'swap' && t.swapInfo) {
-          const soldAmt = (t.swapInfo.sold as any).amountBI ?? BigInt(t.swapInfo.sold.amount || '0');
-          const boughtAmt = (t.swapInfo.bought as any).amountBI ?? BigInt(t.swapInfo.bought.amount || '0');
-          const soldOk = isReef(t.swapInfo.sold.token) && (!minRaw && !maxRaw ? true : passesAmt(soldAmt));
-          const boughtOk = isReef(t.swapInfo.bought.token) && (!minRaw && !maxRaw ? true : passesAmt(boughtAmt));
-          return soldOk || boughtOk;
-        }
-        if (!isReef(t.token)) return false;
-        const amt = (t as any).amountBI ?? BigInt(t.amount || '0');
-        return (!minRaw && !maxRaw) ? true : passesAmt(amt);
+  const loadedCountsByType = useMemo(() => {
+    const acc = { incoming: 0, outgoing: 0, swap: 0 };
+    const list = filteredTransactions || [];
+    for (const t of list) {
+      if ((t as any).method === 'swap' || (t as any).type === 'SWAP') {
+        acc.swap += 1;
+        continue;
       }
-      if (tokenFilter === 'usdc') {
-        if (t.method === 'swap' && t.swapInfo) {
-          const soldAmt = (t.swapInfo.sold as any).amountBI ?? BigInt(t.swapInfo.sold.amount || '0');
-          const boughtAmt = (t.swapInfo.bought as any).amountBI ?? BigInt(t.swapInfo.bought.amount || '0');
-          const soldOk = (isUsdcId(t.swapInfo.sold.token.id) || (useNameFallback && isUsdcByName(t.swapInfo.sold.token))) && (!minRaw && !maxRaw ? true : passesAmt(soldAmt));
-          const boughtOk = (isUsdcId(t.swapInfo.bought.token.id) || (useNameFallback && isUsdcByName(t.swapInfo.bought.token))) && (!minRaw && !maxRaw ? true : passesAmt(boughtAmt));
-          return soldOk || boughtOk;
-        }
-        if (!(isUsdcId(t.token.id) || (useNameFallback && isUsdcByName((t as any).token)))) return false;
-        const amt = (t as any).amountBI ?? BigInt(t.amount || '0');
-        return (!minRaw && !maxRaw) ? true : passesAmt(amt);
-      }
-      if (addrLower) {
-        if (t.method === 'swap' && t.swapInfo) {
-          const soldAmt = (t.swapInfo.sold as any).amountBI ?? BigInt(t.swapInfo.sold.amount || '0');
-          const boughtAmt = (t.swapInfo.bought as any).amountBI ?? BigInt(t.swapInfo.bought.amount || '0');
-          const soldOk = String(t.swapInfo.sold.token.id || '').toLowerCase() === addrLower && (!minRaw && !maxRaw ? true : passesAmt(soldAmt));
-          const boughtOk = String(t.swapInfo.bought.token.id || '').toLowerCase() === addrLower && (!minRaw && !maxRaw ? true : passesAmt(boughtAmt));
-          return soldOk || boughtOk;
-        }
-        if (String(t.token.id || '').toLowerCase() !== addrLower) return false;
-        const amt = (t as any).amountBI ?? BigInt(t.amount || '0');
-        return (!minRaw && !maxRaw) ? true : passesAmt(amt);
-      }
-      return true;
-    });
-  }, [initialTransactions, tokenFilter, tokenMinRaw, tokenMaxRaw, softFallbackActive, serverTokenIds, swapOnly]);
+      const ty = String((t as any).type || '').toUpperCase();
+      if (ty === 'INCOMING') acc.incoming += 1;
+      else if (ty === 'OUTGOING') acc.outgoing += 1;
+    }
+    return acc;
+  }, [filteredTransactions]);
 
   // Expose presence of specific tokens in the currently loaded dataset for dynamic UI options
   const availableTokens = useMemo(() => {
     const list = initialTransactions || [];
     if (list.length === 0) return { reef: false, usdc: false, mrd: false };
 
-    const isReef = (tok?: { name?: string; decimals?: number }) => !!tok && tok.name === 'REEF' && (tok.decimals ?? 18) === 18;
-
-    // Use module-level helpers for USDC/MRD id checks
-
     let reef = false, usdc = false, mrd = false;
     for (const t of list) {
       // direct token
-      if (!reef) reef = isReef((t as any).token);
+      if (!reef) reef = isReefToken((t as any).token);
       if (!usdc) usdc = isUsdcId((t as any)?.token?.id);
       if (!mrd) mrd = isMrdId((t as any)?.token?.id);
       // swap legs
       if ((t as any)?.swapInfo) {
         const s = (t as any).swapInfo.sold?.token;
         const b = (t as any).swapInfo.bought?.token;
-        if (!reef) reef = isReef(s) || isReef(b);
+        if (!reef) reef = isReefToken(s) || isReefToken(b);
         if (!usdc) usdc = isUsdcId(s?.id) || isUsdcId(b?.id);
         if (!mrd) mrd = isMrdId(s?.id) || isMrdId(b?.id);
       }
@@ -735,6 +690,9 @@ export function useTanstackTransactionAdapter(
     table,
     isLoading,
     error,
+    totalCount,
+    loadedCount,
+    loadedCountsByType,
     newItemsCount,
     showNewItems,
     goToPage,

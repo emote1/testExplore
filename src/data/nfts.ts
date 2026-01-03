@@ -1,4 +1,5 @@
 import { graphql } from '@/gql';
+import { gql } from '@apollo/client';
 
 export const NFTS_BY_OWNER_QUERY = graphql(`
   query NftsByOwner($owner: String!) {
@@ -37,3 +38,15 @@ export const NFTS_BY_OWNER_PAGED_QUERY = graphql(`
     }
   }
 `);
+
+export const NFTS_BY_OWNER_COUNT_QUERY = gql`
+  query NftsByOwnerCount($owner: String!) {
+    tokenHolders: tokenHoldersConnection(
+      where: { signer: { evmAddress_eq: $owner }, balance_gt: "0", token: { type_in: [ERC721, ERC1155] } }
+      orderBy: [id_DESC]
+      first: 1
+    ) {
+      totalCount
+    }
+  }
+`;

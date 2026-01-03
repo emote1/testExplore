@@ -1,20 +1,63 @@
 import {
   flexRender,
   Table,
+  Row,
 } from '@tanstack/react-table';
 import { Loader2 } from 'lucide-react';
-import { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { transactionColumns } from './transaction-columns';
 import type { UiTransfer } from '../data/transfer-mapper';
 import { TransactionDetailsModal } from './TransactionDetailsModal';
-// Token USD prices are computed in the adapter and passed via table meta
+
+interface TransactionRowProps {
+  row: Row<UiTransfer>;
+  newTransfers: string[];
+  onRowClick: (e: React.MouseEvent, transfer: UiTransfer) => void;
+  onRowKeyDown: (e: React.KeyboardEvent, transfer: UiTransfer) => void;
+}
+
+const TransactionRow = React.memo(function TransactionRow({ row, newTransfers, onRowClick, onRowKeyDown }: TransactionRowProps) {
+  return (
+    <tr
+      key={row.id}
+      data-testid="tx-row"
+      data-transfer-id={row.original.id}
+      onClick={(e) => onRowClick(e, row.original)}
+      onKeyDown={(e) => onRowKeyDown(e, row.original)}
+      tabIndex={0}
+      aria-label="Open transaction details"
+      className={`group transition-colors transition-transform duration-200 cursor-pointer hover:bg-gray-50 hover:-translate-y-px focus-visible:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 focus-visible:ring-offset-white ${row.index % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'} ${newTransfers.includes(row.original.id) ? 'row-wash' : ''}`}
+    >
+      {row.getVisibleCells().map(cell => (
+        <td
+          key={cell.id}
+          className={
+            cell.column.id === 'actions' ? 'px-1 py-5 text-center w-8' :
+            cell.column.id === 'timestamp' ? 'px-2 py-5 whitespace-nowrap' :
+            cell.column.id === 'value' ? 'px-2 py-5 text-right whitespace-nowrap' :
+            (cell.column.id === 'from' || cell.column.id === 'to') ? 'px-3 py-5' :
+            'px-4 py-5'
+          }
+        >
+          {cell.column.id === 'actions'
+            ? flexRender(cell.column.columnDef.cell, cell.getContext())
+            : (cell.column.id === 'from' || cell.column.id === 'to')
+              ? <div className="truncate">{flexRender(cell.column.columnDef.cell, cell.getContext())}</div>
+              : flexRender(cell.column.columnDef.cell, cell.getContext())}
+        </td>
+      ))}
+    </tr>
+  );
+});
 
 interface TransactionTableWithTanStackProps {
   newTransfers?: string[];
   table: Table<UiTransfer>;
   isLoading: boolean;
   isFetching?: boolean;
+  totalCount?: number;
+  loadedCount?: number;
   /** Optional adapter-level deep jump to avoid TanStack clamping */
   goToPage?: (pageIndex: number) => void;
   /** Page-level loading progress for deep jumps */
@@ -28,11 +71,33 @@ interface TransactionTableWithTanStackProps {
   emptyHint?: string;
 }
 
-export function TransactionTableWithTanStack({ table, isLoading, isFetching, newTransfers = [], goToPage, isPageLoading, pageLoadProgress, hasExactTotal = false, fastModeActive = false, emptyHint }: TransactionTableWithTanStackProps) {
+export function TransactionTableWithTanStack({ table, isLoading, isFetching, totalCount, loadedCount, newTransfers = [], goToPage, isPageLoading, pageLoadProgress, hasExactTotal = false, fastModeActive = false, emptyHint }: TransactionTableWithTanStackProps) {
   const rows = table.getRowModel().rows;
   const enableVirtual = rows.length > 30;
   const parentRef = useRef<HTMLDivElement | null>(null);
   const [detailsFor, setDetailsFor] = useState<UiTransfer | null>(null);
+  const [hasRequestedData, setHasRequestedData] = useState<boolean>(false);
+  const [showEmptyState, setShowEmptyState] = useState<boolean>(false);
+  useEffect(() => {
+    if (isLoading || isFetching || isPageLoading) setHasRequestedData(true);
+  }, [isLoading, isFetching, isPageLoading]);
+  useEffect(() => {
+    const hasFiniteTotal = typeof totalCount === 'number' && Number.isFinite(totalCount);
+    const isEmptyCandidate =
+      rows.length === 0 &&
+      !isLoading &&
+      !isPageLoading &&
+      hasRequestedData &&
+      (emptyHint != null || (hasExactTotal && hasFiniteTotal && totalCount === 0));
+
+    if (!isEmptyCandidate) {
+      setShowEmptyState(false);
+      return;
+    }
+
+    const id = window.setTimeout(() => setShowEmptyState(true), 250);
+    return () => window.clearTimeout(id);
+  }, [rows.length, isLoading, isPageLoading, hasRequestedData, emptyHint, hasExactTotal, totalCount]);
   const rowVirtualizer = useVirtualizer({
     count: enableVirtual ? rows.length : 0,
     getScrollElement: () => parentRef.current,
@@ -96,7 +161,7 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
   }
 
   return (
-    <div className="relative p-4 bg-white rounded-lg shadow-md overflow-hidden">
+    <div className="relative p-6 bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
       {sortBadge ? (
         <div className="absolute top-2 right-3">
           <span className="text-[10px] font-medium px-2 py-0.5 rounded-full border border-gray-200 bg-gray-50 text-gray-700">
@@ -107,13 +172,13 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
       <div className="overflow-x-auto md:overflow-x-visible">
         <div ref={parentRef} className={enableVirtual ? 'max-h-[70vh] overflow-auto' : undefined}>
           <table className="w-full table-fixed divide-y divide-gray-200">
-          <thead className="bg-gray-50">
+          <thead className="bg-white">
             {table.getHeaderGroups().map(headerGroup => (
-              <tr key={headerGroup.id}>
+              <tr key={headerGroup.id} className="border-b-2 border-slate-200">
                 {headerGroup.headers.map(header => (
                   <th
                     key={header.id}
-                    className={`px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider
+                    className={`px-4 py-3 text-[13px] font-semibold text-slate-700 font-sans
                       ${header.column.id === 'actions' ? 'w-8 text-center px-1' : ''}
                       ${header.column.id === 'timestamp' ? 'w-52 md:w-60 text-left' : ''}
                       ${header.column.id === 'value' ? 'w-28 md:w-32 text-right px-2' : ''}
@@ -132,7 +197,22 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
             ))}
           </thead>
           <tbody className="bg-white divide-y divide-gray-200 fade-in">
-            {rows.length === 0 && (isLoading || isPageLoading) ? (
+            {(() => {
+              const hasFiniteTotal = typeof totalCount === 'number' && Number.isFinite(totalCount);
+              const isConfirmedEmpty = showEmptyState;
+
+              const shouldShowLoading =
+                rows.length === 0 &&
+                (isLoading ||
+                  isPageLoading ||
+                  (!hasRequestedData && pageIndex === 0) ||
+                  // Prevent empty-state flash when total is known >0 but rows haven't materialized yet
+                  (pageIndex === 0 && hasFiniteTotal && totalCount > 0 && !isConfirmedEmpty) ||
+                  // If adapter already reports some loaded items, avoid claiming empty
+                  (pageIndex === 0 && typeof loadedCount === 'number' && loadedCount > 0 && !isConfirmedEmpty));
+
+              if (shouldShowLoading) {
+                return (
               <tr>
                 <td colSpan={transactionColumns.length} className="text-center py-6 text-gray-600">
                   <div className="inline-flex items-center gap-2 justify-center">
@@ -145,13 +225,23 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
                   </div>
                 </td>
               </tr>
-            ) : rows.length === 0 ? (
+                );
+              }
+
+              if (isConfirmedEmpty) {
+                return (
               <tr>
                 <td colSpan={transactionColumns.length} className="text-center py-6 text-gray-500">
                   {emptyHint ?? 'No transactions found for this address.'}
                 </td>
               </tr>
-            ) : enableVirtual ? (
+                );
+              }
+
+              if (rows.length === 0) return null;
+
+              if (enableVirtual) {
+                return (
               <>
                 {paddingTop > 0 && (
                   <tr>
@@ -161,35 +251,13 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
                 {virtualItems.map(vItem => {
                   const row = rows[vItem.index]!;
                   return (
-                    <tr
+                    <TransactionRow
                       key={row.id}
-                      data-testid="tx-row"
-                      data-transfer-id={row.original.id}
-                      onClick={(e) => onRowClick(e, row.original)}
-                      onKeyDown={(e) => onRowKeyDown(e, row.original)}
-                      tabIndex={0}
-                      aria-label="Open transaction details"
-                      className={`group transition-colors transition-transform duration-200 cursor-pointer hover:bg-gray-50 hover:-translate-y-px focus-visible:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 focus-visible:ring-offset-white ${newTransfers.includes(row.original.id) ? 'row-wash' : ''}`}
-                    >
-                      {row.getVisibleCells().map(cell => (
-                        <td
-                          key={cell.id}
-                          className={
-                            cell.column.id === 'actions' ? 'px-1 py-3 text-center w-8' :
-                            cell.column.id === 'timestamp' ? 'px-2 py-3 whitespace-nowrap' :
-                            cell.column.id === 'value' ? 'px-2 py-3 text-right whitespace-nowrap' :
-                            (cell.column.id === 'from' || cell.column.id === 'to') ? 'px-3 py-3' :
-                            'px-4 py-3'
-                          }
-                        >
-                          {cell.column.id === 'actions'
-                            ? flexRender(cell.column.columnDef.cell, cell.getContext())
-                            : (cell.column.id === 'from' || cell.column.id === 'to')
-                              ? <div className="truncate">{flexRender(cell.column.columnDef.cell, cell.getContext())}</div>
-                              : flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </td>
-                      ))}
-                    </tr>
+                      row={row}
+                      newTransfers={newTransfers}
+                      onRowClick={onRowClick}
+                      onRowKeyDown={onRowKeyDown}
+                    />
                   );
                 })}
                 {paddingBottom > 0 && (
@@ -205,38 +273,19 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
                   </tr>
                 )}
               </>
-            ) : (
+                );
+              }
+
+              return (
               <>
-                {rows.map(row => (
-                  <tr
+                {rows.map((row) => (
+                  <TransactionRow
                     key={row.id}
-                    data-testid="tx-row"
-                    data-transfer-id={row.original.id}
-                    onClick={(e) => onRowClick(e, row.original)}
-                    onKeyDown={(e) => onRowKeyDown(e, row.original)}
-                    tabIndex={0}
-                    aria-label="Open transaction details"
-                    className={`group transition-colors transition-transform duration-200 cursor-pointer hover:bg-gray-50 hover:-translate-y-px focus-visible:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 focus-visible:ring-offset-white ${newTransfers.includes(row.original.id) ? 'row-wash' : ''}`}
-                  >
-                    {row.getVisibleCells().map(cell => (
-                      <td
-                        key={cell.id}
-                        className={
-                          cell.column.id === 'actions' ? 'px-1 py-3 text-center w-8' :
-                          cell.column.id === 'timestamp' ? 'px-2 py-3 whitespace-nowrap' :
-                          cell.column.id === 'value' ? 'px-2 py-3 text-right whitespace-nowrap' :
-                          (cell.column.id === 'from' || cell.column.id === 'to') ? 'px-3 py-3' :
-                          'px-4 py-3'
-                        }
-                      >
-                        {cell.column.id === 'actions'
-                          ? flexRender(cell.column.columnDef.cell, cell.getContext())
-                          : (cell.column.id === 'from' || cell.column.id === 'to')
-                            ? <div className="truncate">{flexRender(cell.column.columnDef.cell, cell.getContext())}</div>
-                            : flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </td>
-                    ))}
-                  </tr>
+                    row={row}
+                    newTransfers={newTransfers}
+                    onRowClick={onRowClick}
+                    onRowKeyDown={onRowKeyDown}
+                  />
                 ))}
                 {isFetching && (
                   <tr>
@@ -246,7 +295,8 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
                   </tr>
                 )}
               </>
-            )}
+              );
+            })()}
           </tbody>
           </table>
         </div>
@@ -266,46 +316,43 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
         </div>
       ) : null}
 
-      <div className="flex items-center justify-between mt-4">
-        <button 
-          onClick={() => { if (goToPage) goToPage(pageIndex - 1); else table.previousPage(); }}
-          disabled={!table.getCanPreviousPage() || isFetching}
-          className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
-        >
-          <span className="inline-flex items-center gap-2">
+      <div className="mt-4 flex flex-col gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <button
+            onClick={() => { if (goToPage) goToPage(pageIndex - 1); else table.previousPage(); }}
+            disabled={!table.getCanPreviousPage() || isFetching}
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 focus-visible:ring-offset-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
             <span>Previous</span>
             {fastModeActive && (
               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">FAST</span>
             )}
-          </span>
-        </button>
-        <span className="flex items-center gap-2">
-          <span>
-            Page{' '}
-            <strong>
-              {table.getState().pagination.pageIndex + 1} of {(() => { const pc = table.getPageCount(); return (!hasExactTotal && pc > 1) ? `~${pc}` : String(pc); })()}
-            </strong>
-          </span>
-          {/* Progress moved to centered overlay above to avoid duplication */}
-        </span>
-        <button 
-          onClick={() => { if (goToPage) goToPage(pageIndex + 1); else table.nextPage(); }}
-          disabled={!table.getCanNextPage() || isFetching}
-          className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
-        >
-          <span className="inline-flex items-center gap-2">
+          </button>
+
+          <div className="inline-flex items-center justify-center rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+            <span>
+              Page{' '}
+              <strong>
+                {table.getState().pagination.pageIndex + 1} of {(() => { const pc = table.getPageCount(); return (!hasExactTotal && pc > 1) ? `~${pc}` : String(pc); })()}
+              </strong>
+            </span>
+          </div>
+
+          <button
+            onClick={() => { if (goToPage) goToPage(pageIndex + 1); else table.nextPage(); }}
+            disabled={!table.getCanNextPage() || isFetching}
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 focus-visible:ring-offset-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
             <span>Next</span>
             {fastModeActive && (
               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">FAST</span>
             )}
-          </span>
-        </button>
-      </div>
+          </button>
+        </div>
 
-      {/* Quick jump row */}
-      <div className="mt-3">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
+        {/* Quick jump row */}
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
             <label className="text-sm text-gray-600">Go to page</label>
             <input
               type="number"
@@ -315,18 +362,19 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
               onChange={(e) => setJumpInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') handleGo(); }}
               placeholder="e.g. 5"
-              className="w-24 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="h-9 w-24 rounded-md border border-gray-200 bg-white px-3 text-sm text-gray-900 shadow-sm placeholder:text-gray-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 focus-visible:ring-offset-white"
               data-testid="goto-page-input"
             />
             <button
               onClick={handleGo}
               disabled={isFetching || !jumpValid}
-              className="px-3 py-1 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+              className="inline-flex h-9 items-center justify-center rounded-md border border-gray-200 bg-white px-3 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 focus-visible:ring-offset-white disabled:cursor-not-allowed disabled:opacity-50"
               data-testid="goto-page-button"
             >
               Go
             </button>
           </div>
+
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm text-gray-600">Quick:</span>
             {quickPages.map((p) => (
@@ -334,7 +382,7 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, new
                 key={p}
                 onClick={() => { if (goToPage) goToPage(p - 1); else table.setPageIndex(p - 1); }}
                 disabled={isFetching || (p - 1) === pageIndex}
-                className={`px-2 py-1 text-sm rounded-md border ${((p - 1) === pageIndex) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                className={`inline-flex h-9 min-w-9 items-center justify-center rounded-md border px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 focus-visible:ring-offset-white disabled:cursor-not-allowed disabled:opacity-50 ${((p - 1) === pageIndex) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'}`}
               >
                 {p}
               </button>

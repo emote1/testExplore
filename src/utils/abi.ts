@@ -1,3 +1,5 @@
+import { safeBigInt } from './token-helpers';
+
 /**
  * ABI helpers
  */
@@ -24,7 +26,7 @@ export function decodeAbiString(hex: string): string | null {
 }
 
 export function applyErc1155Template(uri: string, nftId: string | number): string {
-  const id = BigInt(typeof nftId === 'string' ? nftId : Number(nftId));
+  const id = safeBigInt(nftId);
   const hexId = toHex(id).toLowerCase();
   return uri.replace('{id}', hexId).replace('{ID}', hexId);
 }

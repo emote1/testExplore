@@ -1,0 +1,299 @@
+openapi: 3.0.3
+info:
+  title: Reef Aggregator API
+  description: |
+    Pre-aggregated metrics for Reef Explorer dashboard.
+    Provides fast endpoints for active wallets, network growth, sparklines, and graph metrics.
+  version: 1.0.0
+servers:
+  - url: http://localhost:3001/v1
+    description: Local development
+  - url: https://api.reef-aggregator.example/v1
+    description: Production (placeholder)
+
+paths:
+  /metrics/growth24h:
+    get:
+      summary: Get 24h growth metrics
+      description: |
+        Returns extrinsics count, active wallets count, and graph metrics
+        for last 24h vs previous 24h with growth percentages.
+      operationId: getGrowth24h
+      parameters:
+        - name: chain
+          in: query
+          schema:
+            type: string
+            default: reef
+          description: Chain identifier
+      responses:
+        '200':
+          description: Growth metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Growth24hResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /sparklines/extrinsics:
+    get:
+      summary: Get extrinsics sparkline data
+      description: Hourly extrinsics counts for sparkline visualization
+      operationId: getExtrinsicsSparkline
+      parameters:
+        - name: hours
+          in: query
+          schema:
+            type: integer
+            default: 24
+            minimum: 1
+            maximum: 168
+          description: Number of hours to return
+      responses:
+        '200':
+          description: Extrinsics sparkline series
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtrinsicsSparklineResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /sparklines/active-wallets:
+    get:
+      summary: Get active wallets sparkline data
+      description: Hourly active and new wallet counts for sparkline visualization
+      operationId: getActiveWalletsSparkline
+      parameters:
+        - name: hours
+          in: query
+          schema:
+            type: integer
+            default: 24
+            minimum: 1
+            maximum: 168
+          description: Number of hours to return
+      responses:
+        '200':
+          description: Active wallets sparkline series
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActiveWalletsSparklineResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /top-entities:
+    get:
+      summary: Get top entities by centrality
+      description: |
+        Returns top accounts ranked by degree or PageRank.
+        Computed from 24h graph snapshot.
+      operationId: getTopEntities
+      parameters:
+        - name: hours
+          in: query
+          schema:
+            type: integer
+            default: 24
+          description: Time window in hours
+        - name: metric
+          in: query
+          schema:
+            type: string
+            enum: [in_degree, out_degree, total_degree, pagerank]
+            default: total_degree
+          description: Ranking metric
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+          description: Number of entities to return
+      responses:
+        '200':
+          description: Top entities list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TopEntitiesResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    Growth24hResponse:
+      type: object
+      required: [asOf, extrinsics, graph, activeWallets]
+      properties:
+        asOf:
+          type: string
+          format: date-time
+          description: Timestamp when data was computed
+        extrinsics:
+          type: object
+          required: [last24h, prev24h, growthPct]
+          properties:
+            last24h:
+              type: integer
+              description: Extrinsics count in last 24 hours
+            prev24h:
+              type: integer
+              description: Extrinsics count in previous 24 hours
+            growthPct:
+              type: number
+              format: float
+              description: Growth percentage
+        graph:
+          type: object
+          required: [nodes, edges, eOverN, newWalletsRatio]
+          properties:
+            nodes:
+              type: integer
+              description: Unique accounts (nodes) in 24h graph
+            edges:
+              type: integer
+              description: Transfer edges in 24h graph
+            eOverN:
+              type: number
+              format: float
+              description: Average degree (edges/nodes)
+            newWalletsRatio:
+              type: number
+              format: float
+              description: Ratio of new wallets (first seen in last 24h)
+        activeWallets:
+          type: object
+          required: [last24h, prev24h, growthPct]
+          properties:
+            last24h:
+              type: integer
+              description: Active wallets in last 24 hours
+            prev24h:
+              type: integer
+              description: Active wallets in previous 24 hours
+            growthPct:
+              type: number
+              format: float
+              description: Growth percentage
+
+    ExtrinsicsSparklineResponse:
+      type: object
+      required: [hours, series]
+      properties:
+        hours:
+          type: integer
+          description: Number of hours in series
+        series:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExtrinsicsSparklinePoint'
+
+    ExtrinsicsSparklinePoint:
+      type: object
+      required: [ts, extrinsics]
+      properties:
+        ts:
+          type: string
+          format: date-time
+          description: Hour bucket timestamp (UTC)
+        extrinsics:
+          type: integer
+          description: Extrinsics count in this hour
+
+    ActiveWalletsSparklineResponse:
+      type: object
+      required: [hours, series]
+      properties:
+        hours:
+          type: integer
+          description: Number of hours in series
+        series:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActiveWalletsSparklinePoint'
+
+    ActiveWalletsSparklinePoint:
+      type: object
+      required: [ts, active, new]
+      properties:
+        ts:
+          type: string
+          format: date-time
+          description: Hour bucket timestamp (UTC)
+        active:
+          type: integer
+          description: Active wallets in this hour
+        new:
+          type: integer
+          description: New wallets (first seen) in this hour
+
+    TopEntitiesResponse:
+      type: object
+      required: [asOf, metric, items]
+      properties:
+        asOf:
+          type: string
+          format: date-time
+        metric:
+          type: string
+          description: Ranking metric used
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TopEntity'
+
+    TopEntity:
+      type: object
+      required: [account, rank]
+      properties:
+        account:
+          type: string
+          description: Account ID (SS58 or EVM address)
+        rank:
+          type: integer
+          description: Rank position (1-based)
+        degreeIn:
+          type: integer
+          description: In-degree (incoming transfers)
+        degreeOut:
+          type: integer
+          description: Out-degree (outgoing transfers)
+        weightSum:
+          type: number
+          format: float
+          description: Sum of transfer amounts
+        pagerank:
+          type: number
+          format: float
+          description: PageRank score (if computed)
+
+    ErrorResponse:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+          description: Error code
+        message:
+          type: string
+          description: Human-readable error message

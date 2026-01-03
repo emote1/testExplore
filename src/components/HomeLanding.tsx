@@ -1,22 +1,14 @@
 import React from 'react';
-import { Search, Wallet, Activity, LineChart, TrendingUp, Clock } from 'lucide-react';
-import { TpsSparkline } from './TpsSparkline';
-import { useWsStatus } from '../hooks/use-ws-status';
-import { useTpsLive } from '../hooks/use-tps-live';
+import { Search } from 'lucide-react';
+import { NetworkStatistics } from './NetworkStatistics';
 
 interface HomeLandingProps {
   onSearch: (value: string) => void;
 }
 
-// legacy sparkline helpers removed (now handled by TpsSparkline)
-
 export function HomeLanding({ onSearch }: HomeLandingProps) {
   const [value, setValue] = React.useState('');
-  const { perMin, tpsTrend } = useTpsLive(60);
-  const perMinText = Number.isFinite(perMin) && perMin >= 0 ? perMin.toFixed(0) : '0';
-  const ws = useWsStatus();
-  const wsDot = ws.tone === 'live' ? 'bg-green-500' : ws.tone === 'warning' ? 'bg-yellow-500' : ws.tone === 'error' ? 'bg-red-500' : 'bg-gray-400';
-  // sparkline moved to TpsSparkline: all helpers/animation removed
+  const statsRef = React.useRef<HTMLDivElement>(null);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -27,124 +19,79 @@ export function HomeLanding({ onSearch }: HomeLandingProps) {
 
   return (
     <div className="w-full">
+      {/* Hero Section */}
       <section className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b from-indigo-50 via-blue-50 to-white" />
-        <div className="relative max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-14 pb-12 text-center">
-          <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-gray-900">Explore. Analyze. Trade.</h1>
-          <p className="mt-3 text-gray-600">A decentralized data engine powered by freedom and intelligence.</p>
-          <p className="text-indigo-600 font-medium">SOVRA — where data becomes sovereignty.</p>
+        <div className="absolute inset-0 bg-gradient-to-r from-[#E0F2FE] to-white" />
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 text-center">
+          {/* H1: 36px → 60px, mb-24px */}
+          <h1 className="text-4xl md:text-6xl font-bold mb-6 bg-gradient-to-r from-[#2563EB] to-[#3B82F6] bg-clip-text text-transparent">
+            Explore. Analyze. Trade.
+          </h1>
+          {/* P1: 20px, mb-16px, max-w-672px */}
+          <p className="text-xl text-muted-foreground mb-4 max-w-2xl mx-auto">
+            A decentralized data engine powered by freedom and intelligence.
+          </p>
+          {/* P2: 18px, mb-48px, max-w-672px */}
+          <p className="text-lg text-muted-foreground/80 mb-12 max-w-2xl mx-auto">
+            <span className="bg-gradient-to-r from-[#2563EB] to-[#3B82F6] bg-clip-text text-transparent font-medium">SOVRA</span> — where data becomes sovereignty.
+          </p>
 
-          <form onSubmit={handleSubmit} className="mt-8 mx-auto max-w-3xl">
-            <div className="flex items-stretch gap-3 bg-white rounded-full shadow-xl border border-gray-200 p-1.5">
-              <div className="flex-1 flex items-center gap-2 px-3">
-                <Search className="h-5 w-5 text-gray-400" />
-                <input
-                  type="text"
-                  value={value}
-                  onChange={(e) => setValue(e.target.value)}
-                  placeholder="Enter wallet address or transaction hash..."
-                  className="w-full bg-transparent outline-none text-gray-900 placeholder:text-gray-400"
-                />
+          {/* Search Container: max-w-768px, mb-48px */}
+          <form onSubmit={handleSubmit} className="max-w-3xl mx-auto mb-12">
+            <div className="relative group">
+              {/* Gradient glow: -inset-1, rounded-2xl, blur */}
+              <div className="absolute -inset-1 bg-gradient-to-r from-[#2563EB] to-[#3B82F6] rounded-2xl opacity-0 group-hover:opacity-20 blur transition-opacity duration-500" />
+              
+              {/* Gap between Input and Button: gap-4 (16px) */}
+              <div className="relative flex gap-4">
+                {/* Input field */}
+                <div className="relative flex-1">
+                  {/* Search icon: w-5 h-5 (20px), left-6 (24px) */}
+                  <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 transition-colors duration-300 group-hover:text-blue-500" />
+                  {/* Input: h-16 (64px), text-lg (18px), pl-14 (56px), pr-6 (24px), rounded-xl (12px), border-2 */}
+                  <input
+                    type="text"
+                    value={value}
+                    onChange={(e) => setValue(e.target.value)}
+                    placeholder="Enter wallet address or transaction hash..."
+                    className="w-full h-16 text-lg pl-14 pr-6 rounded-xl border-2 border-slate-200/60 focus:border-[#3B82F6] focus:ring-2 focus:ring-[#E0F2FE] bg-white/80 backdrop-blur-sm transition-all duration-300 shadow-sm hover:shadow-md focus:shadow-lg outline-none"
+                  />
+                </div>
+                
+                {/* Button: h-16 (64px), px-8 (32px), rounded-xl (12px) */}
+                <button 
+                  type="submit" 
+                  className="h-16 px-8 rounded-xl bg-gradient-to-r from-[#2563EB] to-[#3B82F6] hover:from-[#3B82F6] hover:to-[#60A5FA] shadow-lg hover:shadow-xl hover:shadow-[#2563EB]/30 transition-all duration-300 text-white font-semibold group/btn relative overflow-hidden"
+                >
+                  {/* Icon + text gap: gap-3 (12px) */}
+                  <span className="relative z-10 flex items-center gap-3">
+                    <Search className="w-5 h-5 transition-transform duration-300 group-hover/btn:rotate-90" />
+                    <span>Search</span>
+                  </span>
+                  {/* Shine effect */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 -translate-x-full group-hover/btn:translate-x-full transition-transform duration-700" />
+                </button>
               </div>
-              <button type="submit" className="px-5 py-2.5 rounded-full text-white font-semibold bg-gradient-to-r from-indigo-500 to-blue-600 shadow-md hover:from-indigo-600 hover:to-blue-700">
-                Search
-              </button>
             </div>
-            <div className="text-xs text-gray-400 mt-2">Example: 5Eo9q... • 0x1a2b3c4d5e6f...</div>
+            
+            {/* Examples: mt-6 (24px), text-sm (14px), gap-2 (8px) */}
+            <div className="flex items-center justify-center gap-2 mt-6">
+              {/* Decorative lines: h-px (1px), w-12 (48px) */}
+              <div className="h-px w-12 bg-gradient-to-r from-transparent to-slate-300" />
+              {/* Text padding: px-3 (12px) */}
+              <p className="text-sm text-muted-foreground px-3">
+                Example: <span className="font-mono text-slate-600">SEDGqi...5h...</span> or <span className="font-mono text-slate-600">0x1a2b3c4d5e6f...</span>
+              </p>
+              <div className="h-px w-12 bg-gradient-to-l from-transparent to-slate-300" />
+            </div>
           </form>
         </div>
       </section>
 
-      <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold text-gray-900">Network Statistics</h2>
-          <div className="inline-flex items-center gap-2 text-sm text-gray-600">
-            <span className={`w-2 h-2 rounded-full ${wsDot} ${ws.tone === 'live' ? 'animate-pulse' : ''}`} />
-            <span>Live</span>
-            {ws.tone !== 'live' ? <span className="text-gray-500">• {ws.text}</span> : null}
-          </div>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard title="Total Volume" value="$2.4B" delta="+12.5%" icon={<LineChart className="h-4 w-4 text-emerald-600" />} color="emerald" />
-          <StatCard title="Active Wallets" value="1.2M" delta="+8.3%" icon={<Wallet className="h-4 w-4 text-blue-600" />} color="blue" />
-          <StatCard
-            title="Transactions/min"
-            value={`${perMinText} tx/min`}
-            valueNode={
-              <div className="flex items-baseline gap-1">
-                <span className="text-2xl font-semibold text-gray-900">{perMinText}</span>
-                <span className="text-sm text-gray-600">tx/</span>
-                <Clock className="h-4 w-4 text-gray-500" />
-                <span className="text-sm text-gray-600">min</span>
-              </div>
-            }
-            sparkNode={<TpsSparkline series={tpsTrend} trendWin={60} trendRes={8} trendZoom={2} height={20} width={40} xpad={4} emaAlpha={0.18} fixedXFrac={0.8} yPadPx={4} pathAnimMs={800} />}
-            delta="Live"
-            icon={<Activity className="h-4 w-4 text-violet-600" />}
-            color="violet"
-          />
-          <StatCard title="Network Growth" value="94.2%" delta="+2.1%" icon={<TrendingUp className="h-4 w-4 text-orange-600" />} color="orange" />
-        </div>
-      </section>
-    </div>
-  );
-}
-
-interface StatCardProps {
-  title: string;
-  value: string;
-  sub?: string;
-  valueNode?: React.ReactNode;
-  sparkNode?: React.ReactNode;
-  sparkClassName?: string;
-  delta: string;
-  icon: React.ReactNode;
-  color: 'emerald' | 'blue' | 'violet' | 'orange';
-}
-
-function StatCard({ title, value, sub, valueNode, sparkNode, sparkClassName, delta, icon, color }: StatCardProps) {
-  const paths: Record<StatCardProps['color'], string> = {
-    emerald: 'M2 10 C6 7,10 12,14 9, 18 8,22 11,26 10, 30 12,34 11,38 12',
-    blue: 'M2 12 C6 11,10 13,14 12, 18 10,22 12,26 11, 30 12,34 12,38 12',
-    violet: 'M2 11 C6 9,10 12,14 10, 18 12,22 10,26 13, 30 12,34 13,38 12',
-    orange: 'M2 12 C6 13,10 12,14 13, 18 12,22 13,26 12, 30 11,34 12,38 11',
-  };
-  const stroke = {
-    emerald: '#10b981',
-    blue: '#2563eb',
-    violet: '#7c3aed',
-    orange: '#f59e0b',
-  }[color];
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm hover:shadow transition-shadow">
-      <div className="flex items-center justify-between text-gray-600 text-sm">
-        <span className="inline-flex items-center gap-2">{title}</span>
-        <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-gray-50 border border-gray-200">
-          {icon}
-        </span>
-      </div>
-      <div className={`mt-2 ${sparkClassName ?? 'h-20'}`}>
-        {sparkNode ? (
-          sparkNode
-        ) : (
-          <svg viewBox="0 0 40 20" className="w-full h-full" preserveAspectRatio="none">
-            <path d={paths[color]} fill="none" stroke={stroke} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        )}
-      </div>
-      <div className="mt-2 flex items-end justify-between">
-        <div>
-          {valueNode ? (
-            <div>{valueNode}</div>
-          ) : (
-            <div className="text-2xl font-semibold text-gray-900">{value}</div>
-          )}
-          {sub ? <div className="text-xs text-gray-500">{sub}</div> : null}
-        </div>
-        <div className="text-xs text-emerald-600 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full">{delta}</div>
+      {/* Network Statistics */}
+      <div ref={statsRef}>
+        <NetworkStatistics />
       </div>
     </div>
   );
 }
-
- 

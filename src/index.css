@@ -1,3 +1,6 @@
+/* Inter font from Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -17,7 +20,7 @@ body {
 }
 
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
 
@@ -43,25 +46,36 @@ a:hover {
 h1 {
   font-size: 3.2em;
   line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+h2, h3 {
+  letter-spacing: -0.02em;
+}
+
+h4, h5, h6 {
+  letter-spacing: -0.01em;
+}
+
+/* Monospace font for addresses and code */
+code, pre, .font-mono {
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', 'Dank Mono', monospace;
+  font-feature-settings: 'liga' 1;
+}
+
+/* Tabular numbers for better alignment in tables */
+.tabular-nums {
+  font-feature-settings: 'tnum' 1;
+  font-variant-numeric: tabular-nums;
 }
 
 button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
   font-family: inherit;
-  background-color: #1a1a1a;
   cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
 }
 button:focus,
 button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+  outline: none;
 }
 
 @media (prefers-color-scheme: light) {
@@ -71,9 +85,6 @@ button:focus-visible {
   }
   a:hover {
     color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
   }
 }
 
@@ -181,7 +192,24 @@ button:focus-visible {
   to { opacity: 1; }
 }
 
+@keyframes data-refresh-shimmer-anim {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
 @layer utilities {
   .row-wash { animation: row-wash-anim 1200ms ease-out 1; }
   .fade-in { animation: fade-in 150ms ease-out 1; }
+  .data-refresh-shimmer {
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      rgba(37, 99, 235, 0.35),
+      rgba(0, 191, 255, 0.45),
+      rgba(37, 99, 235, 0.35),
+      transparent
+    );
+    background-size: 200% 100%;
+    animation: data-refresh-shimmer-anim 1.8s linear infinite;
+  }
 }

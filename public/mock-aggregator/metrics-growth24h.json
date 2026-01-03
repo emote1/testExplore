@@ -1,0 +1,19 @@
+{
+  "asOf": "2025-11-25T10:50:00Z",
+  "extrinsics": {
+    "last24h": 10356,
+    "prev24h": 8746,
+    "growthPct": 18.4
+  },
+  "graph": {
+    "nodes": 6421,
+    "edges": 12638,
+    "eOverN": 1.97,
+    "newWalletsRatio": 0.24
+  },
+  "activeWallets": {
+    "last24h": 5120,
+    "prev24h": 4300,
+    "growthPct": 19.1
+  }
+}

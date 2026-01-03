@@ -1,5 +1,6 @@
 import type { TransferWhereInput, TransferType } from '@/gql/graphql';
 import { toChecksumAddress } from '@/utils/address-helpers';
+import { safeBigInt } from '@/utils/token-helpers';
 
 interface BuildFilterParams {
   resolvedAddress?: string | null;
@@ -57,8 +58,8 @@ export function buildTransferWhereFilter({
   const base: TransferWhereInput = { OR: orClauses } as TransferWhereInput;
 
   const hasTokenIds = Array.isArray(tokenIds) && tokenIds.length > 0;
-  const hasTokenMin = (() => { try { return tokenMinRaw != null && BigInt(String(tokenMinRaw)) > 0n; } catch { return false; } })();
-  const hasTokenMax = (() => { try { return tokenMaxRaw != null && BigInt(String(tokenMaxRaw)) > 0n; } catch { return false; } })();
+  const hasTokenMin = tokenMinRaw != null && safeBigInt(tokenMinRaw) > 0n;
+  const hasTokenMax = tokenMaxRaw != null && safeBigInt(tokenMaxRaw) > 0n;
 
   if (hasTokenIds) {
     const tokenOrClauses: Array<any> = [];
@@ -76,8 +77,8 @@ export function buildTransferWhereFilter({
     }
     const tokenFilter: any = tokenOrClauses.length > 1 ? { OR: tokenOrClauses } : (tokenOrClauses[0] || {});
     const andClauses: NonNullable<TransferWhereInput['AND']> = [base, { token: tokenFilter } as any];
-    if (hasTokenMin) andClauses.push({ amount_gte: BigInt(String(tokenMinRaw!)).toString() });
-    if (hasTokenMax) andClauses.push({ amount_lte: BigInt(String(tokenMaxRaw!)).toString() });
+    if (hasTokenMin) andClauses.push({ amount_gte: safeBigInt(tokenMinRaw!).toString() });
+    if (hasTokenMax) andClauses.push({ amount_lte: safeBigInt(tokenMaxRaw!).toString() });
     let result: TransferWhereInput = { AND: andClauses } as TransferWhereInput;
     if (excludeSwapLegs) {
       result = { AND: [result, { reefswapAction_isNull: true } as any] } as any;
@@ -85,11 +86,11 @@ export function buildTransferWhereFilter({
     return result;
   }
 
-  const hasMin = (() => { try { return minReefRaw != null && BigInt(String(minReefRaw)) > 0n; } catch { return false; } })();
-  const hasMax = (() => { try { return maxReefRaw != null && BigInt(String(maxReefRaw)) > 0n; } catch { return false; } })();
+  const hasMin = minReefRaw != null && safeBigInt(minReefRaw) > 0n;
+  const hasMax = maxReefRaw != null && safeBigInt(maxReefRaw) > 0n;
   if (reefOnly || hasMin || hasMax) {
     const andClauses: NonNullable<TransferWhereInput['AND']> = [base, { type_eq: 'Native' as TransferType }];
-    if (hasMin) andClauses.push({ amount_gte: BigInt(String(minReefRaw!)).toString() });
+    if (hasMin) andClauses.push({ amount_gte: safeBigInt(minReefRaw!).toString() });
     let result: TransferWhereInput = { AND: andClauses } as TransferWhereInput;
     if (excludeSwapLegs) {
       result = { AND: [result, { reefswapAction_isNull: true } as any] } as any;

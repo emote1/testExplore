@@ -12,6 +12,11 @@ const SELECTORS = {
   getReserves: '0x0902f1ac', // getReserves()
 } as const;
 
+import { safeBigInt } from './token-helpers';
+
+/**
+ * Strips 0x prefix from a hex string.
+ */
 function strip0x(h: string): string {
   return h.startsWith('0x') ? h.slice(2) : h;
 }
@@ -74,8 +79,8 @@ export function decodeGetReserves(retHex: string): { reserve0: bigint; reserve1:
   try {
     const s = strip0x(retHex);
     if (s.length < 64 * 3) return null;
-    const r0 = BigInt('0x' + s.slice(0, 64));
-    const r1 = BigInt('0x' + s.slice(64, 128));
+    const r0 = safeBigInt('0x' + s.slice(0, 64));
+    const r1 = safeBigInt('0x' + s.slice(64, 128));
     return { reserve0: r0, reserve1: r1 };
   } catch { return null; }
 }

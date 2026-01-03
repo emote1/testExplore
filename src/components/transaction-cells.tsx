@@ -1,107 +1,57 @@
+import React from 'react';
 import type { CellContext, HeaderContext } from '@tanstack/react-table';
 import type { UiTransfer } from '../data/transfer-mapper';
 import { formatTokenAmount, formatTimestampFull, parseTimestampToDate, formatTimeOfDay } from '../utils/formatters';
-import { Button } from './ui/button';
-import { Badge } from './ui/badge';
 import { ExternalLink } from './ui/external-link';
-import { ArrowUpDown, ArrowUp, ArrowDown, Clock } from 'lucide-react';
+import { Clock, ArrowDownLeft, ArrowUpRight, ArrowLeftRight, CheckCircle2, Clock as ClockIcon } from 'lucide-react';
 import { AddressDisplay } from './AddressDisplay';
 import { Tooltip, TooltipTrigger, TooltipProvider, TooltipContent } from './ui/tooltip';
 import { REEFSCAN_ORIGIN } from '@/constants/reefscan';
-// Price data is provided via TanStack table meta to avoid hooks in cells
 
-export function TypeCell(ctx: CellContext<UiTransfer, unknown>) {
+export const TypeCell = React.memo(function TypeCell(ctx: CellContext<UiTransfer, unknown>) {
   const { row } = ctx;
   const type = row.getValue('type') as string;
   const t = row.original;
+  
   if (t.method === 'swap' || type === 'SWAP') {
-    const classes = 'font-semibold bg-indigo-100 text-indigo-800 hover:bg-indigo-100/80';
-    return <Badge className={classes}>SWAP</Badge>;
+    return (
+      <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full border border-blue-400 text-blue-600 bg-white">
+        <ArrowLeftRight className="w-3 h-3" />
+        Swap
+      </span>
+    );
   }
-  // ERC tokens: incoming => BUY, outgoing => SELL (per user requirement)
+  
   const isIncoming = type === 'INCOMING';
   const isErcToken = !t.isNft && (t.token?.name !== 'REEF') && ((t.token?.decimals ?? 18) > 0);
-  const label = isErcToken ? (isIncoming ? 'BUY' : 'SELL') : type.toUpperCase();
-  const classes = `font-semibold ${isIncoming
-    ? 'bg-green-100 text-green-800 hover:bg-green-100/80'
-    : 'bg-yellow-100 text-yellow-800 hover:bg-yellow-100/80'
-  }`;
-  return <Badge className={classes}>{label}</Badge>;
-}
-
-export function TimestampHeader(ctx: HeaderContext<UiTransfer, unknown>) {
-  const { column } = ctx;
-  const meta = (ctx.table?.options as any)?.meta as { disableTimestampSorting?: boolean } | undefined;
-  const disabled = !!meta?.disableTimestampSorting;
-  const sorted = column.getIsSorted();
-  const button = (
-    <Button
-      variant="ghost"
-      onClick={() => { if (!disabled) column.toggleSorting(sorted === 'asc'); }}
-      disabled={disabled}
-    >
-      TIMESTAMP
-      {disabled ? (
-        <ArrowUpDown className="ml-2 h-4 w-4 opacity-40" />
-      ) : sorted === 'asc' ? (
-        <ArrowUp className="ml-2 h-4 w-4" />
-      ) : sorted === 'desc' ? (
-        <ArrowDown className="ml-2 h-4 w-4" />
-      ) : (
-        <ArrowUpDown className="ml-2 h-4 w-4" />
-      )}
-    </Button>
-  );
-  if (!disabled) return button;
+  const label = isErcToken ? (isIncoming ? 'Buy' : 'Sell') : (isIncoming ? 'Incoming' : 'Outgoing');
+  
+  if (isIncoming) {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full border border-green-400 text-green-600 bg-white">
+        <ArrowDownLeft className="w-3 h-3" />
+        {label}
+      </span>
+    );
+  }
+  
   return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>{button}</TooltipTrigger>
-        <TooltipContent>
-          <span>Sorting by time is disabled</span>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full border border-orange-400 text-orange-600 bg-white">
+      <ArrowUpRight className="w-3 h-3" />
+      {label}
+    </span>
   );
-}
+});
 
-export function AmountHeader(ctx: HeaderContext<UiTransfer, unknown>) {
-  const { column } = ctx;
-  const meta = (ctx.table?.options as any)?.meta as { disableAmountSorting?: boolean } | undefined;
-  const disabled = !!meta?.disableAmountSorting;
-  const sorted = column.getIsSorted();
-  const button = (
-    <Button
-      variant="ghost"
-      onClick={() => { if (!disabled) column.toggleSorting(sorted === 'asc'); }}
-      disabled={disabled}
-    >
-      AMOUNT
-      {disabled ? (
-        <ArrowUpDown className="ml-2 h-4 w-4 opacity-40" />
-      ) : sorted === 'asc' ? (
-        <ArrowUp className="ml-2 h-4 w-4" />
-      ) : sorted === 'desc' ? (
-        <ArrowDown className="ml-2 h-4 w-4" />
-      ) : (
-        <ArrowUpDown className="ml-2 h-4 w-4" />
-      )}
-    </Button>
-  );
-  if (!disabled) return button;
-  return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>{button}</TooltipTrigger>
-        <TooltipContent>
-          <span>Sorting by amount is disabled</span>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  );
-}
+export const TimestampHeader = React.memo(function TimestampHeader(_ctx: HeaderContext<UiTransfer, unknown>) {
+  return <span>Time</span>;
+});
 
-export function TimestampCell(ctx: CellContext<UiTransfer, unknown>) {
+export const AmountHeader = React.memo(function AmountHeader(_ctx: HeaderContext<UiTransfer, unknown>) {
+  return <span>Amount</span>;
+});
+
+export const TimestampCell = React.memo(function TimestampCell(ctx: CellContext<UiTransfer, unknown>) {
   const t = ctx.row.original as UiTransfer;
   const ts = ctx.row.getValue('timestamp') as string;
   const d = parseTimestampToDate(ts);
@@ -151,19 +101,29 @@ export function TimestampCell(ctx: CellContext<UiTransfer, unknown>) {
       </Tooltip>
     </TooltipProvider>
   );
-}
+});
 
-export function FromCell(ctx: CellContext<UiTransfer, unknown>) {
-  return <AddressDisplay address={ctx.row.getValue('from') as string} />;
-}
+export const FromCell = React.memo(function FromCell(ctx: CellContext<UiTransfer, unknown>) {
+  return (
+    <AddressDisplay
+      address={ctx.row.getValue('from') as string}
+      className="inline-block text-sm font-mono text-slate-700 bg-slate-100/50 px-2 py-1 rounded"
+    />
+  );
+});
 
-export function ToCell(ctx: CellContext<UiTransfer, unknown>) {
-  return <AddressDisplay address={ctx.row.getValue('to') as string} />;
-}
+export const ToCell = React.memo(function ToCell(ctx: CellContext<UiTransfer, unknown>) {
+  return (
+    <AddressDisplay
+      address={ctx.row.getValue('to') as string}
+      className="inline-block text-sm font-mono text-slate-700 bg-slate-100/50 px-2 py-1 rounded"
+    />
+  );
+});
 
 export interface AmountCellProps { ctx: CellContext<UiTransfer, unknown> }
 
-export function AmountCellComponent({ ctx }: AmountCellProps) {
+export const AmountCellComponent = React.memo(function AmountCellComponent({ ctx }: AmountCellProps) {
   const transfer = ctx.row.original;
   if (transfer.method === 'swap' && transfer.swapInfo) {
     const sold = transfer.swapInfo.sold;
@@ -207,7 +167,6 @@ export function AmountCellComponent({ ctx }: AmountCellProps) {
       }
       return formatTokenAmount(abs, token.decimals, token.name);
     }
-    // Fee is shown only in the modal, not in the table
 
     // Single-line BUY/SELL presentation for swaps (ERC-focused):
     // - If bought leg is ERC (non-REEF, decimals>0) → show "+<bought> TOKEN" in green
@@ -259,14 +218,14 @@ export function AmountCellComponent({ ctx }: AmountCellProps) {
     ? (isIncoming ? 'text-green-600' : 'text-yellow-700')
     : '';
   return <span className={cls}>{prefix}{formattedAmount}</span>;
-}
+});
 
-export function AmountCell(ctx: CellContext<UiTransfer, unknown>) {
+export const AmountCell = React.memo(function AmountCell(ctx: CellContext<UiTransfer, unknown>) {
   return <AmountCellComponent ctx={ctx} />;
-}
+});
 
 // Standalone USD value column
-export function ValueCell(ctx: CellContext<UiTransfer, unknown>) {
+export const ValueCell = React.memo(function ValueCell(ctx: CellContext<UiTransfer, unknown>) {
   const t = ctx.row.original;
   const meta = (ctx.table.options as any)?.meta as { pricesById?: Record<string, number | null>; reefUsd?: number | null } | undefined;
 
@@ -297,22 +256,23 @@ export function ValueCell(ctx: CellContext<UiTransfer, unknown>) {
   if (t.method === 'swap' && t.swapInfo) {
     const soldUsd = usdFor(t.swapInfo.sold.token, t.swapInfo.sold.amount);
     const boughtUsd = usdFor(t.swapInfo.bought.token, t.swapInfo.bought.amount);
-    if (!soldUsd && !boughtUsd) return <span className="block text-right">—</span>;
+    if (!soldUsd && !boughtUsd) return <span className="block w-full text-right truncate">—</span>;
     if (soldUsd && boughtUsd) {
+      const label = `≈ ${soldUsd} → ${boughtUsd}`;
       return (
-        <span className="block text-right whitespace-nowrap text-gray-700">≈ {soldUsd} → {boughtUsd}</span>
+        <span className="block w-full text-right truncate text-gray-700" title={label}>{label}</span>
       );
     }
     // Fallbacks when price known only for one side: show single approx line
     const approx = soldUsd ?? boughtUsd;
-    return <span className="block text-right whitespace-nowrap text-gray-700">{approx ?? '—'}</span>;
+    return <span className="block w-full text-right truncate text-gray-700" title={approx ?? undefined}>{approx ?? '—'}</span>;
   }
 
   const usd = usdFor(t.token as any, t.amount);
-  return <span className="block text-right">{usd ?? '—'}</span>;
-}
+  return <span className="block w-full text-right truncate" title={usd ?? undefined}>{usd ?? '—'}</span>;
+});
 
-export function ActionsCell(ctx: CellContext<UiTransfer, unknown>) {
+export const ActionsCell = React.memo(function ActionsCell(ctx: CellContext<UiTransfer, unknown>) {
   const t = ctx.row.original;
   // Prefer direct transfer URL if we can parse block/extrinsic/event from id
   let href = '';
@@ -375,13 +335,24 @@ export function ActionsCell(ctx: CellContext<UiTransfer, unknown>) {
   }
   const title = (import.meta as any)?.env?.DEV ? `${href} (${source}) [cand=${candidate}; exId=${t.extrinsicId}; ev=${String(t.eventIndex)}]` : href;
   return <ExternalLink href={href} title={title} />;
-}
+});
 
-export function StatusCell(ctx: CellContext<UiTransfer, unknown>) {
+export const StatusCell = React.memo(function StatusCell(ctx: CellContext<UiTransfer, unknown>) {
   const success = ctx.row.getValue('success') as boolean;
-  const statusText = success ? 'Success' : 'Failed';
-  const classes = `inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-    success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-  }`;
-  return <span className={classes}>{statusText}</span>;
-}
+  
+  if (success) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-sm text-green-600">
+        <CheckCircle2 className="w-4 h-4" />
+        Confirmed
+      </span>
+    );
+  }
+  
+  return (
+    <span className="inline-flex items-center gap-1.5 text-sm text-orange-500">
+      <ClockIcon className="w-4 h-4" />
+        Pending
+    </span>
+  );
+});
