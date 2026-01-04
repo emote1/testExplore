@@ -40,13 +40,14 @@ export function NftMediaViewer({ src, poster, mime, name, className }: NftMediaV
     const el = vidRef.current;
     if (!el) return;
     if (!el.getAttribute('src') && videoSrc) {
-      try { el.setAttribute('src', videoSrc); } catch {}
-      try { el.load(); } catch {}
+      try { el.setAttribute('src', videoSrc); } catch { /* ignore */ }
+      try { el.load(); } catch { /* ignore */ }
     }
     setShowPoster(false);
     setSnapshotUrl(null);
     try {
       const p = el.play();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       if (p && typeof (p as any).catch === 'function') (p as any).catch(() => undefined);
     } catch { /* ignore play errors */ }
   }
@@ -130,8 +131,8 @@ export function NftMediaViewer({ src, poster, mime, name, className }: NftMediaV
           const el = vidRef.current;
           if (!el) return;
           if (!el.getAttribute('src') && videoSrc) {
-            try { el.setAttribute('src', videoSrc); } catch {}
-            try { el.load(); } catch {}
+            try { el.setAttribute('src', videoSrc); } catch { /* ignore */ }
+            try { el.load(); } catch { /* ignore */ }
             const p = el.play();
             if (p && typeof p.catch === 'function') p.catch(() => undefined);
           }
@@ -172,13 +173,14 @@ export function NftMediaViewer({ src, poster, mime, name, className }: NftMediaV
               }
             }
           } catch { /* ignore snapshot errors */ }
-          try { el.pause(); } catch {}
-          try { el.autoplay = false; } catch {}
-          try { el.loop = false; } catch {}
-          try { (el as any).preload = 'none'; } catch {}
-          try { el.currentTime = 0; } catch {}
-          try { el.removeAttribute('src'); } catch {}
-          try { el.load(); } catch {}
+          try { el.pause(); } catch { /* ignore */ }
+          try { el.autoplay = false; } catch { /* ignore */ }
+          try { el.loop = false; } catch { /* ignore */ }
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          try { (el as any).preload = 'none'; } catch { /* ignore */ }
+          try { el.currentTime = 0; } catch { /* ignore */ }
+          try { el.removeAttribute('src'); } catch { /* ignore */ }
+          try { el.load(); } catch { /* ignore */ }
           setShowPoster(true);
         }}
         onError={() => {

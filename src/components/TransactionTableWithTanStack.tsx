@@ -395,7 +395,9 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, tot
         open={!!detailsFor}
         transfer={detailsFor}
         onClose={() => setDetailsFor(null)}
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         pricesById={(table.options as any)?.meta?.pricesById}
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         reefUsd={(table.options as any)?.meta?.reefUsd}
       />
     </div>

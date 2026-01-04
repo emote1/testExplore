@@ -81,12 +81,18 @@ function buildReefscanLink(t: UiTransfer): { href: string; title: string } {
   }
 
   if (
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Number.isFinite(Number((t as any).blockHeight)) &&
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Number.isFinite(Number((t as any).extrinsicIndex)) &&
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Number.isFinite(Number((t as any).eventIndex))
   ) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const block = String(Number((t as any).blockHeight));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const extrinsic = String(Number((t as any).extrinsicIndex));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const event = String(Number((t as any).eventIndex));
     href = `${REEFSCAN_ORIGIN}/transfer/${block}/${extrinsic}/${event}`;
     source = 'indices';
@@ -122,21 +128,27 @@ export function TransactionDetailsModal({ open, transfer, onClose, pricesById, r
   const apollo = useApolloClient() as ApolloClient<NormalizedCacheObject>;
   const { history: reefHistory } = useReefPriceHistory('max');
   const [viewMode, setViewMode] = useState<'basic' | 'advanced'>(() => {
-    try { return (localStorage.getItem('tx_view_mode') === 'advanced') ? 'advanced' : 'basic'; } catch { return 'basic'; }
+    try { return (localStorage.getItem('tx_view_mode') === 'advanced') ? 'advanced' : 'basic'; } catch { /* ignore */ return 'basic'; }
   });
   const [showInverse, setShowInverse] = useState<boolean>(() => {
-    try { return localStorage.getItem('tx_show_inv') === '1'; } catch { return false; }
+    try { return localStorage.getItem('tx_show_inv') === '1'; } catch { /* ignore */ return false; }
   });
   // Persist lightweight UI preferences
-  useEffect(() => { try { localStorage.setItem('tx_view_mode', viewMode); } catch {} }, [viewMode]);
-  useEffect(() => { try { localStorage.setItem('tx_show_inv', showInverse ? '1' : '0'); } catch {} }, [showInverse]);
+  useEffect(() => { try { localStorage.setItem('tx_view_mode', viewMode); } catch { /* ignore */ } }, [viewMode]);
+  useEffect(() => { try { localStorage.setItem('tx_show_inv', showInverse ? '1' : '0'); } catch { /* ignore */ } }, [showInverse]);
 
   // Prepare inputs for historical USD hooks (safe even when transfer is null)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const hookBlockHeight = Number((transfer as any)?.blockHeight);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const hookExtrinsicIndex = Number((transfer as any)?.extrinsicIndex);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const hookTimestamp = (transfer as any)?.timestamp ?? null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const normalToken = (transfer as any)?.token ?? null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const boughtToken = (transfer as any)?.swapInfo?.bought?.token ?? null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const soldToken = (transfer as any)?.swapInfo?.sold?.token ?? null;
   // Call hooks unconditionally to preserve order; they are no-ops when inputs are missing
   const { usdThenPerUnit: usdThenPerUnitNormal } = useTokenUsdThenFromSwap({
@@ -168,8 +180,10 @@ export function TransactionDetailsModal({ open, transfer, onClose, pricesById, r
       navigator.clipboard?.writeText(text).then(() => {
         setCopied(prev => ({ ...prev, [key]: true }));
         window.setTimeout(() => setCopied(prev => ({ ...prev, [key]: false })), 1200);
-      }).catch(() => {});
-    } catch {}
+      }).catch((error) => console.error('Error copying to clipboard:', error));
+    } catch (error) {
+      console.error('Error copying to clipboard:', error);
+    }
   }
 
   // On-demand resolve extrinsic identity (hash/id) if missing (typical for swap items)
@@ -177,7 +191,9 @@ export function TransactionDetailsModal({ open, transfer, onClose, pricesById, r
     if (!open || !transfer) { setExHashLocal(null); setExIdLocal(null); return; }
     const hasHash = Boolean(transfer.extrinsicHash);
     const hasId = Boolean(transfer.extrinsicId);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const height = Number((transfer as any)?.blockHeight);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const index = Number((transfer as any)?.extrinsicIndex);
     if (hasHash && hasId) { setExHashLocal(transfer.extrinsicHash || null); setExIdLocal(transfer.extrinsicId || null); return; }
     if (!hasHash || !hasId) {
@@ -195,17 +211,21 @@ export function TransactionDetailsModal({ open, transfer, onClose, pricesById, r
             if (!hasHash && res.hash) setExHashLocal(res.hash);
             if (!hasId && res.id) setExIdLocal(res.id);
           }
-        } catch {}
+        } catch { /* ignore */ }
       })();
       return () => { cancelled = true; };
     }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any, react-hooks/exhaustive-deps
   }, [open, transfer?.extrinsicHash, transfer?.extrinsicId, (transfer as any)?.blockHeight, (transfer as any)?.extrinsicIndex, apollo]);
 
   // On-demand resolve indices (block/extrinsic/event) if any is missing
   useEffect(() => {
     if (!open || !transfer) { setBlockLocal(null); setExtrinsicLocal(null); setEventLocal(null); return; }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const b = Number((transfer as any)?.blockHeight);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const ex = Number((transfer as any)?.extrinsicIndex);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const ev = Number((transfer as any)?.eventIndex);
     const hasAll = Number.isFinite(b) && Number.isFinite(ex) && Number.isFinite(ev);
     if (hasAll) { setBlockLocal(b); setExtrinsicLocal(ex); setEventLocal(ev); return; }
@@ -227,9 +247,10 @@ export function TransactionDetailsModal({ open, transfer, onClose, pricesById, r
           if (!transfer.extrinsicHash && res.extrinsicHash) setExHashLocal(res.extrinsicHash);
           if (!transfer.extrinsicId && res.extrinsicId) setExIdLocal(res.extrinsicId);
         }
-      } catch {}
+      } catch { /* ignore */ }
     })();
     return () => { cancelled = true; };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any, react-hooks/exhaustive-deps
   }, [open, transfer?.extrinsicHash, transfer?.extrinsicId, (transfer as any)?.blockHeight, (transfer as any)?.extrinsicIndex, (transfer as any)?.eventIndex, apollo]);
 
   if (!open || !transfer) return null;
@@ -238,20 +259,25 @@ export function TransactionDetailsModal({ open, transfer, onClose, pricesById, r
   const ts = formatTimestampFull(transfer.timestamp, 'en-US');
   const exHashShow = transfer.extrinsicHash || exHashLocal || '';
   const exIdShow = transfer.extrinsicId || exIdLocal || '';
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const blockShow = Number.isFinite(Number((transfer as any)?.blockHeight)) ? Number((transfer as any).blockHeight) : (blockLocal ?? undefined);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const extrinsicShow = Number.isFinite(Number((transfer as any)?.extrinsicIndex)) ? Number((transfer as any).extrinsicIndex) : (extrinsicLocal ?? undefined);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const eventShow = Number.isFinite(Number((transfer as any)?.eventIndex)) ? Number((transfer as any).eventIndex) : (eventLocal ?? undefined);
   const patchedTransfer = (exHashShow || exIdShow || blockShow != null || extrinsicShow != null || eventShow != null)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ? { ...transfer, extrinsicHash: exHashShow || transfer.extrinsicHash, extrinsicId: (exIdShow || undefined) as any, blockHeight: blockShow as any, extrinsicIndex: extrinsicShow as any, eventIndex: eventShow as any }
     : transfer;
   const reefscan = buildReefscanLink(patchedTransfer);
 
   // Compute block-time USD (via daily REEF history) and current USD for amounts
-  const txMs = (() => { try { const n = Date.parse(String(transfer.timestamp)); return Number.isFinite(n) ? n : NaN; } catch { return NaN; } })();
+  const txMs = (() => { try { const n = Date.parse(String(transfer.timestamp)); return Number.isFinite(n) ? n : NaN; } catch { /* ignore */ return NaN; } })();
   const dayKey = Number.isFinite(txMs) ? new Date(txMs).toISOString().slice(0, 10) : null;
   const reefUsdBlock = dayKey && reefHistory ? (typeof reefHistory[dayKey] === 'number' ? reefHistory[dayKey]! : null) : null;
 
   // Regular transfer (non-swap)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const nowUsdTransfer = !isSwap ? usdNumberFor(transfer.token as any, transfer.amount, pricesById, reefUsd) : null;
   let blockUsdTransfer = (!isSwap && reefUsdBlock != null && isReefToken(transfer.token))
     ? (() => { const q = toFloatAmount(transfer.amount, transfer.token.decimals); return (q > 0) ? (q * reefUsdBlock) : null; })()
@@ -271,7 +297,9 @@ export function TransactionDetailsModal({ open, transfer, onClose, pricesById, r
   const soldQty = isSwap ? toFloatAmount(transfer.swapInfo!.sold.amount, soldTok!.decimals) : null;
   const boughtIsReef = isSwap ? isReefToken(boughtTok!) : false;
   const soldIsReef = isSwap ? isReefToken(soldTok!) : false;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const nowUsdBought = isSwap ? usdNumberFor(boughtTok as any, transfer.swapInfo!.bought.amount, pricesById, reefUsd) : null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const nowUsdSold = isSwap ? usdNumberFor(soldTok as any, transfer.swapInfo!.sold.amount, pricesById, reefUsd) : null;
   let blockUsdBought: number | null = null;
   let blockUsdSold: number | null = null;

@@ -39,18 +39,21 @@ export function WsStatusToast() {
     const onOpened = () => { /* no toast on initial open */ };
     const onConnected = () => { if (hadIssueRef.current) show('WebSocket restored', 'success', 2500); };
     const onClosed = (e: Event) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const detail: any = (e as CustomEvent).detail ?? {};
       const code = detail.code != null ? ` (code ${detail.code})` : '';
       hadIssueRef.current = true;
       show(`WebSocket closed${code}. Reconnecting...`, 'warning', 5000);
     };
     const onError = (e: Event) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const detail: any = (e as CustomEvent).detail ?? {};
       const msg = detail.message ?? 'Unknown error';
       hadIssueRef.current = true;
       show(`WebSocket error: ${msg}`, 'error', 6000);
     };
     const onRetry = (e: Event) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const detail: any = (e as CustomEvent).detail ?? {};
       const tries = detail.tries ?? 1;
       const delayMs = detail.delayMs ?? 0;

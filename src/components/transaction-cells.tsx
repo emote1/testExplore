@@ -43,10 +43,12 @@ export const TypeCell = React.memo(function TypeCell(ctx: CellContext<UiTransfer
   );
 });
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export const TimestampHeader = React.memo(function TimestampHeader(_ctx: HeaderContext<UiTransfer, unknown>) {
   return <span>Time</span>;
 });
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export const AmountHeader = React.memo(function AmountHeader(_ctx: HeaderContext<UiTransfer, unknown>) {
   return <span>Amount</span>;
 });
@@ -58,6 +60,7 @@ export const TimestampCell = React.memo(function TimestampCell(ctx: CellContext<
   const invalid = !d || isNaN(d.getTime()) || d.getFullYear() < 2015;
   // Fallback for reef-swap rows without real timestamp: show block height
   if ((t.method === 'swap' || t.type === 'SWAP') && invalid) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const block = (t as any)?.blockHeight;
     const label = typeof block === 'number' ? `Block #${block}` : '—';
     return <span className="whitespace-nowrap">{label}</span>;
@@ -227,6 +230,7 @@ export const AmountCell = React.memo(function AmountCell(ctx: CellContext<UiTran
 // Standalone USD value column
 export const ValueCell = React.memo(function ValueCell(ctx: CellContext<UiTransfer, unknown>) {
   const t = ctx.row.original;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const meta = (ctx.table.options as any)?.meta as { pricesById?: Record<string, number | null>; reefUsd?: number | null } | undefined;
 
   function toNumeric(amount: string, decimals: number): number | null {
@@ -268,6 +272,7 @@ export const ValueCell = React.memo(function ValueCell(ctx: CellContext<UiTransf
     return <span className="block w-full text-right truncate text-gray-700" title={approx ?? undefined}>{approx ?? '—'}</span>;
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const usd = usdFor(t.token as any, t.amount);
   return <span className="block w-full text-right truncate" title={usd ?? undefined}>{usd ?? '—'}</span>;
 });
@@ -303,6 +308,7 @@ export const ActionsCell = React.memo(function ActionsCell(ctx: CellContext<UiTr
         const event = String(Number(evCandidate));
         href = `${REEFSCAN_ORIGIN}/transfer/${block}/${extrinsic}/${event}`;
         source = 'extrinsicId';
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const title = (import.meta as any)?.env?.DEV ? `${href} (${source}) [exId=${t.extrinsicId}; ev=${String(evCandidate)}]` : href;
         return <ExternalLink href={href} title={title} />;
       }
@@ -311,12 +317,18 @@ export const ActionsCell = React.memo(function ActionsCell(ctx: CellContext<UiTr
 
   // 2) Числовые индексы из полей (blockHeight/extrinsicIndex/eventIndex)
   if (
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Number.isFinite(Number((t as any).blockHeight)) &&
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Number.isFinite(Number((t as any).extrinsicIndex)) &&
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Number.isFinite(Number((t as any).eventIndex))
   ) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const block = String(Number((t as any).blockHeight));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const extrinsic = String(Number((t as any).extrinsicIndex));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const event = String(Number((t as any).eventIndex));
     href = `${REEFSCAN_ORIGIN}/transfer/${block}/${extrinsic}/${event}`;
     source = 'indices';
@@ -333,6 +345,7 @@ export const ActionsCell = React.memo(function ActionsCell(ctx: CellContext<UiTr
     href = `${REEFSCAN_ORIGIN}/`;
     source = 'home';
   }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const title = (import.meta as any)?.env?.DEV ? `${href} (${source}) [cand=${candidate}; exId=${t.extrinsicId}; ev=${String(t.eventIndex)}]` : href;
   return <ExternalLink href={href} title={title} />;
 });

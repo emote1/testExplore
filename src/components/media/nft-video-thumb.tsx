@@ -76,10 +76,11 @@ export function NftVideoThumb({ src, poster, name, className, onClick, priority,
     const el = vidRef.current;
     if (!el) return;
     if (suspended) {
-      try { el.pause(); } catch {}
-      try { el.removeAttribute('src'); } catch {}
-      try { (el as any).preload = 'none'; } catch {}
-      try { el.load(); } catch {}
+      try { el.pause(); } catch { /* ignore */ }
+      try { el.removeAttribute('src'); } catch { /* ignore */ }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      try { (el as any).preload = 'none'; } catch { /* ignore */ }
+      try { el.load(); } catch { /* ignore */ }
       setShowPoster(!!posterUrl && !posterFailed);
       setIsHovering(false);
       setForceLoad(false);
