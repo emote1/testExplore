@@ -3,15 +3,22 @@ import { toEpochMs, safeBigInt } from './token-helpers';
 
 import { getString } from './object';
 
+interface TransferNode {
+  extrinsicHash?: string;
+  reefswapAction?: unknown;
+  isNft?: boolean;
+  type?: string;
+}
+
 /**
  * Identifies extrinsic hashes that might have missing swap partner legs.
  */
 export function identifyMissingPartnerHashes(
-  nodes: any[],
+  nodes: TransferNode[],
   alreadyLoadedHashes: Set<string> = new Set(),
   options: { strict?: boolean } = {}
 ): string[] {
-  const byHash: Record<string, any[]> = {};
+  const byHash: Record<string, TransferNode[]> = {};
   for (const n of nodes) {
     const h = getString(n, ['extrinsicHash']);
     if (!h) continue;
@@ -22,12 +29,12 @@ export function identifyMissingPartnerHashes(
   for (const [h, arr] of Object.entries(byHash)) {
     if (alreadyLoadedHashes.has(h)) continue;
     
-    const hasFlag = arr.some((g) => Boolean((g as any)?.reefswapAction));
+    const hasFlag = arr.some((g) => Boolean(g.reefswapAction));
     
     if (options.strict) {
-      const fungible = arr.filter((g) => !Boolean((g as any)?.isNft));
-      const hasIn = fungible.some((g) => String((g as any)?.type) === 'INCOMING');
-      const hasOut = fungible.some((g) => String((g as any)?.type) === 'OUTGOING');
+      const fungible = arr.filter((g) => !g.isNft);
+      const hasIn = fungible.some((g) => String(g.type) === 'INCOMING');
+      const hasOut = fungible.some((g) => String(g.type) === 'OUTGOING');
       if (hasFlag || !(hasIn && hasOut)) missing.push(h);
     } else {
       if (hasFlag) missing.push(h);
@@ -130,7 +137,7 @@ export function aggregateSwaps(transfers: UiTransfer[]): UiTransfer[] {
       if (!m) return undefined;
       return `${String(Number(m[1]))}-${String(Number(m[2]))}-${String(Number(m[3]))}`;
     }
-    function buildFromExId(leg?: any): string | undefined {
+    function buildFromExId(leg?: { extrinsicId?: string; eventIndex?: number }): string | undefined {
       if (!leg?.extrinsicId || leg?.eventIndex == null) return undefined;
       const m = String(leg.extrinsicId).match(/0*(\d+)-0*(\d+)/);
       if (!m) return undefined;

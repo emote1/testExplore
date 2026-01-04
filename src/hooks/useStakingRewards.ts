@@ -54,19 +54,19 @@ export function useStakingRewards(accountAddress: string | null | undefined, pag
   }, [accountAddress, resolveAddress]);
 
   const { data: conn, loading: connLoading, error: connError } = useQuery(
-    STAKINGS_CONNECTION_QUERY as unknown as TypedDocumentNode<any, any>,
+    STAKINGS_CONNECTION_QUERY as unknown as TypedDocumentNode,
     { variables: { accountId: resolved as string }, skip: !resolved }
   );
   const totalCount: number = (conn?.stakingsConnection?.totalCount ?? 0) as number;
 
   const offset = pageIndex * pageSize;
   const { data, loading, error } = useQuery(
-    STAKINGS_LIST_QUERY as unknown as TypedDocumentNode<any, any>,
+    STAKINGS_LIST_QUERY as unknown as TypedDocumentNode,
     { variables: { accountId: resolved as string, first: pageSize, after: offset }, skip: !resolved }
   );
 
   const rewards = useMemo<UiReward[]>(() => {
-    const list = (data?.stakings ?? []) as Array<any>;
+    const list = (data?.stakings ?? []) as Array<{ id: string; amount: string; timestamp: string; event?: { extrinsic?: { hash?: string } }; signer?: { id?: string } }>;
     return list.map((s) => ({
       id: s.id,
       amount: s.amount,

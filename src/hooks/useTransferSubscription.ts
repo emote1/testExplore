@@ -161,7 +161,8 @@ export function useTransferSubscription({
     const transferEdges = rawTransfers.map((transfer) => ({ node: transfer }));
     const uiTransfers = ensureUniqueTransfers(
       sortTransfersByTimestamp(
-        mapTransfersToUiTransfers(transferEdges as unknown as (any | null)[], resolvedAddress ?? resolvedEvmAddress ?? undefined)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        mapTransfersToUiTransfers(transferEdges as any, resolvedAddress ?? resolvedEvmAddress ?? undefined)
       )
     );
 
@@ -210,7 +211,7 @@ export function useTransferSubscription({
               const existingEdges = prev.transfersConnection.edges ?? [];
               const existingIds = new Set<string>();
               for (const e of existingEdges) {
-                const id = (e as any)?.node?.id as string | undefined;
+                const id = (e as { node?: { id?: string } })?.node?.id;
                 if (id) existingIds.add(id);
               }
               // Build edges to prepend for candidates not yet present
@@ -220,11 +221,11 @@ export function useTransferSubscription({
                   __typename: 'TransferEdge' as const,
                   node: {
                     __typename: 'Transfer' as const,
-                    ...(node as any),
+                    ...(node as Record<string, unknown>),
                     token: {
                       __typename: 'VerifiedContract' as const,
-                      id: (node as any)?.token?.id,
-                      name: (node as any)?.token?.name,
+                      id: (node as { token?: { id?: string } })?.token?.id,
+                      name: (node as { token?: { name?: string } })?.token?.name,
                       contractData: null, // satisfy selection set
                     },
                   },
@@ -236,16 +237,17 @@ export function useTransferSubscription({
               const resultEdges: typeof existingEdges = [];
               // Prepend new edges first
               for (const e of prependEdges) {
-                const id = (e as any)?.node?.id as string | undefined;
+                const id = (e as { node?: { id?: string } })?.node?.id;
                 if (!id) continue;
                 if (!seen.has(id)) {
                   seen.add(id);
-                  resultEdges.push(e as (typeof existingEdges)[number]);
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  resultEdges.push(e as any);
                 }
               }
               // Then keep existing edges in order, skipping duplicates
               for (const e of existingEdges) {
-                const id = (e as any)?.node?.id as string | undefined;
+                const id = (e as { node?: { id?: string } })?.node?.id;
                 if (!id) {
                   resultEdges.push(e);
                   continue;

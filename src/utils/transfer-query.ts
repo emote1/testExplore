@@ -62,7 +62,7 @@ export function buildTransferWhereFilter({
   const hasTokenMax = tokenMaxRaw != null && safeBigInt(tokenMaxRaw) > 0n;
 
   if (hasTokenIds) {
-    const tokenOrClauses: Array<any> = [];
+    const tokenOrClauses: Array<{ id_eq: string }> = [];
     const normalize0x = (v: string) => v.startsWith('0x') ? v : `0x${v}`;
 
     for (const id of (tokenIds as string[])) {
@@ -75,13 +75,13 @@ export function buildTransferWhereFilter({
       const variants = Array.from(new Set([s, lower, checksum]));
       for (const v of variants) tokenOrClauses.push({ id_eq: v });
     }
-    const tokenFilter: any = tokenOrClauses.length > 1 ? { OR: tokenOrClauses } : (tokenOrClauses[0] || {});
-    const andClauses: NonNullable<TransferWhereInput['AND']> = [base, { token: tokenFilter } as any];
+    const tokenFilter = tokenOrClauses.length > 1 ? { OR: tokenOrClauses } : (tokenOrClauses[0] || {});
+    const andClauses: NonNullable<TransferWhereInput['AND']> = [base, { token: tokenFilter }];
     if (hasTokenMin) andClauses.push({ amount_gte: safeBigInt(tokenMinRaw!).toString() });
     if (hasTokenMax) andClauses.push({ amount_lte: safeBigInt(tokenMaxRaw!).toString() });
-    let result: TransferWhereInput = { AND: andClauses } as TransferWhereInput;
+    let result: TransferWhereInput = { AND: andClauses };
     if (excludeSwapLegs) {
-      result = { AND: [result, { reefswapAction_isNull: true } as any] } as any;
+      result = { AND: [result, { reefswapAction_isNull: true }] };
     }
     return result;
   }
@@ -91,24 +91,24 @@ export function buildTransferWhereFilter({
   if (reefOnly || hasMin || hasMax) {
     const andClauses: NonNullable<TransferWhereInput['AND']> = [base, { type_eq: 'Native' as TransferType }];
     if (hasMin) andClauses.push({ amount_gte: safeBigInt(minReefRaw!).toString() });
-    let result: TransferWhereInput = { AND: andClauses } as TransferWhereInput;
+    let result: TransferWhereInput = { AND: andClauses };
     if (excludeSwapLegs) {
-      result = { AND: [result, { reefswapAction_isNull: true } as any] } as any;
+      result = { AND: [result, { reefswapAction_isNull: true }] };
     }
     return result;
   }
 
   if (erc20Only) {
-    const andClauses: NonNullable<TransferWhereInput['AND']> = [base, { token: { type_eq: 'ERC20' as any } } as any];
-    let result: TransferWhereInput = { AND: andClauses } as TransferWhereInput;
+    const andClauses: NonNullable<TransferWhereInput['AND']> = [base, { token: { type_eq: 'ERC20' } }];
+    let result: TransferWhereInput = { AND: andClauses };
     if (excludeSwapLegs) {
-      result = { AND: [result, { reefswapAction_isNull: true } as any] } as any;
+      result = { AND: [result, { reefswapAction_isNull: true }] };
     }
     return result;
   }
 
   if (excludeSwapLegs) {
-    return { AND: [base, { reefswapAction_isNull: true } as any] } as any;
+    return { AND: [base, { reefswapAction_isNull: true }] };
   }
   return base;
 }
