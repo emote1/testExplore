@@ -59,6 +59,7 @@ async function graphFetch<T>(query: string, variables: Record<string, unknown>, 
       signal,
     });
     if (!res.ok) return null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const json = await res.json().catch(() => null) as any;
     return json?.data ?? null;
   } catch {
@@ -160,7 +161,7 @@ async function fetchTokenPriceUsd(token: TokenInput, reefUsd: number, signal?: A
     const id = token.id.toLowerCase();
     if (id === REEF_TOKEN_ADDRESS.toLowerCase()) return reefUsd;
     // GraphQL only: poolsReserves -> allPoolsList
-    let row = await fetchReservesViaGraph(id, signal);
+    const row = await fetchReservesViaGraph(id, signal);
     let r1 = row ? safeBigInt(row.reserved1) : 0n;
     let r2 = row ? safeBigInt(row.reserved2) : 0n;
     let reefIs1 = row ? ((row.token1 || '').toLowerCase() === REEF_TOKEN_ADDRESS.toLowerCase()) : false;

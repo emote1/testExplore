@@ -5,7 +5,7 @@ import { VerifiedContractsByIdsDocument } from '@/gql/graphql';
 import { hasTokenMetaCached, primeTokenMetaCacheFromContracts } from '../data/transfer-mapper';
 
 interface Props {
-  data: { transfersConnection?: { edges?: unknown[] } };
+  data?: { transfersConnection?: { edges?: unknown[] } };
 }
 
 export function useTokenMetadataResolver({ data }: Props) {

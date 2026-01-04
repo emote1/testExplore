@@ -134,7 +134,9 @@ export function useTransactionDataWithBlocks(
     // Merge partner legs (if any) before mapping/aggregation in Swap mode only
     const partnerList = Object.values(partnersByHash).flat();
     const combinedEdges = swapOnly && partnerList.length > 0
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ? [...(edges as unknown as Array<{ node: any }>), ...partnerList.map((n) => ({ node: n }))]
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       : (edges as unknown as Array<{ node: any }>);
 
     const mapped = mapTransfersToUiTransfers(
@@ -143,7 +145,7 @@ export function useTransactionDataWithBlocks(
     );
 
     // Enforce global stable order matching server order
-    let enriched = (minReefRaw || maxReefRaw)
+    const enriched = (minReefRaw || maxReefRaw)
       ? sortTransfersByAmount(mapped)
       : sortTransfersByTimestamp(mapped);
 
@@ -174,6 +176,7 @@ export function useTransactionDataWithBlocks(
       const { data: q } = await (client as ApolloClient<NormalizedCacheObject>).query(
         {
           // Use polling query since it exposes offset/limit on plain list
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           query: TRANSFERS_POLLING_QUERY as unknown as TypedDocumentNode<any, any>,
           variables: {
             where: buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress, direction, minReefRaw, maxReefRaw, reefOnly, tokenIds, tokenMinRaw, tokenMaxRaw, erc20Only, excludeSwapLegs: !swapOnly }),
@@ -185,21 +188,25 @@ export function useTransactionDataWithBlocks(
         }
       );
 
-      let list = (q?.transfers || []) as Array<any>;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const list = (q?.transfers || []) as Array<any>;
       // Light mode: skip partner fetch in window path to avoid extra queries
       if (!swapOnly) {
         try {
           const missing = identifyMissingPartnerHashes(list, new Set(), { strict: true });
           if (missing.length > 0) {
             // Important: do NOT restrict by address here; partner legs may not involve the user
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const where: any = { extrinsicHash_in: missing, reefswapAction_isNull: false };
             const { data: q2 } = await (client as ApolloClient<NormalizedCacheObject>).query(
               {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 query: TRANSFERS_POLLING_QUERY as unknown as TypedDocumentNode<any, any>,
                 variables: { where, limit: Math.min(missing.length * 20, 500) },
                 fetchPolicy: 'network-only',
               }
             );
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const partners = (q2?.transfers || []) as Array<any>;
             if (partners.length > 0) {
               const seen = new Set(list.map((n) => n?.id));
@@ -210,6 +217,7 @@ export function useTransactionDataWithBlocks(
               }
             }
           }
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         } catch (_e) {
           // best-effort; ignore partner errors in window mode
         }
@@ -218,12 +226,13 @@ export function useTransactionDataWithBlocks(
 
       // Map to UI model
       const mapped = mapTransfersToUiTransfers(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         list.map((n: any) => ({ node: n })),
         accountAddress ?? resolvedAddress ?? resolvedEvmAddress ?? undefined
       );
       
       // Enforce global order consistent with server
-      let enriched = (minReefRaw || maxReefRaw)
+      const enriched = (minReefRaw || maxReefRaw)
         ? sortTransfersByAmount(mapped)
         : sortTransfersByTimestamp(mapped);
 

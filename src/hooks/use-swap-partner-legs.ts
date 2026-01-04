@@ -5,7 +5,7 @@ import { TRANSFERS_POLLING_QUERY } from '../data/transfers';
 import { identifyMissingPartnerHashes } from '@/utils/transfer-helpers';
 
 interface Props {
-  data: { transfersConnection?: { edges?: unknown[] } };
+  data?: { transfersConnection?: { edges?: unknown[] } };
   swapOnly: boolean;
   enabled: boolean;
 }

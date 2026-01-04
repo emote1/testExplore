@@ -40,6 +40,7 @@ function toFloat(amount: unknown, decimals: number): number {
   } catch { return 0; }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function reefPerTokenFromEvent(ev: any, reefIsToken1: boolean): number | null {
   const a1 = toFloat(ev?.amount1, Number(ev?.pool?.token1?.decimals ?? 18));
   const a2 = toFloat(ev?.amount2, Number(ev?.pool?.token2?.decimals ?? 18));
@@ -102,6 +103,7 @@ export function useTokenUsdThenFromSwap({ tokenId, decimals, blockHeight, extrin
         if (validBh == null) { setUsdThen(null); return; }
         const client = reefSwapClient as ApolloClient<NormalizedCacheObject>;
         const { data } = await client.query({
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           query: NEAREST_SWAP_FOR_TOKEN_DOCUMENT as any,
           variables: { reef: '0x0000000000000000000000000000000001000000', token, bh: validBh, ex: validEx },
           fetchPolicy: 'network-only',
@@ -119,6 +121,7 @@ export function useTokenUsdThenFromSwap({ tokenId, decimals, blockHeight, extrin
           setUsdThen(usdPerToken);
           if (cacheKey) cache.set(cacheKey, usdPerToken);
         }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (e: any) {
         if (!cancelled) { setUsdThen(null); setError(e instanceof Error ? e : new Error('usd then lookup failed')); }
       } finally {

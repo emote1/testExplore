@@ -57,6 +57,7 @@ function toFloat(amount: unknown, decimals: number): number {
   } catch { return 0; }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function reefPerTokenFromEvent(ev: any, reefIsToken1: boolean): number | null {
   const a1 = toFloat(ev?.amount1, Number(ev?.pool?.token1?.decimals ?? 18));
   const a2 = toFloat(ev?.amount2, Number(ev?.pool?.token2?.decimals ?? 18));
@@ -110,6 +111,7 @@ export function useTokenUsdMidFromSwapTime({ tokenId, decimals, tradeTimestamp, 
         const targetMs = Date.parse(midTimestampIso);
         const reefUsdMidMaybe = (() => {
           try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const v = history?.[toIsoDay(targetMs) as any];
             return typeof v === 'number' ? v : null;
           } catch { return null; }
@@ -134,12 +136,14 @@ export function useTokenUsdMidFromSwapTime({ tokenId, decimals, tradeTimestamp, 
         const client = reefSwapClient as ApolloClient<NormalizedCacheObject>;
         const [beforeQ, afterQ] = await Promise.all([
           client.query({
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             query: NEAREST_SWAP_FOR_TOKEN_BY_TIME_DOCUMENT as any,
             variables: { reef: REEF_ID, token: tokenKey, ts: midTimestampIso },
             fetchPolicy: 'network-only',
             context: { fetchOptions: { signal: abort.signal } },
           }),
           client.query({
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             query: NEAREST_SWAP_FOR_TOKEN_BY_TIME_AFTER_DOCUMENT as any,
             variables: { reef: REEF_ID, token: tokenKey, ts: midTimestampIso },
             fetchPolicy: 'network-only',
@@ -161,12 +165,14 @@ export function useTokenUsdMidFromSwapTime({ tokenId, decimals, tradeTimestamp, 
             try {
               const [wb, wa] = await Promise.all([
                 client2.query({
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   query: NEAREST_SWAP_FOR_TOKEN_WINDOW_BEFORE_DOCUMENT as any,
                   variables: { reef: REEF_ID, token: tokenKey, from: fromBefore, to: toBefore },
                   fetchPolicy: 'network-only',
                   context: { fetchOptions: { signal: abort.signal } },
                 }),
                 client2.query({
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   query: NEAREST_SWAP_FOR_TOKEN_WINDOW_AFTER_DOCUMENT as any,
                   variables: { reef: REEF_ID, token: tokenKey, from: fromAfter, to: toAfter },
                   fetchPolicy: 'network-only',
@@ -190,12 +196,14 @@ export function useTokenUsdMidFromSwapTime({ tokenId, decimals, tradeTimestamp, 
             const expTimer = window.setTimeout(() => expAbort.abort(), EXPLORER_TIMEOUT_MS);
             const [bBlock, aBlock] = await Promise.all([
               (reefExplorerClient as ApolloClient<NormalizedCacheObject>).query({
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 query: BLOCK_BY_TIME_BEFORE_DOCUMENT as any,
                 variables: { ts: midTimestampIso },
                 fetchPolicy: 'network-only',
                 context: { fetchOptions: { signal: expAbort.signal } },
               }),
               (reefExplorerClient as ApolloClient<NormalizedCacheObject>).query({
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 query: BLOCK_BY_TIME_AFTER_DOCUMENT as any,
                 variables: { ts: midTimestampIso },
                 fetchPolicy: 'network-only',
@@ -211,19 +219,23 @@ export function useTokenUsdMidFromSwapTime({ tokenId, decimals, tradeTimestamp, 
             const [bSwap, aSwap] = await Promise.all([
               Number.isFinite(hb) && hb > 0
                 ? client2.query({
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     query: NEAREST_SWAP_FOR_TOKEN_DOCUMENT as any,
                     variables: { reef: REEF_ID, token: tokenKey, bh: Math.trunc(hb), ex: 9999 },
                     fetchPolicy: 'network-only',
                     context: { fetchOptions: { signal: byBlockAbort.signal } },
                   })
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 : Promise.resolve({ data: null } as any),
               Number.isFinite(ha) && ha > 0
                 ? client2.query({
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     query: NEAREST_SWAP_FOR_TOKEN_BY_BLOCK_AFTER_DOCUMENT as any,
                     variables: { reef: REEF_ID, token: tokenKey, bh: Math.trunc(ha), ex: 0 },
                     fetchPolicy: 'network-only',
                     context: { fetchOptions: { signal: byBlockAbort.signal } },
                   })
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 : Promise.resolve({ data: null } as any),
             ]);
             window.clearTimeout(byBlockTimer);
@@ -270,6 +282,7 @@ export function useTokenUsdMidFromSwapTime({ tokenId, decimals, tradeTimestamp, 
           setUsdMid(usdPerToken);
           if (cacheKey) cache.set(cacheKey, usdPerToken);
         }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (e: any) {
         if (!cancelled) { setUsdMid(null); setError(e instanceof Error ? e : new Error('usd mid lookup failed')); }
       } finally {
