@@ -40,7 +40,7 @@ export function useNftCountByOwner(owner: string | null | undefined): UseNftCoun
   }, [owner, resolveEvmAddress]);
 
   const { data, loading, error } = useQuery(
-    NFTS_BY_OWNER_COUNT_QUERY as unknown as TypedDocumentNode<any, any>,
+    NFTS_BY_OWNER_COUNT_QUERY as unknown as TypedDocumentNode,
     {
       variables: { owner: evmAddress },
       skip: !evmAddress || isResolving,

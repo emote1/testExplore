@@ -5,14 +5,14 @@ import { TRANSFERS_POLLING_QUERY } from '../data/transfers';
 import { identifyMissingPartnerHashes } from '@/utils/transfer-helpers';
 
 interface Props {
-  data: any;
+  data: { transfersConnection?: { edges?: unknown[] } };
   swapOnly: boolean;
   enabled: boolean;
 }
 
 export function useSwapPartnerLegs({ data, swapOnly, enabled }: Props) {
   const client = useApolloClient();
-  const [partnersByHash, setPartnersByHash] = useState<Record<string, any[]>>({});
+  const [partnersByHash, setPartnersByHash] = useState<Record<string, unknown[]>>({});
 
   useEffect(() => {
     if (!enabled) {
@@ -24,22 +24,23 @@ export function useSwapPartnerLegs({ data, swapOnly, enabled }: Props) {
     const wantPartners = !!swapOnly && enabled;
     if (!wantPartners) return;
     
-    const edges = data?.transfersConnection.edges || [];
-    const nodes = edges.map((e: any) => e?.node).filter(Boolean) as Array<any>;
+    const edges = data?.transfersConnection?.edges || [];
+    const nodes = edges.map((e) => (e as { node?: unknown })?.node).filter(Boolean);
     if (nodes.length === 0) return;
 
     const alreadyLoadedHashes = new Set(Object.keys(partnersByHash));
-    const missing = identifyMissingPartnerHashes(nodes, alreadyLoadedHashes);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const missing = identifyMissingPartnerHashes(nodes as any, alreadyLoadedHashes);
     
     if (missing.length === 0) return;
     const missingLimited = missing.slice(0, 20);
 
     (async () => {
       try {
-        const where: any = { extrinsicHash_in: missingLimited };
+        const where = { extrinsicHash_in: missingLimited };
         const { data: q } = await (client as ApolloClient<NormalizedCacheObject>).query(
           {
-            query: TRANSFERS_POLLING_QUERY as unknown as TypedDocumentNode<any, any>,
+            query: TRANSFERS_POLLING_QUERY as unknown as TypedDocumentNode,
             variables: {
               where,
               limit: Math.min(missingLimited.length * 10, 400),
@@ -47,9 +48,9 @@ export function useSwapPartnerLegs({ data, swapOnly, enabled }: Props) {
             fetchPolicy: 'network-only',
           }
         );
-        const list = (q?.transfers || []) as Array<any>;
+        const list = (q?.transfers || []) as Array<unknown>;
         if (!list.length) return;
-        const grouped: Record<string, any[]> = {};
+        const grouped: Record<string, unknown[]> = {};
         for (const t of list) {
           const h = getString(t, ['extrinsicHash']);
           if (!h) continue;
@@ -58,7 +59,7 @@ export function useSwapPartnerLegs({ data, swapOnly, enabled }: Props) {
         setPartnersByHash((prev) => {
           const next = { ...prev };
           for (const [h, arr] of Object.entries(grouped)) {
-            if (!next[h]) next[h] = arr as any[];
+            if (!next[h]) next[h] = arr;
           }
           return next;
         });

@@ -69,6 +69,7 @@ async function fetchRewards(nativeAddress: string, range: RangeKey): Promise<{ i
 
   let totalCount: number | undefined = undefined;
   if (!days) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const conn = await apolloClient.query({ query: STAKINGS_CONNECTION_QUERY as any, variables: { accountId: nativeAddress, from, to }, fetchPolicy: 'network-only' });
     totalCount = (conn?.data?.stakingsConnection?.totalCount ?? 0) as number;
     if (!totalCount) return { items: [], totalCount: 0 };
@@ -83,11 +84,12 @@ async function fetchRewards(nativeAddress: string, range: RangeKey): Promise<{ i
   for (let offset = 0; ; ) {
     try {
       const q = await apolloClient.query({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         query: STAKINGS_LIST_MIN_QUERY as any,
         variables: { accountId: nativeAddress, first: pageSize, after: offset, from, to },
         fetchPolicy: 'network-only',
       });
-      const chunk = (q?.data?.stakings ?? []) as Array<any>;
+      const chunk = (q?.data?.stakings ?? []) as Array<{ id: unknown; amount: unknown; timestamp: unknown }>;
       if (!Array.isArray(chunk) || chunk.length === 0) {
         // Avoid infinite loop on unexpected empty page
         break;
@@ -107,8 +109,8 @@ async function fetchRewards(nativeAddress: string, range: RangeKey): Promise<{ i
       }
       // For ALL: stop when we know we've reached totalCount
       if (!days && typeof totalCount === 'number' && offset >= totalCount) break;
-    } catch (e: any) {
-      const msg = (e?.message || '').toString();
+    } catch (e) {
+      const msg = ((e as { message?: unknown })?.message || '').toString();
       const isSize = msg.includes('size limit') || msg.includes('exceed');
       if (isSize && pageSize > minPage) {
         pageSize = Math.max(minPage, Math.floor(pageSize / 2));

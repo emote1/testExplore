@@ -36,7 +36,7 @@ function isJsonResponse(res: Response): boolean {
   return ct.includes('application/json');
 }
 
-async function fetchReefPrice(_signal?: AbortSignal): Promise<ReefPrice | null> {
+async function fetchReefPrice(): Promise<ReefPrice | null> {
   try {
     // 1) Serve from TTL cache if available
     const cached = priceTtl.get(TTL_KEY);
@@ -95,7 +95,7 @@ async function fetchReefPrice(_signal?: AbortSignal): Promise<ReefPrice | null> 
 export function useReefPrice() {
   const { data, isPending, isError } = useQuery<ReefPrice | null>({
     queryKey: ['reefPrice', PRICE_URL, USD_MULTIPLIER],
-    queryFn: ({ signal }) => fetchReefPrice(signal),
+    queryFn: () => fetchReefPrice(),
     staleTime: 60_000, // 1 minute
     gcTime: 5 * 60_000, // 5 minutes
     retry: 1,

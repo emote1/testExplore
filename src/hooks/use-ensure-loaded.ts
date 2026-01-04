@@ -13,7 +13,7 @@ interface EnsureLoadedArgs {
   hasNextPage: boolean;
   fetchMore: () => Promise<void>;
   newItemsCount: number;
-  dbg?: (...args: any[]) => void;
+  dbg?: (...args: unknown[]) => void;
 }
 
 interface EnsureLoadedRefs {

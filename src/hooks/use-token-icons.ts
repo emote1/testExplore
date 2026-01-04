@@ -19,7 +19,7 @@ export function useTokenIcons(ids: string[] | undefined, limit = 100): UseTokenI
   }, [ids]);
 
   const { data, loading, error } = useQuery(
-    VERIFIED_CONTRACTS_BY_IDS_QUERY as unknown as TypedDocumentNode<any, any>,
+    VERIFIED_CONTRACTS_BY_IDS_QUERY as unknown as TypedDocumentNode,
     {
       variables: { ids: uniqueIds, first: Math.min(uniqueIds.length, limit) },
       skip: uniqueIds.length === 0,

@@ -64,10 +64,10 @@ export function useTpsLive(windowSec = 60, source: 'extrinsics' | 'transfers' = 
     const handler = () => {
       try {
         refetchLatest?.().then((res) => {
-          const h = (res as any)?.data?.blocks?.[0]?.height as number | undefined;
+          const h = (res as { data?: { blocks?: Array<{ height?: number }> } })?.data?.blocks?.[0]?.height;
           if (typeof h === 'number') setFromHeight(h);
-        }).catch(() => {});
-      } catch {}
+        }).catch(() => { /* ignore fetch errors */ });
+      } catch { /* ignore handler errors */ }
     };
     window.addEventListener('ws-connected', handler as EventListener);
     window.addEventListener('online', handler as EventListener);
@@ -85,7 +85,7 @@ export function useTpsLive(windowSec = 60, source: 'extrinsics' | 'transfers' = 
       const parsed = JSON.parse(raw) as { ts?: number; windowSec?: number; buf?: Sample[]; trend?: number[]; lastTps?: number; lastPerMin?: number };
       const cutoff = Date.now() - windowSec * 1000;
       const restoredBuf = Array.isArray(parsed?.buf)
-        ? parsed.buf.filter((s: any) => typeof s?.t === 'number' && typeof s?.c === 'number' && s.t >= cutoff)
+        ? parsed.buf.filter((s) => typeof (s as { t?: number; c?: number })?.t === 'number' && typeof (s as { t?: number; c?: number })?.c === 'number' && (s as { t: number }).t >= cutoff)
         : [];
       buf.current = restoredBuf;
       trendRef.current = Array.isArray(parsed?.trend) ? parsed.trend.filter((n) => typeof n === 'number').slice(-windowSec) : [];
@@ -97,7 +97,7 @@ export function useTpsLive(windowSec = 60, source: 'extrinsics' | 'transfers' = 
       setTps(seededTps);
       setPerMin(seededPerMin);
       setTpsTrend([...trendRef.current]);
-    } catch {}
+    } catch { /* ignore parse errors */ }
   }, [windowSec]);
 
   const streamDoc = source === 'transfers' ? TRANSFERS_STREAM : EXTRINSICS_STREAM;
@@ -105,8 +105,8 @@ export function useTpsLive(windowSec = 60, source: 'extrinsics' | 'transfers' = 
     skip: fromHeight == null,
     variables: { fromHeight: fromHeight ?? 0, limit: 5 },
     onData: ({ data }) => {
-      const payload: any = data?.data as any;
-      const xs = (source === 'transfers' ? payload?.transfers : payload?.extrinsics) as Array<any> | undefined;
+      const payload = data?.data as { transfers?: unknown[]; extrinsics?: unknown[] } | undefined;
+      const xs = (source === 'transfers' ? payload?.transfers : payload?.extrinsics);
       if (!xs || xs.length === 0) return;
       const now = Date.now();
       const currentSecond = Math.floor(now / 1000);
@@ -173,7 +173,7 @@ export function useTpsLive(windowSec = 60, source: 'extrinsics' | 'transfers' = 
       try {
         const snapshot = { ts: Date.now(), windowSec, buf: buf.current, trend: trendRef.current, lastTps: lastTpsRef.current, lastPerMin: lastPerMinRef.current };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
-      } catch {}
+      } catch { /* ignore storage errors */ }
     }
     function start() {
       if (intervalId) window.clearInterval(intervalId);
@@ -196,7 +196,7 @@ export function useTpsLive(windowSec = 60, source: 'extrinsics' | 'transfers' = 
       try {
         const snapshot = { ts: Date.now(), windowSec, buf: buf.current, trend: trendRef.current, lastTps: lastTpsRef.current, lastPerMin: lastPerMinRef.current };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
-      } catch {}
+      } catch { /* ignore storage errors */ }
     };
     window.addEventListener('beforeunload', onUnload);
     return () => window.removeEventListener('beforeunload', onUnload);
