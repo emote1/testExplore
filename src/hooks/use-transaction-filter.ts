@@ -26,7 +26,9 @@ export function useTransactionFilter({
   return useMemo(() => {
     const all = initialTransactions || [];
     const list = swapOnly
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ? all.filter(t => (t as any).method === 'swap' || (t as any).type === 'SWAP')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       : all.filter(t => (t as any).method !== 'swap' && (t as any).type !== 'SWAP');
     
     if (tokenFilter === 'all') return list;
@@ -47,39 +49,49 @@ export function useTransactionFilter({
     return list.filter(t => {
       if (tokenFilter === 'reef') {
         if (t.method === 'swap' && t.swapInfo) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const soldAmt = (t.swapInfo.sold as any).amountBI ?? safeBigInt(t.swapInfo.sold.amount);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const boughtAmt = (t.swapInfo.bought as any).amountBI ?? safeBigInt(t.swapInfo.bought.amount);
           const soldOk = isReefToken(t.swapInfo.sold.token) && (!minRaw && !maxRaw ? true : passesAmt(soldAmt));
           const boughtOk = isReefToken(t.swapInfo.bought.token) && (!minRaw && !maxRaw ? true : passesAmt(boughtAmt));
           return soldOk || boughtOk;
         }
         if (!isReefToken(t.token)) return false;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const amt = (t as any).amountBI ?? safeBigInt(t.amount);
         return (!minRaw && !maxRaw) ? true : passesAmt(amt);
       }
       
       if (tokenFilter === 'usdc') {
         if (t.method === 'swap' && t.swapInfo) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const soldAmt = (t.swapInfo.sold as any).amountBI ?? safeBigInt(t.swapInfo.sold.amount);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const boughtAmt = (t.swapInfo.bought as any).amountBI ?? safeBigInt(t.swapInfo.bought.amount);
           const soldOk = (isUsdcId(t.swapInfo.sold.token.id) || (useNameFallback && isUsdcByName(t.swapInfo.sold.token))) && (!minRaw && !maxRaw ? true : passesAmt(soldAmt));
           const boughtOk = (isUsdcId(t.swapInfo.bought.token.id) || (useNameFallback && isUsdcByName(t.swapInfo.bought.token))) && (!minRaw && !maxRaw ? true : passesAmt(boughtAmt));
           return soldOk || boughtOk;
         }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         if (!(isUsdcId(t.token.id) || (useNameFallback && isUsdcByName((t as any).token)))) return false;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const amt = (t as any).amountBI ?? safeBigInt(t.amount);
         return (!minRaw && !maxRaw) ? true : passesAmt(amt);
       }
       
       if (addrLower) {
         if (t.method === 'swap' && t.swapInfo) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const soldAmt = (t.swapInfo.sold as any).amountBI ?? safeBigInt(t.swapInfo.sold.amount);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const boughtAmt = (t.swapInfo.bought as any).amountBI ?? safeBigInt(t.swapInfo.bought.amount);
           const soldOk = String(t.swapInfo.sold.token.id || '').toLowerCase() === addrLower && (!minRaw && !maxRaw ? true : passesAmt(soldAmt));
           const boughtOk = String(t.swapInfo.bought.token.id || '').toLowerCase() === addrLower && (!minRaw && !maxRaw ? true : passesAmt(boughtAmt));
           return soldOk || boughtOk;
         }
         if (String(t.token.id || '').toLowerCase() !== addrLower) return false;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const amt = (t as any).amountBI ?? safeBigInt(t.amount);
         return (!minRaw && !maxRaw) ? true : passesAmt(amt);
       }

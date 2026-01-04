@@ -31,6 +31,7 @@ function isJsonResponse(res: Response): boolean {
   return ct.includes('application/json');
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function fetchHistory(days: number | 'max' = DEFAULT_DAYS, _signal?: AbortSignal): Promise<ReefPriceHistory | null> {
   try {
     const key = String(days);
@@ -61,6 +62,7 @@ async function fetchHistory(days: number | 'max' = DEFAULT_DAYS, _signal?: Abort
         throw new Error(`CoinGecko history HTTP ${res.status}`);
       }
       if (!isJsonResponse(res)) return null;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const json = await res.json().catch(() => null) as any;
       const prices: Array<[number, number]> = Array.isArray(json?.prices) ? json.prices : [];
       const byDate: Record<string, number> = {};
