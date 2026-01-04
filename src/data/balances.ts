@@ -28,6 +28,7 @@ export const TOKEN_HOLDERS_PAGED_QUERY = graphql(`
   }
 `);
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function mapTokenHoldersToUiBalances(edges: Array<{ node?: any } | null> | null | undefined): UiTokenBalance[] {
   if (!edges) return [];
   const res: UiTokenBalance[] = [];

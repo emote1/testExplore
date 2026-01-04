@@ -9,7 +9,9 @@ export const BLOCK_BY_TIME_BEFORE_DOCUMENT = gql`
       timestamp
     }
   }
-` as unknown as TypedDocumentNode<any, any>;
+` as unknown as
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  TypedDocumentNode<any, any>;
 
 // First block at or after timestamp
 export const BLOCK_BY_TIME_AFTER_DOCUMENT = gql`
@@ -19,4 +21,6 @@ export const BLOCK_BY_TIME_AFTER_DOCUMENT = gql`
       timestamp
     }
   }
-` as unknown as TypedDocumentNode<any, any>;
+` as unknown as
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  TypedDocumentNode<any, any>;

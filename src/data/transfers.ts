@@ -28,12 +28,16 @@ export async function fetchExtrinsicIdentityOnce(
   if (!useHash && !useId && !useHeightIndex) return null;
   try {
     const { data } = await client.query({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       query: EXTRINSIC_IDENTITY_UNIFIED_QUERY as unknown as TypedDocumentNode<any, any>,
       variables: { hash, id, height: useHeightIndex ? h : undefined, index: useHeightIndex ? i : undefined, useHash, useId, useHeightIndex },
       fetchPolicy: 'network-only',
     });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const node = ((data as any)?.byHash ?? [])[0]
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       || ((data as any)?.byId ?? [])[0]
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       || ((data as any)?.byHeightIndex ?? [])[0];
     if (!node) return null;
     return { id: node?.id, hash: node?.hash };
@@ -158,15 +162,21 @@ export async function fetchAnyTransferIndicesOnce(
   const i = Number(params.index);
   const where: Record<string, unknown> = {};
   if (hash) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (where as any).extrinsicHash_eq = hash;
   } else if (Number.isFinite(h) && Number.isFinite(i)) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (where as any).blockHeight_eq = h;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (where as any).extrinsicIndex_eq = i;
   } else if (id) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (where as any).extrinsicId_eq = id;
     const m = /^0*(\d+)-0*(\d+)/.exec(id);
     if (m) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (where as any).blockHeight_eq = Number(m[1]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (where as any).extrinsicIndex_eq = Number(m[2]);
     }
   } else {
@@ -174,10 +184,12 @@ export async function fetchAnyTransferIndicesOnce(
   }
   try {
     const { data } = await (client as ApolloClient<NormalizedCacheObject>).query({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       query: TRANSFERS_POLLING_QUERY as unknown as TypedDocumentNode<any, any>,
       variables: { where, limit: 50 },
       fetchPolicy: 'network-only',
     });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const arr = ((data as any)?.transfers ?? []) as Array<any>;
     if (!Array.isArray(arr) || arr.length === 0) return null;
     const first = arr[0];

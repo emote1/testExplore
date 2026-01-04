@@ -43,7 +43,9 @@ export const POOL_EVENTS_CONNECTION_DOCUMENT = gql`
       pageInfo { hasNextPage endCursor }
     }
   }
-` as unknown as TypedDocumentNode<any, any>;
+` as unknown as
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  TypedDocumentNode<any, any>;
 
 // Nearest swap within window BEFORE ts (tsFrom..tsTo] ordered descending
 export const NEAREST_SWAP_FOR_TOKEN_WINDOW_BEFORE_DOCUMENT = gql`
@@ -79,7 +81,9 @@ export const NEAREST_SWAP_FOR_TOKEN_WINDOW_BEFORE_DOCUMENT = gql`
       }
     }
   }
-` as unknown as TypedDocumentNode<any, any>;
+` as unknown as
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  TypedDocumentNode<any, any>;
 
 // Nearest swap within window AFTER ts [tsFrom..tsTo) ordered ascending
 export const NEAREST_SWAP_FOR_TOKEN_WINDOW_AFTER_DOCUMENT = gql`
@@ -115,7 +119,9 @@ export const NEAREST_SWAP_FOR_TOKEN_WINDOW_AFTER_DOCUMENT = gql`
       }
     }
   }
-` as unknown as TypedDocumentNode<any, any>;
+` as unknown as
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  TypedDocumentNode<any, any>;
 // Nearest swap for a token against REEF at or after (blockHeight, indexInBlock)
 export const NEAREST_SWAP_FOR_TOKEN_BY_BLOCK_AFTER_DOCUMENT = gql`
   query NearestSwapForTokenByBlockAfter($reef: String!, $token: String!, $bh: Int!, $ex: Int!) {
@@ -156,7 +162,9 @@ export const NEAREST_SWAP_FOR_TOKEN_BY_BLOCK_AFTER_DOCUMENT = gql`
       }
     }
   }
-` as unknown as TypedDocumentNode<any, any>;
+` as unknown as
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  TypedDocumentNode<any, any>;
 
 // Nearest swap for a token against REEF at or after the given timestamp (UTC)
 export const NEAREST_SWAP_FOR_TOKEN_BY_TIME_AFTER_DOCUMENT = gql`
@@ -194,7 +202,9 @@ export const NEAREST_SWAP_FOR_TOKEN_BY_TIME_AFTER_DOCUMENT = gql`
       }
     }
   }
-` as unknown as TypedDocumentNode<any, any>;
+` as unknown as
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  TypedDocumentNode<any, any>;
 
 // Nearest swap for a token against REEF at or before the given timestamp (UTC)
 export const NEAREST_SWAP_FOR_TOKEN_BY_TIME_DOCUMENT = gql`
@@ -232,7 +242,9 @@ export const NEAREST_SWAP_FOR_TOKEN_BY_TIME_DOCUMENT = gql`
       }
     }
   }
-` as unknown as TypedDocumentNode<any, any>;
+` as unknown as
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  TypedDocumentNode<any, any>;
 
 // Nearest swap for a token against REEF at or before (blockHeight, indexInBlock)
 export const NEAREST_SWAP_FOR_TOKEN_DOCUMENT = gql`
@@ -274,4 +286,6 @@ export const NEAREST_SWAP_FOR_TOKEN_DOCUMENT = gql`
       }
     }
   }
-` as unknown as TypedDocumentNode<any, any>;
+` as unknown as
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  TypedDocumentNode<any, any>;

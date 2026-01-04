@@ -168,6 +168,7 @@ export function mapTransfersToUiTransfers(
       const transfer = edge.node;
       const { name: tokenName, decimals: tokenDecimals } = parseTokenData(transfer);
       const isNft = transfer.type === 'ERC721' || transfer.type === 'ERC1155';
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const swapFlag = getString(transfer as any, ['reefswapAction']) ?? null;
       return {
         id: transfer.id,
@@ -189,9 +190,13 @@ export function mapTransfersToUiTransfers(
         extrinsicHash: transfer.extrinsicHash || '',
         reefswapAction: swapFlag,
         method: swapFlag ? 'swap' : 'transfer',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         blockHeight: getNumber(transfer as any, ['blockHeight']) ?? undefined,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         extrinsicIndex: getNumber(transfer as any, ['extrinsicIndex']) ?? undefined,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         eventIndex: getNumber(transfer as any, ['eventIndex']) ?? undefined,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         extrinsicId: getString(transfer as any, ['extrinsicId']) ?? undefined,
       };
     })

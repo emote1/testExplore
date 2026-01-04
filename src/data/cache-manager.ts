@@ -7,6 +7,7 @@ import type { Transfer, PageInfo } from '@/gql/graphql';
 import { PAGINATION_CONFIG, CACHE_CONFIG } from '../constants/pagination';
 
 // Debug flag for cache logs (disabled by default). Enable with VITE_CACHE_DEBUG=1|true
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const DEBUG_CACHE = (import.meta as any)?.env?.VITE_CACHE_DEBUG === '1' || (import.meta as any)?.env?.VITE_CACHE_DEBUG === 'true';
 function cacheLog(...args: unknown[]) { if (DEBUG_CACHE) console.log(...args); }
 function cacheWarn(...args: unknown[]) { if (DEBUG_CACHE) console.warn(...args); }
