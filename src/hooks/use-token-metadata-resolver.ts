@@ -5,7 +5,7 @@ import { VerifiedContractsByIdsDocument } from '@/gql/graphql';
 import { hasTokenMetaCached, primeTokenMetaCacheFromContracts } from '../data/transfer-mapper';
 
 interface Props {
-  data: any;
+  data: { transfersConnection?: { edges?: unknown[] } };
 }
 
 export function useTokenMetadataResolver({ data }: Props) {
@@ -13,8 +13,8 @@ export function useTokenMetadataResolver({ data }: Props) {
   const [metaVersion, setMetaVersion] = useState(0);
 
   useEffect(() => {
-    const edges = data?.transfersConnection.edges || [];
-    const nodes = edges.map((e: any) => e?.node).filter(Boolean) as Array<any>;
+    const edges = data?.transfersConnection?.edges || [];
+    const nodes = edges.map((e) => (e as { node?: unknown })?.node).filter(Boolean);
     if (nodes.length === 0) return;
 
     const ids: string[] = [];
@@ -33,15 +33,15 @@ export function useTokenMetadataResolver({ data }: Props) {
     (async () => {
       try {
         const { data: q } = await (client as ApolloClient<NormalizedCacheObject>).query({
-          query: VerifiedContractsByIdsDocument as unknown as TypedDocumentNode<any, any>,
+          query: VerifiedContractsByIdsDocument as unknown as TypedDocumentNode,
           variables: { ids: unique, first: Math.min(unique.length, 100) },
           fetchPolicy: 'cache-first',
         });
-        const list = (q?.verifiedContracts || []) as Array<{ id: string; contractData?: any; name?: string }>;
+        const list = (q?.verifiedContracts || []) as Array<{ id: string; contractData?: unknown; name?: string }>;
         if (list.length === 0) return;
         const added = primeTokenMetaCacheFromContracts(list);
         if (added > 0) setMetaVersion((v) => v + 1);
-      } catch (e) {
+      } catch {
         // ignore, soft optimization
       }
     })();

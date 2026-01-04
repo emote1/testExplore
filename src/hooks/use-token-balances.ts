@@ -36,7 +36,7 @@ export function useTokenBalances(address: string | null | undefined, first = 50)
   }, [address, resolveAddress]);
 
   const { data, loading, error } = useQuery(
-    TOKEN_HOLDERS_PAGED_QUERY as unknown as TypedDocumentNode<any, any>,
+    TOKEN_HOLDERS_PAGED_QUERY as unknown as TypedDocumentNode,
     {
       variables: { accountId: resolved, first },
       skip: !resolved || isResolving,
@@ -46,6 +46,7 @@ export function useTokenBalances(address: string | null | undefined, first = 50)
 
   const balances = useMemo(() => {
     const edges = data?.tokenHolders?.edges ?? [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return mapTokenHoldersToUiBalances(edges as Array<{ node?: any } | null>);
   }, [data]);
 

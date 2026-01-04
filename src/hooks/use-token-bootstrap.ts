@@ -32,7 +32,9 @@ interface Args {
   dbg?: (...args: unknown[]) => void;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const ENABLE_USDC_BOOTSTRAP = ((import.meta as any).env?.VITE_ENABLE_USDC_BOOTSTRAP === '1'
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   || (import.meta as any).env?.VITE_ENABLE_USDC_BOOTSTRAP === 'true');
 
 function arraysEqual(a: string[] | null, b: string[] | null): boolean {
@@ -207,7 +209,7 @@ export function useTokenBootstrap({
       try {
         const names = ['USDC', 'USDC.e', 'USD Coin'];
         const { data } = await (apollo as ApolloClient<NormalizedCacheObject>).query({
-          query: VERIFIED_CONTRACTS_BY_NAME_QUERY as unknown as TypedDocumentNode<any, any>,
+          query: VERIFIED_CONTRACTS_BY_NAME_QUERY as unknown as TypedDocumentNode,
           variables: { names, needle: 'usdc' },
           fetchPolicy: 'cache-first',
           errorPolicy: 'ignore',
@@ -225,7 +227,7 @@ export function useTokenBootstrap({
             setServerTokenIds(next);
           }
         }
-      } catch (_e) {
+      } catch {
         // ignore
       } finally {
         if (!cancelled) setUsdcBootstrapDone(true);
@@ -252,7 +254,9 @@ export function useTokenBootstrap({
         const nm = (maybe?.name || '').toString().toLowerCase();
         if (nm && nameSynonyms.has(nm) && !sessionSet.has(id)) { sessionSet.add(id); added += 1; }
       };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       addIf((t as any)?.token);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const s = (t as any)?.swapInfo;
       if (s) { addIf(s.sold?.token); addIf(s.bought?.token); }
     }

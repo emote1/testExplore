@@ -69,6 +69,7 @@ export function useSwapEvents(address: string | null, pageSize: number, enabled:
       variables: { first, after: afterCursor, addr: resolvedUser },
       fetchPolicy: 'no-cache',
     });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const edges = (data?.poolEventsConnection?.edges ?? []) as Array<{ node: any; cursor: string }>;
     // Aggregate two legs of the same swap into a single UI row by base id or (blockHeight,indexInBlock)
     const groups = new Map<string, {
@@ -114,7 +115,7 @@ export function useSwapEvents(address: string | null, pageSize: number, enabled:
           token2: { id: token2.id, name: token2.name, decimals: token2.decimals },
           blockHeight: Number(n?.blockHeight || 0),
           indexInBlock: Number(n?.indexInBlock || 0),
-          timestamp: (n as any)?.timestamp ?? null,
+          timestamp: (n as { timestamp?: string | number | null })?.timestamp ?? null,
           eventIndex: undefined,
           seen: 0,
           hasInputs: false,
@@ -134,11 +135,11 @@ export function useSwapEvents(address: string | null, pageSize: number, enabled:
         if (Number.isFinite(ev)) {
           g.eventIndex = Math.max(g.eventIndex ?? -1, ev);
         }
-      } catch {}
+      } catch { /* ignore parse errors */ }
       // preserve first observed from/to, but if empty, try to fill from subsequent legs
       if (!g.from && from) g.from = from;
       if (!g.to && to) g.to = to;
-      if (!g.timestamp && (n as any)?.timestamp) g.timestamp = (n as any).timestamp;
+      if (!g.timestamp && (n as { timestamp?: string | number | null })?.timestamp) g.timestamp = (n as { timestamp?: string | number | null }).timestamp;
       g.seen += 1;
       // Prefer explicit input fields when available.
       // amountIn1 -> input of token1, amountIn2 -> input of token2
@@ -150,7 +151,7 @@ export function useSwapEvents(address: string | null, pageSize: number, enabled:
       if (in1 > 0n || in2 > 0n) {
         g.hasInputs = true;
         if (in1 > 0n) {
-          // Sold token1 for token2
+          // Sold token1 for token2w
           g.soldIndex = 1; if (in1 > g.soldBI) g.soldBI = in1;
           g.boughtIndex = 2; if (out2 > g.boughtBI) g.boughtBI = out2;
         } else {
@@ -169,14 +170,14 @@ export function useSwapEvents(address: string | null, pageSize: number, enabled:
             if (a > g.boughtBI) { g.boughtIndex = 1; g.boughtBI = a; }
             if (a > g.a1BI) g.a1BI = a; // legacy
           }
-        } catch {}
+        } catch { /* ignore errors */ }
         try {
           if (n?.amount2 !== undefined && n?.amount2 !== null) {
             const a = safeBigInt(n.amount2, true);
             if (a > g.boughtBI) { g.boughtIndex = 2; g.boughtBI = a; }
             if (a > g.a2BI) g.a2BI = a; // legacy
           }
-        } catch {}
+        } catch { /* ignore errors */ }
       }
     }
     // No legacy hydration: rely on amountIn*/amount* present in reef-swap schema
@@ -200,10 +201,10 @@ export function useSwapEvents(address: string | null, pageSize: number, enabled:
             if (res?.eventIndex != null && Number.isFinite(Number(res.eventIndex))) {
               g.eventIndex = Number(res.eventIndex);
             }
-          } catch {}
+          } catch { /* ignore eventIndex fetch errors */ }
           resolved += 1;
         }
-      } catch {}
+      } catch { /* ignore prefetch batch errors */ }
     }
 
     const page = Array.from(groups.values()).map(g => {
@@ -233,6 +234,7 @@ export function useSwapEvents(address: string | null, pageSize: number, enabled:
         isNft: false,
         tokenId: null,
         token: { id: boughtTok.id, name: boughtTok.name, decimals: boughtTok.decimals },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         timestamp: (g.timestamp ?? String(g.blockHeight)) as any,
         success: true,
         extrinsicHash: '',
@@ -309,7 +311,7 @@ export function useSwapEvents(address: string | null, pageSize: number, enabled:
         setItems(Array.from(map.values()));
         setAfter(lastInfo.endCursor ?? null);
         setHasMore(!!lastInfo.hasNextPage);
-      } catch (e: any) {
+      } catch (e) {
         if (!cancelled) setError(e as Error);
       } finally {
         if (!cancelled) { setLoading(false); initInFlightRef.current = false; }
@@ -352,7 +354,7 @@ export function useSwapEvents(address: string | null, pageSize: number, enabled:
       });
       setAfter(pageInfo.endCursor);
       setHasMore(pageInfo.hasNextPage);
-    } catch (e: any) {
+    } catch (e) {
       setError(e as Error);
     } finally {
       setLoading(false);
@@ -367,7 +369,7 @@ export function useSwapEvents(address: string | null, pageSize: number, enabled:
     if ((items?.length || 0) >= pageSize) return;
     let cancelled = false;
     let attempts = 0;
-    const winAny: any = typeof window !== 'undefined' ? window : {};
+    const winAny = typeof window !== 'undefined' ? (window as { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number; cancelIdleCallback?: (id: number) => void }) : {};
     const schedule = () => {
       if (cancelled) return;
       if (fetchMoreInFlightRef.current) return;
