@@ -1,7 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useApolloClient, type ApolloClient, type NormalizedCacheObject } from '@apollo/client';
 import { HEALTH_COMBINED_QUERY } from '@/data/health';
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+
+interface HealthQueryResult {
+  squidStatus?: {
+    height?: number | string;
+  };
+  blocks?: Array<{
+    timestamp?: string;
+    processorTimestamp?: string;
+  }>;
+}
 
 export interface SquidHealth {
   status: 'loading' | 'live' | 'lagging' | 'stale' | 'down';
@@ -43,23 +53,19 @@ export function useSquidHealth(opts: Options = {}): SquidHealth {
     latencyWindowRef.current = latencyWindow;
   }, [latencyWindow]);
 
-  async function timedQuery<T>(q: TypedDocumentNode<any, any>): Promise<T | null> {
+  const timedQuery = useCallback(async <T,>(q: TypedDocumentNode): Promise<T | null> => {
     const t0 = performance.now();
-    try {
-      const { data } = await (client as ApolloClient<NormalizedCacheObject>).query({
-        query: q,
-        fetchPolicy: 'network-only',
-      });
-      const t1 = performance.now();
-      const dt = t1 - t0;
-      const arr = latenciesRef.current;
-      arr.push(dt);
-      while (arr.length > latencyWindowRef.current) arr.shift();
-      return (data as T) ?? null;
-    } catch (err) {
-      throw err;
-    }
-  }
+    const { data } = await (client as ApolloClient<NormalizedCacheObject>).query({
+      query: q,
+      fetchPolicy: 'network-only',
+    });
+    const t1 = performance.now();
+    const dt = t1 - t0;
+    const arr = latenciesRef.current;
+    arr.push(dt);
+    while (arr.length > latencyWindowRef.current) arr.shift();
+    return (data as T) ?? null;
+  }, [client]);
 
   useEffect(() => {
     let alive = true;
@@ -86,7 +92,7 @@ export function useSquidHealth(opts: Options = {}): SquidHealth {
       if (!alive || document.hidden) return;
 
       try {
-        const data = await timedQuery<any>(HEALTH_COMBINED_QUERY as unknown as TypedDocumentNode<any, any>);
+        const data = await timedQuery<HealthQueryResult>(HEALTH_COMBINED_QUERY as unknown as TypedDocumentNode);
         if (!alive) return;
 
         const h = data?.squidStatus?.height;
@@ -122,7 +128,7 @@ export function useSquidHealth(opts: Options = {}): SquidHealth {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       if (timer) window.clearTimeout(timer);
     };
-  }, [client]);
+  }, [client, timedQuery]);
 
   const { avg, p95 } = useMemo(() => {
     const arr = latenciesRef.current;
@@ -133,7 +139,7 @@ export function useSquidHealth(opts: Options = {}): SquidHealth {
     const idx = Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95));
     const p95 = sorted[idx];
     return { avg, p95 };
-  }, [lastUpdated]);
+  }, []);
 
   const status: SquidHealth['status'] = useMemo(() => {
     if (!lastUpdated) return 'loading';
