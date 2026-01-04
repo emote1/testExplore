@@ -19,19 +19,21 @@ const wsClient = createWSClient({
     const base = Math.min(30000, 1000 * Math.pow(2, Math.min(tries - 1, 5)));
     const jitter = Math.floor(base * 0.2 * Math.random());
     const delay = base + jitter;
-    try { window.dispatchEvent(new CustomEvent('ws-retry', { detail: { tries, delayMs: delay } })); } catch {}
+    try { window.dispatchEvent(new CustomEvent('ws-retry', { detail: { tries, delayMs: delay } })); } catch { /* ignore */ }
     await new Promise((r) => setTimeout(r, delay));
   },
   shouldRetry: () => true,
   on: {
-    opened: () => { try { window.dispatchEvent(new CustomEvent('ws-opened')); } catch {} },
-    connected: () => { try { window.dispatchEvent(new CustomEvent('ws-connected')); } catch {} },
+    opened: () => { try { window.dispatchEvent(new CustomEvent('ws-opened')); } catch { /* ignore */ } },
+    connected: () => { try { window.dispatchEvent(new CustomEvent('ws-connected')); } catch { /* ignore */ } },
     closed: (ev) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const anyEv: any = ev as any;
-      try { window.dispatchEvent(new CustomEvent('ws-closed', { detail: { code: anyEv?.code, reason: anyEv?.reason, wasClean: anyEv?.wasClean, tries: lastRetryTries } })); } catch {}
+      try { window.dispatchEvent(new CustomEvent('ws-closed', { detail: { code: anyEv?.code, reason: anyEv?.reason, wasClean: anyEv?.wasClean, tries: lastRetryTries } })); } catch { /* ignore */ }
     },
     error: (err) => {
-      try { window.dispatchEvent(new CustomEvent('ws-error', { detail: { message: (err as any)?.message ?? String(err) } })); } catch {}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      try { window.dispatchEvent(new CustomEvent('ws-error', { detail: { message: (err as any)?.message ?? String(err) } })); } catch { /* ignore */ }
     },
   },
 });
@@ -55,6 +57,7 @@ const httpBaseLink = shouldLogTiming ? ApolloLink.from([timingLink, httpLink]) :
 
 const link = split(
   ({ query }) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const def = getMainDefinition(query) as any;
     return def.kind === 'OperationDefinition' && def.operation === 'subscription';
   },
@@ -78,6 +81,7 @@ export const cache = new InMemoryCache({
             options
           ) {
             if (!incoming) return existing;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const after = (options?.args as any)?.after ?? null;
             const incomingEdges = incoming?.edges ?? [];
 
@@ -88,6 +92,7 @@ export const cache = new InMemoryCache({
               // Seed with incoming (newest-first) to respect server order at the top
               const mergedEdges = [] as typeof incomingEdges;
               for (const e of incomingEdges) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const key = (e as any)?.node?.id as string | undefined;
                 const skey = key ? String(key) : undefined;
                 if (!skey || !seen.has(skey)) {
@@ -97,6 +102,7 @@ export const cache = new InMemoryCache({
               }
               // Append existing edges that are not already present
               for (const e of existingEdges) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const key = (e as any)?.node?.id as string | undefined;
                 const skey = key ? String(key) : undefined;
                 if (!skey || !seen.has(skey)) {
@@ -107,7 +113,9 @@ export const cache = new InMemoryCache({
 
               // Prefer incoming pageInfo when it is present; fall back to existing when incoming omitted it.
               // This prevents count-only queries (which don't request pageInfo) from freezing pagination.
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const incomingPI = incoming?.pageInfo as any;
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const existingPI = existing?.pageInfo as any;
               const hasIncomingPI = incomingPI && (typeof incomingPI?.hasNextPage === 'boolean' || incomingPI?.endCursor != null);
               const mergedPageInfo = hasIncomingPI
@@ -124,6 +132,7 @@ export const cache = new InMemoryCache({
                 edges: mergedEdges,
                 pageInfo: mergedPageInfo,
                 // Keep totalCount stable if incoming omitted it (e.g., test mocks)
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 totalCount: (incoming as any)?.totalCount ?? (existing as any)?.totalCount,
               };
             }
@@ -132,11 +141,13 @@ export const cache = new InMemoryCache({
             const existingEdges = existing?.edges ?? [];
             const seen = new Set<string>();
             for (const e of existingEdges) {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const key = (e as any)?.node?.id as string | undefined;
               if (key) seen.add(String(key));
             }
             const mergedEdges = [...existingEdges];
             for (const e of incomingEdges) {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const key = (e as any)?.node?.id as string | undefined;
               const skey = key ? String(key) : undefined;
               if (!skey || !seen.has(skey)) {
@@ -144,7 +155,9 @@ export const cache = new InMemoryCache({
                 mergedEdges.push(e);
               }
             }
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const incomingPI = (incoming as any)?.pageInfo;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const existingPI = (existing as any)?.pageInfo;
             const hasIncomingPI = incomingPI && (typeof incomingPI?.hasNextPage === 'boolean' || incomingPI?.endCursor != null);
             return {
@@ -152,6 +165,7 @@ export const cache = new InMemoryCache({
               edges: mergedEdges,
               pageInfo: hasIncomingPI ? { ...(existingPI ?? {}), ...(incomingPI ?? {}) } : (existingPI ?? incomingPI),
               // Preserve totalCount if it's not present in incoming payload (e.g., mocks)
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               totalCount: (incoming as any)?.totalCount ?? (existing as any)?.totalCount,
             };
           },

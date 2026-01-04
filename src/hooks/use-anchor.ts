@@ -9,7 +9,7 @@ interface UseAnchorArgs {
   tokenFilter: string;
   initialTransactions?: UiTransfer[] | null;
   pageIndex: number;
-  dbg?: (...args: any[]) => void;
+  dbg?: (...args: unknown[]) => void;
 }
 
 export function useAnchor({ address, direction, minReefRaw, maxReefRaw, tokenFilter, initialTransactions, pageIndex, dbg }: UseAnchorArgs) {

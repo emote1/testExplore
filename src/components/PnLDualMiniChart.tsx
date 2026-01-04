@@ -35,12 +35,14 @@ export function PnLDualMiniChart({ label, aLabel, aThenUsd, aNowUsd, bLabel, bTh
   const hasAny = aValid || bValid;
   const data = useMemo(() => {
     if (!hasAny) return [] as Array<{ x: number; a?: number; b?: number; aMid?: number; bMid?: number }>;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const clamp = (v: any) => {
       if (!(typeof v === 'number' && isFinite(v))) return undefined;
       const n = Number(v);
       return Math.max(0, n);
     };
     return [
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       { x: 0, a: clamp(Number(aThenUsd)), b: clamp(Number(bThenUsd)), aMid: clamp(aMidThen as any), bMid: clamp(bMidThen as any) },
       { x: 1, a: clamp(Number(aNowUsd)),  b: clamp(Number(bNowUsd))  },
     ];
@@ -76,6 +78,7 @@ export function PnLDualMiniChart({ label, aLabel, aThenUsd, aNowUsd, bLabel, bTh
             <XAxis dataKey="x" hide domain={[0, 1]} type="number" />
             <YAxis hide domain={[0, 'auto']} scale={'linear'} />
             <RechartsTooltip
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               formatter={(v) => (Number(v as any)).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })}
               labelFormatter={(l) => (l === 0 ? 'Then' : 'Now')}
               wrapperStyle={{ fontSize: 11 }}

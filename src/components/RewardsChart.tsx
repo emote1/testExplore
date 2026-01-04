@@ -164,6 +164,7 @@ export function RewardsChart({ address }: RewardsChartProps) {
     return fmtMonthYear.format(d);
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const tooltipFormatter = (value: any, _name?: string, props?: any) => {
     const v = Number(value);
     const key: string = props?.dataKey ?? '';
@@ -177,6 +178,7 @@ export function RewardsChart({ address }: RewardsChartProps) {
     return [`${reefCompact.format(v)} REEF`, mode === 'daily' ? 'Daily Sum' : 'Cumulative'];
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const tooltipLabelFormatter = (label: any) => {
     const d = typeof label === 'number' ? new Date(label) : new Date(`${String(label)}T00:00:00Z`);
     if (Number.isNaN(d.getTime())) return String(label);
@@ -387,9 +389,12 @@ export function RewardsChart({ address }: RewardsChartProps) {
                 tick={{ fontSize: 12 }}
                 minTickGap={12}
                 interval="preserveStartEnd"
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 tickFormatter={xTickFormatter as any}
               />
+              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
               <YAxis tickFormatter={yTickFormatter as any} width={80} tick={{ fontSize: 12 }} />
+              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
               <RechartsTooltip formatter={tooltipFormatter as any} labelFormatter={tooltipLabelFormatter as any} labelClassName="text-xs" />
               <Legend />
               {unit === 'reef' ? (
@@ -401,6 +406,7 @@ export function RewardsChart({ address }: RewardsChartProps) {
                   fill="url(#reefGradient)"
                   strokeWidth={2}
                   isAnimationActive={false}
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   dot={(props: any) => {
                     const keyBase = props?.payload?.date ?? props?.index ?? 'x';
                     if (mode !== 'daily') return <g key={`dot-${keyBase}`} />;
@@ -448,10 +454,12 @@ export function RewardsChart({ address }: RewardsChartProps) {
                   fill="#f8fafc"
                   startIndex={brush?.startIndex}
                   endIndex={brush?.endIndex}
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   onChange={(e: any) => {
                     if (!e) return;
                     setBrush({ startIndex: e.startIndex, endIndex: e.endIndex });
                   }}
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   tickFormatter={xTickFormatter as any}
                 >
                   <AreaChart data={data}>

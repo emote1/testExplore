@@ -10,6 +10,7 @@ import { isIpfsLike, buildCandidates } from '@/utils/ipfs';
 import { useTokenUsdPrices } from '@/hooks/use-token-usd-prices';
 
 interface BalanceRowProps {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   balance: any;
   index: number;
   price: number | null;
@@ -308,6 +309,7 @@ export function BalancesTable({ address, onCountsChange }: BalancesTableProps) {
       </div>
 
       {error && (
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         <div className="mb-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-red-800">{String((error as any)?.message || error)}</div>
       )}
 
