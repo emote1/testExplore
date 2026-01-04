@@ -1,7 +1,7 @@
 // Silences known noisy console hints in development when enabled via env flag.
 // Enable by setting VITE_SILENCE_CONSOLE_HINTS=1 (or true)
 
-const env: any = (import.meta as any)?.env ?? {};
+const env = (import.meta as { env?: Record<string, string> })?.env ?? {};
 const ENABLED: boolean = env?.VITE_SILENCE_CONSOLE_HINTS === '1' || env?.VITE_SILENCE_CONSOLE_HINTS === 'true';
 
 if (ENABLED && typeof window !== 'undefined') {

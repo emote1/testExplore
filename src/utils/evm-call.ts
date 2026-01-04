@@ -33,7 +33,7 @@ function buildData(selector: string, params: string[]): string {
   return selector + params.join('');
 }
 
-async function rpcCall(method: string, params: unknown[]): Promise<any> {
+async function rpcCall(method: string, params: unknown[]): Promise<unknown> {
   const body = { jsonrpc: '2.0', id: 1, method, params };
   const res = await fetch(EVM_RPC_URL, {
     method: 'POST',
@@ -41,7 +41,7 @@ async function rpcCall(method: string, params: unknown[]): Promise<any> {
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`RPC ${method} failed: ${res.status}`);
-  const json = await res.json().catch(() => null) as any;
+  const json = await res.json().catch(() => null) as { result?: unknown; error?: unknown } | null;
   if (!json || json.error) throw new Error(`RPC error: ${JSON.stringify(json?.error ?? {})}`);
   return json.result;
 }

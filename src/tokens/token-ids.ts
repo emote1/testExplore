@@ -24,7 +24,7 @@ export function saveIds(key: string, ids: Set<string>) {
   } catch { /* ignore */ }
 }
 
-const USDC_ENV_RAW = (import.meta as any)?.env?.VITE_USDC_CONTRACT_IDS as string | undefined;
+const USDC_ENV_RAW = (import.meta as { env?: Record<string, string> })?.env?.VITE_USDC_CONTRACT_IDS;
 const USDC_ENV = (USDC_ENV_RAW || '')
   .split(',')
   .map((s: string) => s.trim().toLowerCase())
@@ -38,7 +38,7 @@ export const isUsdcId = (id?: string) => {
   return USDC_ID_SET.has(s) || USDC_SESSION_SET.has(s);
 };
 
-const MRD_ENV_RAW = (import.meta as any)?.env?.VITE_MRD_CONTRACT_IDS as string | undefined;
+const MRD_ENV_RAW = (import.meta as { env?: Record<string, string> })?.env?.VITE_MRD_CONTRACT_IDS;
 const MRD_ENV = (MRD_ENV_RAW || '')
   .split(',')
   .map((s: string) => s.trim().toLowerCase())

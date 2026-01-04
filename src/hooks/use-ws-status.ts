@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 export interface WsStatus {
   text: string;
@@ -11,15 +11,15 @@ export function useWsStatus(): WsStatus {
   const retryAttemptRef = useRef<number>(1);
   const timerRef = useRef<number | null>(null);
 
-  function clearTimer() {
+  const clearTimer = useCallback(() => {
     if (timerRef.current) {
       window.clearInterval(timerRef.current);
       timerRef.current = null;
     }
     retryEndRef.current = null;
-  }
+  }, []);
 
-  function startCountdown() {
+  const startCountdown = useCallback(() => {
     clearTimer();
     timerRef.current = window.setInterval(() => {
       if (retryEndRef.current == null) return;
@@ -32,25 +32,25 @@ export function useWsStatus(): WsStatus {
         setStatus({ text: `Reconnecting in ${secs}s (attempt ${retryAttemptRef.current})`, tone: 'warning' });
       }
     }, 250);
-  }
+  }, [clearTimer]);
 
   useEffect(() => {
     const onOpened = () => { clearTimer(); setStatus({ text: 'Live', tone: 'live' }); };
     const onConnected = () => { clearTimer(); setStatus({ text: 'Live', tone: 'live' }); };
     const onClosed = (e: Event) => {
-      const detail: any = (e as CustomEvent).detail ?? {};
-      const code = detail.code != null ? ` (code ${detail.code})` : '';
+      const detail = (e as CustomEvent).detail as { code?: number } | undefined;
+      const code = detail?.code != null ? ` (code ${detail.code})` : '';
       setStatus({ text: `WebSocket closed${code}. Reconnecting...`, tone: 'warning' });
     };
     const onError = (e: Event) => {
-      const detail: any = (e as CustomEvent).detail ?? {};
-      const msg = detail.message ?? 'Unknown error';
+      const detail = (e as CustomEvent).detail as { message?: string } | undefined;
+      const msg = detail?.message ?? 'Unknown error';
       setStatus({ text: `WebSocket error: ${msg}`, tone: 'error' });
     };
     const onRetry = (e: Event) => {
-      const detail: any = (e as CustomEvent).detail ?? {};
-      const tries = detail.tries ?? 1;
-      const delayMs = detail.delayMs ?? 0;
+      const detail = (e as CustomEvent).detail as { tries?: number; delayMs?: number } | undefined;
+      const tries = detail?.tries ?? 1;
+      const delayMs = detail?.delayMs ?? 0;
       retryAttemptRef.current = tries;
       retryEndRef.current = Date.now() + delayMs;
       startCountdown();
@@ -70,7 +70,7 @@ export function useWsStatus(): WsStatus {
       window.removeEventListener('ws-retry', onRetry as EventListener);
       clearTimer();
     };
-  }, []);
+  }, [clearTimer, startCountdown]);
 
   return status;
 }

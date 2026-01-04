@@ -48,7 +48,7 @@ export function isUsdcByName(tok?: { name?: string | null }): boolean {
  * Safely parses a value to BigInt, returning 0n on failure.
  * Handles absolute values if requested.
  */
-export function safeBigInt(v: any, absolute = false): bigint {
+export function safeBigInt(v: unknown, absolute = false): bigint {
   try {
     if (v == null) return 0n;
     let bi = BigInt(String(v));
