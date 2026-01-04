@@ -31,19 +31,20 @@ interface ChartPoint {
   zero: boolean;  // true if no staking that day
 }
 
+const RANGES = [
+  { key: '30d', days: 30 },
+  { key: '90d', days: 90 },
+  { key: '180d', days: 180 },
+  { key: '365d', days: 365 },
+  { key: 'all', days: undefined },
+] as const;
+
 export function RewardsChart({ address }: RewardsChartProps) {
   const { price } = useReefPrice();
   // Primary unit scale of Y axis; USD group supports overlays
   const [unit, setUnit] = useState<'reef' | 'usd'>('reef');
   const [mode, setMode] = useState<'daily' | 'cumulative'>('daily');
-  const ranges = [
-    { key: '30d', days: 30 },
-    { key: '90d', days: 90 },
-    { key: '180d', days: 180 },
-    { key: '365d', days: 365 },
-    { key: 'all', days: undefined },
-  ] as const;
-  const [range, setRange] = useState<(typeof ranges)[number]['key']>('90d');
+  const [range, setRange] = useState<(typeof RANGES)[number]['key']>('90d');
   const [showUsd, setShowUsd] = useState(true);
   const [showUsdHist, setShowUsdHist] = useState(false);
   const [unitInfoOpen, setUnitInfoOpen] = useState(false);
@@ -95,7 +96,7 @@ export function RewardsChart({ address }: RewardsChartProps) {
       startTs = srcDaily[0].ts;
       endTs = srcDaily[srcDaily.length - 1].ts;
     } else {
-      const opt = ranges.find((r) => r.key === range);
+      const opt = RANGES.find((r) => r.key === range);
       const todayUtcMid = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z').getTime();
       const days = opt?.days ?? 30;
       endTs = todayUtcMid;
@@ -329,7 +330,7 @@ export function RewardsChart({ address }: RewardsChartProps) {
         </div>
         <div className="inline-flex items-center gap-2 ml-4">
           <span className="text-sm text-gray-600">Range:</span>
-          {ranges.map((r) => (
+          {RANGES.map((r) => (
             <Button key={r.key} variant={range === r.key ? 'default' : 'outline'} size="sm" onClick={() => setRange(r.key)}>
               {r.key.toUpperCase()}
             </Button>

@@ -117,8 +117,8 @@ export function useTransactionDataWithBlocks(
   // Extract partner legs logic
   const { partnersByHash, setPartnersByHash } = useSwapPartnerLegs({ data, swapOnly, enabled: !!(resolvedAddress || resolvedEvmAddress) });
   
-  // Extract token metadata resolving logic
-  const { metaVersion } = useTokenMetadataResolver({ data });
+  // Extract token metadata resolving logic (called for side effects - cache warming)
+  useTokenMetadataResolver({ data });
 
   // Reset partners when address changes
   useEffect(() => {
@@ -158,7 +158,7 @@ export function useTransactionDataWithBlocks(
     }
 
     return aggregateSwaps(unique);
-  }, [data, resolvedAddress, resolvedEvmAddress, minReefRaw, maxReefRaw, partnersByHash, metaVersion, accountAddress, swapOnly]);
+  }, [data, resolvedAddress, resolvedEvmAddress, minReefRaw, maxReefRaw, partnersByHash, accountAddress, swapOnly]);
 
   const fetchMore = useCallback(async () => {
     if (!apolloFetchMore || !data?.transfersConnection.pageInfo.hasNextPage) return;

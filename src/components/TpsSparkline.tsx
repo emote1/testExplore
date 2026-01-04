@@ -278,7 +278,7 @@ export const TpsSparkline = React.memo(function TpsSparkline({
     if (pathAnimRef.current) cancelAnimationFrame(pathAnimRef.current);
     pathAnimRef.current = requestAnimationFrame(step);
     return () => { if (pathAnimRef.current) cancelAnimationFrame(pathAnimRef.current); };
-  }, [pathAnimMs]);
+  }, [pathAnimMs, H, W, XPAD, displaySeries, emaAlpha, yPadPx]);
 
   // target y-domain based on incoming data to avoid per-frame domain changes
   const yTarget = React.useMemo(() => {
