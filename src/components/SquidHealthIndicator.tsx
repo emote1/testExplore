@@ -1,6 +1,6 @@
 import { useSquidHealth } from '@/hooks/use-squid-health';
 import { useState } from 'react';
-import { CheckCircle2, Clock, AlertTriangle, XCircle, BarChart3, Gauge, Timer } from 'lucide-react';
+import { CheckCircle2, Clock, AlertTriangle, XCircle, BarChart3, Gauge, Timer, Loader2 } from 'lucide-react';
 
 interface Props {
   compact?: boolean;
@@ -35,13 +35,14 @@ export function SquidHealthIndicator({ compact = false }: Props) {
   const { status, height, lastBlockTs, latencyMsAvg, latencyMsP95, lastUpdated } = useSquidHealth({ intervalMs: 30_000 });
   const [expanded, setExpanded] = useState(false);
   const ui = {
+    loading:{ text: 'text-blue-700', dot: 'bg-blue-500', chip: 'bg-blue-100 text-blue-700', border: 'border-blue-200', bar: 'bg-blue-500' },
     live:   { text: 'text-green-700', dot: 'bg-green-500', chip: 'bg-green-100 text-green-700', border: 'border-green-200', bar: 'bg-green-500' },
     lagging:{ text: 'text-yellow-700', dot: 'bg-yellow-500', chip: 'bg-yellow-100 text-yellow-700', border: 'border-yellow-200', bar: 'bg-yellow-500' },
     stale:  { text: 'text-orange-700', dot: 'bg-orange-500', chip: 'bg-orange-100 text-orange-700', border: 'border-orange-200', bar: 'bg-orange-500' },
     down:   { text: 'text-red-700', dot: 'bg-red-500', chip: 'bg-red-100 text-red-700', border: 'border-red-200', bar: 'bg-red-500' },
   } as const;
-  const label = status === 'live' ? 'Live' : status === 'lagging' ? 'Lagging' : status === 'stale' ? 'Stale' : 'Down';
-  const Icon = status === 'live' ? CheckCircle2 : status === 'lagging' ? Clock : status === 'stale' ? AlertTriangle : XCircle;
+  const label = status === 'loading' ? 'Connecting' : status === 'live' ? 'Live' : status === 'lagging' ? 'Lagging' : status === 'stale' ? 'Stale' : 'Down';
+  const Icon = status === 'loading' ? Loader2 : status === 'live' ? CheckCircle2 : status === 'lagging' ? Clock : status === 'stale' ? AlertTriangle : XCircle;
   const classes = ui[status];
   const heightText = height != null ? height.toLocaleString() : '-';
 
@@ -51,7 +52,7 @@ export function SquidHealthIndicator({ compact = false }: Props) {
         className={`inline-flex items-center gap-2 px-2.5 py-1.5 rounded-md border ${classes.border} bg-white/70 backdrop-blur-sm shadow-sm`}
         title={`Height: ${height ?? '-'} | Lag: ${formatLag(lastBlockTs)} | Avg: ${formatMs(latencyMsAvg)} | p95: ${formatMs(latencyMsP95)} | Updated: ${formatAgo(lastUpdated)}`}
       >
-        <span className={`w-2 h-2 rounded-full ${classes.dot} ${status === 'live' ? 'animate-pulse' : ''}`} />
+        <span className={`w-2 h-2 rounded-full ${classes.dot} ${status === 'live' || status === 'loading' ? 'animate-pulse' : ''}`} />
         <span className={`text-xs font-medium ${classes.text}`}>{label}</span>
       </div>
     );
@@ -68,12 +69,12 @@ export function SquidHealthIndicator({ compact = false }: Props) {
           aria-expanded={expanded}
           aria-label="Toggle health details"
         >
-          <Icon className={`${classes.text}`} size={18} />
+          <Icon className={`${classes.text} ${status === 'loading' ? 'animate-spin' : ''}`} size={18} />
           <span className="text-sm text-gray-600">Status:</span>
           <span className={`font-semibold ${classes.text}`}>{label}</span>
           <span className="text-xs text-gray-500">updated {formatAgo(lastUpdated)}</span>
         </button>
-        <span className={`w-2 h-2 rounded-full ${classes.dot} ${status === 'live' ? 'animate-pulse' : ''}`} />
+        <span className={`w-2 h-2 rounded-full ${classes.dot} ${status === 'live' || status === 'loading' ? 'animate-pulse' : ''}`} />
       </div>
       {expanded && (
         <div className="px-4 pb-3">

@@ -11,9 +11,8 @@ import {
 } from '@tanstack/react-table';
 import { useTransactionDataWithBlocks } from './use-transaction-data-with-blocks';
 import { useSwapEvents } from './use-swap-events';
-import type { TransactionDirection } from '@/utils/transfer-query';
 import { transactionColumns } from '../components/transaction-columns';
-import { UiTransfer } from '../data/transfer-mapper';
+import { type UiTransfer } from '../data/transfer-mapper';
 import { PAGINATION_CONFIG } from '../constants/pagination';
 import { ApolloError, useApolloClient, type ApolloClient, type NormalizedCacheObject } from '@apollo/client';
 import { useTokenUsdPrices, type TokenInput } from '@/hooks/use-token-usd-prices';
@@ -25,21 +24,19 @@ import { usePageCount } from './use-page-count';
 import { useFastWindow } from './use-fast-window';
 import { useAnchor } from './use-anchor';
 import { useTokenBootstrap } from './use-token-bootstrap';
+import { useTransactionFilter } from './use-transaction-filter';
+import { useTransactionFilterStore } from '../stores/use-transaction-filter-store';
 
 const addressPageMemory = new Map<string, number>();
 
 // Debug flag to trace pagination math; enable only with VITE_TX_PAGINATION_DEBUG=1|true
-const DEBUG_TX_PAGINATION = ((import.meta as any).env?.VITE_TX_PAGINATION_DEBUG === '1'
-  || (import.meta as any).env?.VITE_TX_PAGINATION_DEBUG === 'true');
-  function dbg(...args: any[]) {
-    if (!DEBUG_TX_PAGINATION) return;
-    // eslint-disable-next-line no-console
-    console.debug('[TxPagination]', ...args);
-  }
+const DEBUG_TX_PAGINATION = (import.meta.env.VITE_TX_PAGINATION_DEBUG === '1'
+  || import.meta.env.VITE_TX_PAGINATION_DEBUG === 'true');
 
-  // Local storage helpers moved to tokens/token-ids
-
-// --- Token id sets moved to '@/tokens/token-ids' ---
+function dbg(...args: unknown[]) {
+  if (!DEBUG_TX_PAGINATION) return;
+  console.debug('[TxPagination]', ...args);
+}
 
 export interface TanstackTransactionAdapterReturn {
   table: Table<UiTransfer>;
@@ -67,28 +64,29 @@ export interface TanstackTransactionAdapterReturn {
   availableTokens: { reef: boolean; usdc: boolean; mrd: boolean };
 }
 
-// Token filter supports special keywords 'all' and 'reef', legacy 'usdc',
-// and any EVM contract address (0x...).
-type TokenFilter = string;
-
-import { useTransactionFilter } from './use-transaction-filter';
-
+/**
+ * Adapts transaction data for TanStack Table using Zustand filter store.
+ * Calculated raw values are passed from the component to avoid redundant parsing logic.
+ */
 export function useTanstackTransactionAdapter(
   address: string,
-  direction: TransactionDirection = 'any',
-  minReefRaw?: string | bigint | null,
-  maxReefRaw?: string | bigint | null,
-  tokenFilter: TokenFilter = 'all',
-  tokenMinRaw?: string | null,
-  tokenMaxRaw?: string | null,
+  appliedMinRaw: string | null,
+  appliedMaxRaw: string | null,
+  appliedTokenMinRaw: string | null,
+  appliedTokenMaxRaw: string | null,
   strictServerTokenFilter: boolean = false,
-  swapOnly: boolean = false,
 ): TanstackTransactionAdapterReturn {
+  const direction = useTransactionFilterStore(state => state.direction);
+  const tokenFilter = useTransactionFilterStore(state => state.tokenFilter);
+  const txType = useTransactionFilterStore(state => state.txType);
+
+  const swapOnly = txType === 'swap';
   const apollo = useApolloClient();
-  // ... (rest of imports and setup)
+
   // Enforce strict server token filter by default for USDC/MRD and custom 0x tokens
   const enforceStrict = (tokenFilter === 'usdc' || tokenFilter === 'mrd' || isValidEvmAddressFormat(tokenFilter));
   const effectiveStrict = enforceStrict || strictServerTokenFilter;
+
   // Allow initial page jump via URL params (?page=6 or ?p=6) for E2E and deep-links.
   const initialPageIndex = useMemo(() => {
     try {
@@ -123,8 +121,6 @@ export function useTanstackTransactionAdapter(
   const [softFallbackActive, setSoftFallbackActive] = useState<boolean>(false);
   const [softFallbackAttempted, setSoftFallbackAttempted] = useState<boolean>(false);
 
-  // Determine server-side token constraints when strict filter is enabled (computed post-load)
-
   // Use effective server token ids (null when soft fallback is active)
   const effectiveServerTokenIds = softFallbackActive ? null : serverTokenIds;
 
@@ -151,19 +147,19 @@ export function useTanstackTransactionAdapter(
     (swapOnly ? null : address),
     apiPageSize,
     direction,
-    minReefRaw,
-    maxReefRaw,
+    appliedMinRaw,
+    appliedMaxRaw,
     tokenFilter === 'reef',
     effectiveServerTokenIds,
-    (effectiveServerTokenIds ? (tokenMinRaw ?? null) : null),
-    (effectiveServerTokenIds ? (tokenMaxRaw ?? null) : null),
+    (effectiveServerTokenIds ? (appliedTokenMinRaw ?? null) : null),
+    (effectiveServerTokenIds ? (appliedTokenMaxRaw ?? null) : null),
     erc20Only,
     swapOnly,
   );
 
   const initialTransactions = useMemo(() => (swapOnly ? (swapAdapter.items || []) : (baseAdapter.transfers || [])), [swapOnly, swapAdapter.items, baseAdapter.transfers]);
   const isLoading = swapOnly ? swapAdapter.loading : baseAdapter.loading;
-  const error = swapOnly ? (swapAdapter.error as any) : baseAdapter.error;
+  const error = swapOnly ? (swapAdapter.error as ApolloError | Error | undefined) : baseAdapter.error;
   const fetchMore = swapOnly ? swapAdapter.fetchMore : baseAdapter.fetchMore;
   const hasNextPage = swapOnly ? swapAdapter.hasMore : baseAdapter.hasMore;
   const totalCount = swapOnly ? undefined : baseAdapter.totalCount;
@@ -176,22 +172,22 @@ export function useTanstackTransactionAdapter(
     isLoading,
     initialTransactions,
     serverTokenIds,
-    setServerTokenIds: (val) => setServerTokenIds(val),
+    setServerTokenIds,
     softFallbackActive,
-    setSoftFallbackActive: (v) => setSoftFallbackActive(v),
+    setSoftFallbackActive,
     softFallbackAttempted,
-    setSoftFallbackAttempted: (v) => setSoftFallbackAttempted(v),
+    setSoftFallbackAttempted,
     apollo: apollo as ApolloClient<NormalizedCacheObject>,
     usdcBootstrapDone,
-    setUsdcBootstrapDone: (v) => setUsdcBootstrapDone(v),
+    setUsdcBootstrapDone,
     dbg,
   });
 
   const filteredTransactions = useTransactionFilter({
     initialTransactions,
     tokenFilter,
-    tokenMinRaw,
-    tokenMaxRaw,
+    tokenMinRaw: appliedTokenMinRaw,
+    tokenMaxRaw: appliedTokenMaxRaw,
     softFallbackActive,
     serverTokenIds,
     swapOnly,
@@ -203,11 +199,12 @@ export function useTanstackTransactionAdapter(
     const acc = { incoming: 0, outgoing: 0, swap: 0 };
     const list = filteredTransactions || [];
     for (const t of list) {
-      if ((t as any).method === 'swap' || (t as any).type === 'SWAP') {
+      const tx = t as UiTransfer;
+      if (tx.method === 'swap' || tx.type === 'SWAP') {
         acc.swap += 1;
         continue;
       }
-      const ty = String((t as any).type || '').toUpperCase();
+      const ty = String(tx.type || '').toUpperCase();
       if (ty === 'INCOMING') acc.incoming += 1;
       else if (ty === 'OUTGOING') acc.outgoing += 1;
     }
@@ -221,14 +218,15 @@ export function useTanstackTransactionAdapter(
 
     let reef = false, usdc = false, mrd = false;
     for (const t of list) {
+      const tx = t as UiTransfer;
       // direct token
-      if (!reef) reef = isReefToken((t as any).token);
-      if (!usdc) usdc = isUsdcId((t as any)?.token?.id);
-      if (!mrd) mrd = isMrdId((t as any)?.token?.id);
+      if (!reef) reef = isReefToken(tx.token);
+      if (!usdc) usdc = isUsdcId(tx.token?.id);
+      if (!mrd) mrd = isMrdId(tx.token?.id);
       // swap legs
-      if ((t as any)?.swapInfo) {
-        const s = (t as any).swapInfo.sold?.token;
-        const b = (t as any).swapInfo.bought?.token;
+      if (tx.swapInfo) {
+        const s = tx.swapInfo.sold?.token;
+        const b = tx.swapInfo.bought?.token;
         if (!reef) reef = isReefToken(s) || isReefToken(b);
         if (!usdc) usdc = isUsdcId(s?.id) || isUsdcId(b?.id);
         if (!mrd) mrd = isMrdId(s?.id) || isMrdId(b?.id);
@@ -244,13 +242,12 @@ export function useTanstackTransactionAdapter(
   useEffect(() => {
     // reset page on filter change to keep behavior
     setPagination(p => ({ ...p, pageIndex: 0 }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [direction, minReefRaw, maxReefRaw, tokenFilter, swapOnly]);
+  }, [direction, appliedMinRaw, appliedMaxRaw, tokenFilter, swapOnly]);
 
   // Disable client sorting entirely; server provides ordering when needed
   useEffect(() => {
     setSorting([]);
-  }, [minReefRaw, maxReefRaw, tokenFilter]);
+  }, [appliedMinRaw, appliedMaxRaw, tokenFilter]);
 
   // On address change after initial mount, set page to remembered index for that address,
   // or reset to page 1 (index 0) if first time seeing this address.
@@ -258,16 +255,17 @@ export function useTanstackTransactionAdapter(
   useLayoutEffect(() => {
     if (prevAddressRef.current === address) return; // skip on initial mount
     const remembered = addressPageMemory.get(address);
-    const nextIdx = Number.isFinite(remembered as any) && (remembered as number) >= 0
-      ? Math.floor(remembered as number)
+    const nextIdx = (typeof remembered === 'number' && Number.isFinite(remembered) && remembered >= 0)
+      ? Math.floor(remembered)
       : 0;
     setPagination(p => ({ ...p, pageIndex: nextIdx }));
   }, [address]);
+
   const { newItemsCount, showNewItems } = useAnchor({
     address,
     direction,
-    minReefRaw,
-    maxReefRaw,
+    minReefRaw: appliedMinRaw,
+    maxReefRaw: appliedMaxRaw,
     tokenFilter,
     initialTransactions,
     pageIndex: pagination.pageIndex,
@@ -344,10 +342,11 @@ export function useTanstackTransactionAdapter(
       out.push({ id, decimals });
     };
     for (const t of (dataForCurrentPage || [])) {
-      pushTok((t as any)?.token);
-      if ((t as any)?.swapInfo) {
-        pushTok((t as any).swapInfo.sold?.token);
-        pushTok((t as any).swapInfo.bought?.token);
+      const tx = t as UiTransfer;
+      pushTok(tx.token);
+      if (tx.swapInfo) {
+        pushTok(tx.swapInfo.sold?.token);
+        pushTok(tx.swapInfo.bought?.token);
       }
     }
     return out;
@@ -377,7 +376,7 @@ export function useTanstackTransactionAdapter(
       first,
       last,
     });
-  }, [pagination.pageIndex, pagination.pageSize, newItemsCount, filteredTransactions, tokenFilter, swapOnly]);
+  }, [pagination, newItemsCount, filteredTransactions, tokenFilter, swapOnly]);
 
   // Debug-only: detect duplicate ids in the full source list
   useEffect(() => {
@@ -489,7 +488,7 @@ export function useTanstackTransactionAdapter(
     if (desiredStart < itemsLoaded) return;
     const lastIndex = Math.max(0, Math.ceil(itemsLoaded / pageSize) - 1);
     if (pageIndex > lastIndex) setPagination(p => ({ ...p, pageIndex: lastIndex }));
-  }, [pagination.pageIndex, pagination.pageSize, filteredTransactions, hasNextPage, tokenFilter, swapOnly]);
+  }, [pagination, filteredTransactions, hasNextPage, tokenFilter, swapOnly]);
 
   const table = useReactTable({
     data: dataForCurrentPage,
@@ -556,7 +555,11 @@ export function useTanstackTransactionAdapter(
     const isForwardNav = pagination.pageIndex >= prevIndex;
     if (!isForwardNav) return;
 
-    const winAny = window as any;
+    const win = window as Window & {
+      requestIdleCallback?: (callback: (deadline: { didTimeout: boolean; timeRemaining: () => number }) => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+
     const schedule = () => {
       if (document.hidden) return;
       lastPrefetchedAtCountRef.current = itemsLoaded;
@@ -566,16 +569,16 @@ export function useTanstackTransactionAdapter(
       fetchMore().catch(() => {});
     };
 
-    if (typeof winAny.requestIdleCallback === 'function') {
-      prefetchIdleIdRef.current = winAny.requestIdleCallback(schedule, { timeout: 1000 });
+    if (typeof win.requestIdleCallback === 'function') {
+      prefetchIdleIdRef.current = win.requestIdleCallback(schedule, { timeout: 1000 });
     } else {
       prefetchTimerRef.current = window.setTimeout(schedule, 300);
     }
 
     const onVisibility = () => {
       if (!document.hidden) return;
-      if (prefetchIdleIdRef.current && typeof winAny.cancelIdleCallback === 'function') {
-        winAny.cancelIdleCallback(prefetchIdleIdRef.current);
+      if (prefetchIdleIdRef.current && typeof win.cancelIdleCallback === 'function') {
+        win.cancelIdleCallback(prefetchIdleIdRef.current);
         prefetchIdleIdRef.current = undefined;
       }
       if (prefetchTimerRef.current) {
@@ -588,8 +591,8 @@ export function useTanstackTransactionAdapter(
 
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
-      if (prefetchIdleIdRef.current && typeof winAny.cancelIdleCallback === 'function') {
-        winAny.cancelIdleCallback(prefetchIdleIdRef.current);
+      if (prefetchIdleIdRef.current && typeof win.cancelIdleCallback === 'function') {
+        win.cancelIdleCallback(prefetchIdleIdRef.current);
         prefetchIdleIdRef.current = undefined;
       }
       if (prefetchTimerRef.current) {
@@ -597,9 +600,8 @@ export function useTanstackTransactionAdapter(
         prefetchTimerRef.current = undefined;
       }
     };
-  }, [initialTransactions, hasNextPage, pagination.pageIndex, pagination.pageSize, fetchMore, newItemsCount, fastModeActive]);
+  }, [initialTransactions, hasNextPage, pagination.pageIndex, pagination.pageSize, fetchMore, newItemsCount, fastModeActive, swapOnly]);
 
-  // Track last page index to detect forward/backward navigation for prefetch guard
   useEffect(() => {
     prevPageIndexRef.current = pagination.pageIndex;
   }, [pagination.pageIndex]);
@@ -684,7 +686,7 @@ export function useTanstackTransactionAdapter(
     if (applyOverride) setPageCountOverride(prev => Math.max(prev || 0, minForNext));
     else setPageCountOverride(0);
     setPagination(p => ({ ...p, pageIndex: clamped }));
-  }, [hasNextPage, totalCount, pagination.pageSize, newItemsCount, tokenFilter, swapOnly, filteredTransactions, initialTransactions]);
+  }, [hasNextPage, totalCount, pagination.pageSize, newItemsCount, tokenFilter, swapOnly, filteredTransactions, initialTransactions, pagination.pageIndex]);
 
   return {
     table,

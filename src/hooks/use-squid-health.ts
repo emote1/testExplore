@@ -4,7 +4,7 @@ import { HEALTH_COMBINED_QUERY } from '@/data/health';
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 
 export interface SquidHealth {
-  status: 'live' | 'lagging' | 'stale' | 'down';
+  status: 'loading' | 'live' | 'lagging' | 'stale' | 'down';
   height?: number;
   lastBlockTs?: number; // ms epoch
   processorTs?: number; // ms epoch
@@ -32,6 +32,16 @@ export function useSquidHealth(opts: Options = {}): SquidHealth {
   const [processorTs, setProcessorTs] = useState<number | undefined>(undefined);
   const [lastUpdated, setLastUpdated] = useState<number | undefined>(undefined);
   const latenciesRef = useRef<number[]>([]);
+  const intervalMsRef = useRef(intervalMs);
+  const latencyWindowRef = useRef(latencyWindow);
+
+  useEffect(() => {
+    intervalMsRef.current = intervalMs;
+  }, [intervalMs]);
+
+  useEffect(() => {
+    latencyWindowRef.current = latencyWindow;
+  }, [latencyWindow]);
 
   async function timedQuery<T>(q: TypedDocumentNode<any, any>): Promise<T | null> {
     const t0 = performance.now();
@@ -44,37 +54,75 @@ export function useSquidHealth(opts: Options = {}): SquidHealth {
       const dt = t1 - t0;
       const arr = latenciesRef.current;
       arr.push(dt);
-      while (arr.length > latencyWindow) arr.shift();
+      while (arr.length > latencyWindowRef.current) arr.shift();
       return (data as T) ?? null;
-    } catch {
-      return null;
+    } catch (err) {
+      throw err;
     }
   }
 
   useEffect(() => {
     let alive = true;
     let timer: number | null = null;
+    let backoffMs = intervalMsRef.current;
+    let errorCount = 0;
+    const maxBackoffMs = 5 * 60 * 1000;
 
-    async function tick() {
+    function handleVisibilityChange() {
       if (!alive) return;
-      const data = await timedQuery<any>(HEALTH_COMBINED_QUERY as unknown as TypedDocumentNode<any, any>);
-      const h = data?.squidStatus?.height;
-      if (h != null) setHeight(Number(h));
-      const row = data?.blocks?.[0];
-      if (row) {
-        const ts = Date.parse(String(row.timestamp));
-        const pts = row.processorTimestamp ? Date.parse(String(row.processorTimestamp)) : undefined;
-        if (!Number.isNaN(ts)) setLastBlockTs(ts);
-        if (pts && !Number.isNaN(pts)) setProcessorTs(pts);
+      if (document.hidden) {
+        if (timer) {
+          window.clearTimeout(timer);
+          timer = null;
+        }
+      } else {
+        if (!timer) {
+          tick();
+        }
       }
-      setLastUpdated(Date.now());
-      // schedule next
-      timer = window.setTimeout(tick, intervalMs);
     }
 
+    async function tick() {
+      if (!alive || document.hidden) return;
+
+      try {
+        const data = await timedQuery<any>(HEALTH_COMBINED_QUERY as unknown as TypedDocumentNode<any, any>);
+        if (!alive) return;
+
+        const h = data?.squidStatus?.height;
+        if (h != null) setHeight(Number(h));
+        const row = data?.blocks?.[0];
+        if (row) {
+          const ts = Date.parse(String(row.timestamp));
+          const pts = row.processorTimestamp ? Date.parse(String(row.processorTimestamp)) : undefined;
+          if (!Number.isNaN(ts)) setLastBlockTs(ts);
+          if (pts && !Number.isNaN(pts)) setProcessorTs(pts);
+        }
+        setLastUpdated(Date.now());
+
+        errorCount = 0;
+        backoffMs = intervalMsRef.current;
+      } catch (err) {
+        if (!alive) return;
+        errorCount++;
+        backoffMs = Math.min(backoffMs * 2, maxBackoffMs);
+        console.warn(`[SquidHealth] Query failed (attempt ${errorCount}), backing off to ${backoffMs}ms`, err);
+      }
+
+      if (alive && !document.hidden) {
+        timer = window.setTimeout(tick, backoffMs);
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     tick();
-    return () => { alive = false; if (timer) window.clearTimeout(timer); };
-  }, [client, intervalMs, latencyWindow]);
+
+    return () => {
+      alive = false;
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [client]);
 
   const { avg, p95 } = useMemo(() => {
     const arr = latenciesRef.current;
@@ -88,7 +136,7 @@ export function useSquidHealth(opts: Options = {}): SquidHealth {
   }, [lastUpdated]);
 
   const status: SquidHealth['status'] = useMemo(() => {
-    if (!lastUpdated) return 'down';
+    if (!lastUpdated) return 'loading';
     if (!lastBlockTs) return 'lagging';
     const now = Date.now();
     const lagSec = Math.max(0, (now - lastBlockTs) / 1000);

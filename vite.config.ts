@@ -89,8 +89,37 @@ export default defineConfig(async () => {
       ],
     },
     build: {
-      chunkSizeWarningLimit: 1024,
+      chunkSizeWarningLimit: 600,
       rollupOptions: {
+        output: {
+          manualChunks: {
+            // Core React libraries
+            'react-vendor': ['react', 'react-dom'],
+            // GraphQL and Apollo
+            'apollo-vendor': ['@apollo/client', 'graphql', 'graphql-ws'],
+            // TanStack ecosystem
+            'tanstack-vendor': [
+              '@tanstack/react-query',
+              '@tanstack/react-table',
+              '@tanstack/react-virtual',
+            ],
+            // Polkadot/Reef libraries
+            'polkadot-vendor': [
+              '@polkadot/util-crypto',
+              '@reef-chain/util-lib',
+            ],
+            // UI libraries
+            'ui-vendor': [
+              'recharts',
+              'lucide-react',
+              'clsx',
+              'tailwind-merge',
+              'class-variance-authority',
+            ],
+            // State management
+            'state-vendor': ['zustand'],
+          },
+        },
         plugins: rollupPlugins,
       },
     },

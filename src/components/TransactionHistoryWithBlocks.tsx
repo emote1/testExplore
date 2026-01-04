@@ -1,14 +1,14 @@
 import React from 'react';
 import { Loader2, AlertTriangle, ArrowDownRight, ArrowUpRight, Activity, Coins, Image } from 'lucide-react';
 import { useApolloClient } from '@apollo/client';
-import { useTanstackTransactionAdapter } from '../hooks/useTanstackTransactionAdapter';
+import { useTanstackTransactionAdapter } from '@/hooks/useTanstackTransactionAdapter';
 import type { UiTransfer } from '../data/transfer-mapper';
 import { useTransferSubscription } from '../hooks/useTransferSubscription';
 import { buildTransferWhereFilter, type TransactionDirection } from '../utils/transfer-query';
 import { isValidEvmAddressFormat, isValidSubstrateAddressFormat } from '../utils/address-helpers';
 import { useAddressResolver } from '../hooks/use-address-resolver';
 import { formatAmount } from '../utils/formatters';
-import { SquidHealthIndicator } from './SquidHealthIndicator';
+import { useSquidHealth } from '@/hooks/use-squid-health';
 import { AddressDisplay } from './AddressDisplay';
 import { useTokenBalances } from '../hooks/use-token-balances';
 import { useNftCountByOwner } from '../hooks/use-nft-count-by-owner';
@@ -18,6 +18,7 @@ import type { TransferOrderByInput, TransferWhereInput } from '../gql/graphql';
 import { MRD_ID_SET, MRD_SESSION_SET, USDC_ID_SET, USDC_SESSION_SET } from '../tokens/token-ids';
 import type { DocumentNode } from 'graphql';
 import { TransactionsFilters } from './TransactionsFilters';
+import { useTransactionFilterStore, type TxTypeFilter } from '../stores/use-transaction-filter-store';
 
 const txTypeCountsCache = new Map<
   string,
@@ -59,34 +60,49 @@ function TransactionsView({
 }) {
   const apolloClient = useApolloClient();
   const { resolveBoth } = useAddressResolver();
-  const [direction, setDirection] = React.useState<TransactionDirection>('any');
-  const [txType, setTxType] = React.useState<'all' | 'incoming' | 'outgoing' | 'swap'>('all');
-  // tokenFilter supports: 'all' | 'reef' | 'usdc' | <contractAddress>
-  const [tokenFilter, setTokenFilter] = React.useState<string>('all');
+  
+  const txType = useTransactionFilterStore(state => state.txType);
+  const setTxType = useTransactionFilterStore(state => state.setTxType);
+  const direction = useTransactionFilterStore(state => state.direction);
+  const setDirection = useTransactionFilterStore(state => state.setDirection);
+  const tokenFilter = useTransactionFilterStore(state => state.tokenFilter);
+  const setTokenFilter = useTransactionFilterStore(state => state.setTokenFilter);
+  const minAmountInput = useTransactionFilterStore(state => state.minAmountInput);
+  const setMinAmountInput = useTransactionFilterStore(state => state.setMinAmountInput);
+  const maxAmountInput = useTransactionFilterStore(state => state.maxAmountInput);
+  const setMaxAmountInput = useTransactionFilterStore(state => state.setMaxAmountInput);
+  const customDecimals = useTransactionFilterStore(state => state.customDecimals);
+  const setCustomDecimals = useTransactionFilterStore(state => state.setCustomDecimals);
+
+  const customDecimalsRef = React.useRef(customDecimals);
+  React.useEffect(() => {
+    customDecimalsRef.current = customDecimals;
+  }, [customDecimals]);
+
   const MRD_CONTRACT = '0x95a2AF50040B7256a4B4c405a4AfD4DD573DA115';
-  // Shared inputs for amount filter; semantics (REEF/USDC/MRD) depend on tokenFilter
-  const [minReefInput, setMinReefInput] = React.useState<string>('');
-  const [maxReefInput, setMaxReefInput] = React.useState<string>('');
   const isAllMode = tokenFilter === 'all';
   const isReefMode = tokenFilter === 'reef';
   const isUsdcMode = tokenFilter === 'usdc';
   const isContractMode = React.useMemo(() => /^0x[0-9a-fA-F]{40}$/.test(tokenFilter), [tokenFilter]);
-  // Decimals detected for a custom 0x token from current page data
-  const [customDecimals, setCustomDecimals] = React.useState<number | null>(null);
+
   const [resolvedAddress, setResolvedAddress] = React.useState<string | null>(null);
   const [resolvedEvmAddress, setResolvedEvmAddress] = React.useState<string | null>(null);
   const [isResolvingCounts, setIsResolvingCounts] = React.useState<boolean>(false);
+
   // Debounce the raw input to avoid excessive queries while typing
-  const [debouncedMinReefInput, setDebouncedMinReefInput] = React.useState<string>('');
-  const [debouncedMaxReefInput, setDebouncedMaxReefInput] = React.useState<string>('');
+  const [debouncedMinInput, setDebouncedMinInput] = React.useState<string>(minAmountInput);
+  const [debouncedMaxInput, setDebouncedMaxInput] = React.useState<string>(maxAmountInput);
+
   React.useEffect(() => {
-    const id = window.setTimeout(() => setDebouncedMinReefInput(minReefInput), 300);
+    const id = window.setTimeout(() => setDebouncedMinInput(minAmountInput), 300);
     return () => window.clearTimeout(id);
-  }, [minReefInput]);
+  }, [minAmountInput]);
+
   React.useEffect(() => {
-    const id = window.setTimeout(() => setDebouncedMaxReefInput(maxReefInput), 300);
+    const id = window.setTimeout(() => setDebouncedMaxInput(maxAmountInput), 300);
     return () => window.clearTimeout(id);
-  }, [maxReefInput]);
+  }, [maxAmountInput]);
+
   // Helper: parse decimal string to raw bigint string with given decimals
   function parseToRawDecimal(input: string, decimals: number): string | null {
     const s = (input || '').trim().replace(',', '.');
@@ -110,49 +126,52 @@ function TransactionsView({
     if (isUsdcMode) return 6;
     if (isContractMode) {
       const addrLower = tokenFilter.toLowerCase();
-      // Prefer dynamically detected decimals if available
       if (typeof customDecimals === 'number') return customDecimals;
-      // Known MRD contract uses 18 decimals; default to 18 for other contracts (safe fallback)
       return addrLower === MRD_CONTRACT ? 18 : 18;
     }
     return 18;
   }, [isReefMode, isUsdcMode, isContractMode, tokenFilter, customDecimals]);
 
   // Raw values for the selected token
-  const minTokenRaw = React.useMemo(() => parseToRawDecimal(debouncedMinReefInput, selectedTokenDecimals), [debouncedMinReefInput, selectedTokenDecimals]);
-  const maxTokenRaw = React.useMemo(() => parseToRawDecimal(debouncedMaxReefInput, selectedTokenDecimals), [debouncedMaxReefInput, selectedTokenDecimals]);
-  const isMinReefInvalid = React.useMemo(() => {
-    const raw = (minReefInput || '').trim();
+  const minTokenRaw = React.useMemo(() => parseToRawDecimal(debouncedMinInput, selectedTokenDecimals), [debouncedMinInput, selectedTokenDecimals]);
+  const maxTokenRaw = React.useMemo(() => parseToRawDecimal(debouncedMaxInput, selectedTokenDecimals), [debouncedMaxInput, selectedTokenDecimals]);
+
+  const isMinInvalid = React.useMemo(() => {
+    const raw = (minAmountInput || '').trim();
     if (!raw) return false;
     const s = raw.replace(',', '.');
     return !/^\d*(?:\.(\d+)?)?$/.test(s);
-  }, [minReefInput]);
-  const isMaxReefInvalid = React.useMemo(() => {
-    const raw = (maxReefInput || '').trim();
+  }, [minAmountInput]);
+
+  const isMaxInvalid = React.useMemo(() => {
+    const raw = (maxAmountInput || '').trim();
     if (!raw) return false;
     const s = raw.replace(',', '.');
     return !/^\d*(?:\.(\d+)?)?$/.test(s);
-  }, [maxReefInput]);
+  }, [maxAmountInput]);
+
   const isRangeInvalid = React.useMemo(() => {
     try {
       if (!minTokenRaw || !maxTokenRaw) return false;
       return BigInt(minTokenRaw) > BigInt(maxTokenRaw);
     } catch { return false; }
   }, [minTokenRaw, maxTokenRaw]);
+
   const hasActiveAmountFilter = React.useMemo(() => {
     const hasMin = !!minTokenRaw && minTokenRaw !== '0';
     const hasMax = !!maxTokenRaw && maxTokenRaw !== '0';
     return hasMin || hasMax;
   }, [minTokenRaw, maxTokenRaw]);
+
   // Server-side filters apply only for native REEF
   const reefFiltersActive = isReefMode && !isRangeInvalid;
   const appliedMinRaw = reefFiltersActive ? minTokenRaw : null;
   const appliedMaxRaw = reefFiltersActive ? maxTokenRaw : null;
+
   // Client-side token filters for adapter (REEF/USDC/MRD/contract)
   const tokenFiltersActive = tokenFilter !== 'all' && !isRangeInvalid;
   const appliedTokenMinRaw = tokenFiltersActive ? minTokenRaw : null;
   const appliedTokenMaxRaw = tokenFiltersActive ? maxTokenRaw : null;
-  const swapOnly = txType === 'swap';
 
   React.useEffect(() => {
     let active = true;
@@ -180,6 +199,7 @@ function TransactionsView({
       active = false;
     };
   }, [addr, resolveBoth]);
+
   const {
     table,
     isLoading,
@@ -193,7 +213,14 @@ function TransactionsView({
     totalCount,
     loadedCount,
     loadedCountsByType,
-  } = useTanstackTransactionAdapter(addr, direction, appliedMinRaw, appliedMaxRaw, tokenFilter, appliedTokenMinRaw, appliedTokenMaxRaw, false, swapOnly);
+  } = useTanstackTransactionAdapter(
+    addr,
+    appliedMinRaw,
+    appliedMaxRaw,
+    appliedTokenMinRaw,
+    appliedTokenMaxRaw,
+    false
+  );
 
   React.useEffect(() => {
     if (!onCountsChange) return;
@@ -210,32 +237,56 @@ function TransactionsView({
   }, [onCountsChange, isLoading, totalCount, loadedCount, loadedCountsByType.incoming, loadedCountsByType.outgoing, loadedCountsByType.swap]);
 
   // After table is ready, try to detect decimals for a custom 0x token from current page rows
+  const pageIndex = table.getState().pagination.pageIndex;
+  const rowCount = table.getRowModel().rows.length;
+
+  const tableRef = React.useRef(table);
   React.useEffect(() => {
-    if (!isContractMode) { setCustomDecimals(null); return; }
+    tableRef.current = table;
+  });
+
+  const setCustomDecimalsRef = React.useRef(setCustomDecimals);
+  React.useEffect(() => {
+    setCustomDecimalsRef.current = setCustomDecimals;
+  });
+
+  React.useEffect(() => {
+    if (!isContractMode) {
+      if (customDecimalsRef.current !== null) setCustomDecimalsRef.current(null);
+      return;
+    }
     const addrLower = tokenFilter.toLowerCase();
     try {
-      const rows: Array<{ original?: any }> = (table?.getRowModel?.().rows ?? []) as any;
+      const rows = tableRef.current.getRowModel().rows;
       for (const r of rows) {
-        const o = r?.original;
+        const o = r.original;
         if (!o) continue;
-        const tryDec = (maybe: any): number | null => {
+        const tryDec = (maybe: UiTransfer | null): number | null => {
           const id = String(maybe?.token?.id || '').toLowerCase();
           const dec = maybe?.token?.decimals;
-          if (id === addrLower && typeof dec === 'number' && Number.isFinite(dec)) return dec as number;
+          if (id === addrLower && typeof dec === 'number' && Number.isFinite(dec)) return dec;
           return null;
         };
-        const fromToken = tryDec({ token: o?.token });
-        if (fromToken != null) { setCustomDecimals(fromToken); return; }
-        const sold = tryDec({ token: o?.swapInfo?.sold?.token });
-        if (sold != null) { setCustomDecimals(sold); return; }
-        const bought = tryDec({ token: o?.swapInfo?.bought?.token });
-        if (bought != null) { setCustomDecimals(bought); return; }
+        const fromToken = tryDec(o);
+        if (fromToken != null) {
+          if (customDecimalsRef.current !== fromToken) setCustomDecimalsRef.current(fromToken);
+          return;
+        }
+        const sold = tryDec(o.swapInfo?.sold ? { token: o.swapInfo.sold.token } as UiTransfer : null);
+        if (sold != null) {
+          if (customDecimalsRef.current !== sold) setCustomDecimalsRef.current(sold);
+          return;
+        }
+        const bought = tryDec(o.swapInfo?.bought ? { token: o.swapInfo.bought.token } as UiTransfer : null);
+        if (bought != null) {
+          if (customDecimalsRef.current !== bought) setCustomDecimalsRef.current(bought);
+          return;
+        }
       }
-      // If not found on this page, keep previous value or null
-    } catch {
-      // ignore
+    } catch (e) {
+      console.error('Error detecting custom decimals:', e);
     }
-  }, [isContractMode, tokenFilter, table, (table?.getState?.().pagination?.pageIndex ?? 0), (table?.getRowModel?.().rows?.length ?? 0)]);
+  }, [isContractMode, tokenFilter, pageIndex, rowCount]);
   const tokenOptions = React.useMemo(() => {
     const opts: Array<{ label: string; value: string }> = [
       { label: 'All tokens', value: 'all' },
@@ -263,17 +314,17 @@ function TransactionsView({
   const emptyHint = React.useMemo(() => {
     if (!hasActiveAmountFilter || isRangeInvalid || tokenFilter === 'all') return undefined;
     if (isLoading || isPageLoading) return undefined;
-    const hasMin = !!debouncedMinReefInput.trim();
-    const hasMax = !!debouncedMaxReefInput.trim();
-    if (hasMin && hasMax) return `No ${selectedTokenLabel} transfers in [${debouncedMinReefInput} .. ${debouncedMaxReefInput}] — adjust thresholds`;
-    if (hasMin) return `No ${selectedTokenLabel} transfers ≥ ${debouncedMinReefInput} — lower the threshold`;
-    if (hasMax) return `No ${selectedTokenLabel} transfers ≤ ${debouncedMaxReefInput} — lower the threshold`;
+    const hasMin = !!debouncedMinInput.trim();
+    const hasMax = !!debouncedMaxInput.trim();
+    if (hasMin && hasMax) return `No ${selectedTokenLabel} transfers in [${debouncedMinInput} .. ${debouncedMaxInput}] — adjust thresholds`;
+    if (hasMin) return `No ${selectedTokenLabel} transfers ≥ ${debouncedMinInput} — lower the threshold`;
+    if (hasMax) return `No ${selectedTokenLabel} transfers ≤ ${debouncedMaxInput} — lower the threshold`;
     return undefined;
-  }, [hasActiveAmountFilter, isRangeInvalid, tokenFilter, debouncedMinReefInput, debouncedMaxReefInput, isLoading, isPageLoading, selectedTokenLabel]);
+  }, [hasActiveAmountFilter, isRangeInvalid, tokenFilter, debouncedMinInput, debouncedMaxInput, isLoading, isPageLoading, selectedTokenLabel]);
 
   const errorMessage = React.useMemo(() => {
     if (!error) return null;
-    return String((error as any)?.message || error);
+    return error instanceof Error ? error.message : String(error);
   }, [error]);
 
   
@@ -281,32 +332,32 @@ function TransactionsView({
   const [toastTransfer, setToastTransfer] = React.useState<UiTransfer | null>(null);
   const toastTimerRef = React.useRef<number | undefined>(undefined);
 
-  // Keep direction in sync with txType
-  React.useEffect(() => {
-    if (txType === 'incoming' || txType === 'outgoing') setDirection(txType);
-    else setDirection('any');
-  }, [txType]);
-
   // --- URL sync (type/dir, min/max, token) ----------------------------------
   // Initialize from URL on first mount
   React.useEffect(() => {
     try {
       const url = new URL(window.location.href);
       const params = url.searchParams;
-      const type = params.get('type');
-      const dir = params.get('dir');
+      const type = params.get('type') as TxTypeFilter | null;
+      const dir = params.get('dir') as TransactionDirection | null;
       const min = params.get('min');
       const max = params.get('max');
       const tok = params.get('token');
+
       if (type === 'swap') setTxType('swap');
-      else if (dir === 'incoming' || dir === 'outgoing') setTxType(dir as any);
-      else setTxType('all');
-      if (dir === 'incoming' || dir === 'outgoing' || dir === 'any') setDirection(dir as TransactionDirection);
-      if (typeof min === 'string' && min.length > 0) setMinReefInput(min);
-      if (typeof max === 'string' && max.length > 0) setMaxReefInput(max);
-      if (tok === 'reef' || tok === 'usdc' || tok === 'all') setTokenFilter(tok as any);
-      else if (typeof tok === 'string' && /^0x[0-9a-fA-F]{40}$/.test(tok)) setTokenFilter(tok);
-    } catch {}
+      else if (dir === 'incoming' || dir === 'outgoing') setTxType(dir as TxTypeFilter);
+      else if (type === 'all') setTxType('all');
+
+      if (dir && (dir === 'incoming' || dir === 'outgoing' || dir === 'any')) {
+        setDirection(dir);
+      }
+
+      if (typeof min === 'string' && min.length > 0) setMinAmountInput(min);
+      if (typeof max === 'string' && max.length > 0) setMaxAmountInput(max);
+      if (tok) setTokenFilter(tok);
+    } catch (e) {
+      console.error('Error parsing URL params:', e);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -325,10 +376,10 @@ function TransactionsView({
         else params.delete('dir');
       }
       // Update min
-      if (debouncedMinReefInput && debouncedMinReefInput.trim()) params.set('min', debouncedMinReefInput.trim());
+      if (debouncedMinInput && debouncedMinInput.trim()) params.set('min', debouncedMinInput.trim());
       else params.delete('min');
       // Update max
-      if (debouncedMaxReefInput && debouncedMaxReefInput.trim()) params.set('max', debouncedMaxReefInput.trim());
+      if (debouncedMaxInput && debouncedMaxInput.trim()) params.set('max', debouncedMaxInput.trim());
       else params.delete('max');
       // Update token
       if (tokenFilter && tokenFilter !== 'all') params.set('token', tokenFilter);
@@ -340,8 +391,10 @@ function TransactionsView({
       const search = params.toString();
       const newUrl = `${url.pathname}${search ? `?${search}` : ''}${url.hash}`;
       window.history.replaceState({}, '', newUrl);
-    } catch {}
-  }, [txType, direction, debouncedMinReefInput, debouncedMaxReefInput, tokenFilter]);
+    } catch (e) {
+      console.error('Error updating URL params:', e);
+    }
+  }, [txType, direction, debouncedMinInput, debouncedMaxInput, tokenFilter]);
 
   const onNewTransfer = React.useCallback((newTransfer: UiTransfer) => {
     if (!newTransfer) return;
@@ -524,8 +577,8 @@ function TransactionsView({
         allCount = (typeof a === 'number' && Number.isFinite(a)) ? a : null;
         incomingCount = (typeof i === 'number' && Number.isFinite(i)) ? i : null;
         outgoingCount = (typeof o === 'number' && Number.isFinite(o)) ? o : null;
-      } catch {
-        // ignore
+      } catch (error) {
+        console.error('Error fetching bulk counts:', error);
       }
       if (cancelled) return;
       setTypeBadgeCounts((prev) => ({
@@ -567,6 +620,19 @@ function TransactionsView({
     return `rounded-full transition-all duration-300 ${isActive ? 'bg-blue-600 hover:bg-blue-700 text-white border-blue-600 shadow-sm' : 'bg-white text-gray-700 border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`;
   }
 
+  const { status: healthStatus } = useSquidHealth({ intervalMs: 30_000 });
+  
+  const statusColors = {
+    loading: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', dot: 'bg-blue-500' },
+    live: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', dot: 'bg-emerald-500' },
+    lagging: { bg: 'bg-yellow-50', text: 'text-yellow-700', border: 'border-yellow-200', dot: 'bg-yellow-500' },
+    stale: { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200', dot: 'bg-orange-500' },
+    down: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', dot: 'bg-red-500' },
+  };
+  
+  const statusLabel = healthStatus === 'loading' ? 'Connecting' : healthStatus === 'live' ? 'Live' : healthStatus === 'lagging' ? 'Lagging' : healthStatus === 'stale' ? 'Stale' : 'Down';
+  const colors = statusColors[healthStatus];
+
   return (
     <div className="relative bg-white rounded-xl border border-gray-200 shadow-sm p-6">
       <div className="absolute top-0 left-0 right-0 h-1 data-refresh-shimmer opacity-60" />
@@ -576,37 +642,25 @@ function TransactionsView({
           <h2 className="text-lg font-semibold text-gray-900 mb-1">Transaction History</h2>
           <p className="text-sm text-gray-500">All wallet transactions with real-time updates</p>
         </div>
-        <Badge variant="secondary" className="bg-cyan-50 text-cyan-700 border border-cyan-200 rounded-full shadow-sm px-3 py-1.5">
+        <Badge variant="secondary" className={`${colors.bg} ${colors.text} border ${colors.border} rounded-full shadow-sm px-3 py-1.5`}>
           <span className="inline-flex items-center gap-2">
-            <span className="w-2 h-2 bg-[#00BFFF] rounded-full animate-pulse" />
-            <span className="text-sm font-medium">Live Updates</span>
+            <span className={`w-2 h-2 ${colors.dot} rounded-full ${healthStatus === 'live' || healthStatus === 'loading' ? 'animate-pulse' : ''}`} />
+            <span className="text-sm font-medium">{statusLabel} Updates</span>
           </span>
         </Badge>
       </div>
-      {/* Detailed API health indicator */}
-      <div className="mb-4">
-        <SquidHealthIndicator />
-      </div>
       <TransactionsFilters
-        txType={txType}
-        setTxType={setTxType}
         getTypeBadge={getTypeBadge}
         typeBtnClass={typeBtnClass}
-        tokenFilter={tokenFilter}
         tokenOptions={tokenOptions}
-        onTokenFilterChange={setTokenFilter}
         selectedTokenLabel={selectedTokenLabel}
         selectedTokenDecimals={selectedTokenDecimals}
-        minInput={minReefInput}
-        setMinInput={setMinReefInput}
-        maxInput={maxReefInput}
-        setMaxInput={setMaxReefInput}
         isAllMode={isAllMode}
         isReefMode={isReefMode}
-        isMinInvalid={isMinReefInvalid}
-        isMaxInvalid={isMaxReefInvalid}
+        isMinInvalid={isMinInvalid}
+        isMaxInvalid={isMaxInvalid}
         isRangeInvalid={isRangeInvalid}
-        debouncedMinInput={debouncedMinReefInput}
+        debouncedMinInput={debouncedMinInput}
       />
       {errorMessage ? (
         <div className="flex items-center gap-4 p-4 mb-4 text-red-700 bg-red-100 rounded-lg shadow">
@@ -691,7 +745,8 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
       const params = new URLSearchParams(window.location.search);
       const raw = params.get('infiniteOwner') ?? params.get('ownerInfinite');
       return raw === '1' || raw === 'true' || raw === 'yes';
-    } catch {
+    } catch (error) {
+      console.error('Error parsing URL:', error);
       return false;
     }
   }, []);
@@ -709,8 +764,8 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
     try {
       void import('./BalancesTable');
       void import('./NftGallery');
-    } catch {
-      // ignore
+    } catch (error) {
+      console.error('Error importing components:', error);
     }
   }, [submittedAddress]);
 
@@ -743,7 +798,8 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
         setSubmittedAddress('');
         return;
       }
-    } catch {
+    } catch (error) {
+      console.error('Error validating address:', error);
       // Network or resolver error: keep UX predictable and do not submit
       setAddressError('Не удалось проверить адрес. Попробуйте ещё раз.');
       setSubmittedAddress('');
@@ -761,29 +817,39 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
         const search = params.toString();
         const newUrl = `${url.pathname}${search ? `?${search}` : ''}${url.hash}`;
         window.history.replaceState({}, '', newUrl);
-      } catch {}
+      } catch (e) {
+        console.error('Error clearing page params:', e);
+      }
     }
 
     setSubmittedAddress(input);
   };
 
-  // Subcomponent removed from inline scope; using top-level TransactionsView instead.
+  const handleCountsChange = React.useCallback((counts: {
+    totalCount?: number;
+    loadedCount: number;
+    incoming: number;
+    outgoing: number;
+    swap: number;
+  }) => {
+    const value = typeof counts.totalCount === 'number' ? counts.totalCount : counts.loadedCount;
+    setTabCounts((prev) => {
+      if (!Number.isFinite(value)) return prev;
+      if (typeof counts.totalCount !== 'number' && value === 0 && typeof prev.transactions === 'number' && prev.transactions > 0) return prev;
+      if (prev.transactions === value) return prev;
+      return { ...prev, transactions: value };
+    });
+  }, []);
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
       <div className="max-w-7xl mx-auto">
-        {/* Header with Live Updates badge */}
-        <div className="flex items-start justify-between mb-6">
-          <div>
-            <h1 className="text-2xl font-semibold text-gray-900 mb-1">Transaction History</h1>
-            <p className="text-gray-500">
-              All wallet transactions with real-time updates
-            </p>
-          </div>
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-full shadow-sm">
-            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-            <span className="text-sm font-medium text-gray-700">Live Updates</span>
-          </div>
+        {/* Header */}
+        <div className="mb-6">
+          <h1 className="text-2xl font-semibold text-gray-900 mb-1">Transaction History</h1>
+          <p className="text-gray-500">
+            All wallet transactions with real-time updates
+          </p>
         </div>
 
         <form onSubmit={handleSubmit} className="flex items-center gap-4 mb-6 p-4 bg-white rounded-xl border border-gray-100 shadow-sm">
@@ -882,14 +948,7 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
           viewMode === 'transactions' ? (
             <TransactionsView
               addr={submittedAddress}
-              onCountsChange={(counts) => {
-                const value = typeof counts.totalCount === 'number' ? counts.totalCount : counts.loadedCount;
-                setTabCounts((prev) => {
-                  if (!Number.isFinite(value)) return prev;
-                  if (typeof counts.totalCount !== 'number' && value === 0 && typeof prev.transactions === 'number' && prev.transactions > 0) return prev;
-                  return { ...prev, transactions: value };
-                });
-              }}
+              onCountsChange={handleCountsChange}
             />
           ) : viewMode === 'nfts' ? (
             <React.Suspense fallback={<div className="flex items-center justify-center p-8"><Loader2 className="h-6 w-6 animate-spin" /></div>}>

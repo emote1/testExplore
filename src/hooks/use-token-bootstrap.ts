@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import type { ApolloClient, NormalizedCacheObject } from '@apollo/client';
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import type { UiTransfer } from '@/data/transfer-mapper';
@@ -29,7 +29,7 @@ interface Args {
   apollo: ApolloClient<NormalizedCacheObject>;
   usdcBootstrapDone: boolean;
   setUsdcBootstrapDone: (val: boolean) => void;
-  dbg?: (...args: any[]) => void;
+  dbg?: (...args: unknown[]) => void;
 }
 
 const ENABLE_USDC_BOOTSTRAP = ((import.meta as any).env?.VITE_ENABLE_USDC_BOOTSTRAP === '1'
@@ -42,6 +42,7 @@ function arraysEqual(a: string[] | null, b: string[] | null): boolean {
   for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i]) return false;
   return true;
 }
+
 const isHexAddress = (v: string) => /^0x[0-9a-fA-F]{40}$/.test(v);
 
 export function useTokenBootstrap({
@@ -61,13 +62,26 @@ export function useTokenBootstrap({
   setUsdcBootstrapDone,
   dbg,
 }: Args) {
+  // Use refs to track current state values for comparison in effects without adding them to dependencies.
+  // This prevents infinite loops when state updates are based on current state.
+  const serverTokenIdsRef = useRef(serverTokenIds);
+  useEffect(() => {
+    serverTokenIdsRef.current = serverTokenIds;
+  }, [serverTokenIds]);
+
+  const usdcBootstrapDoneRef = useRef(usdcBootstrapDone);
+  useEffect(() => {
+    usdcBootstrapDoneRef.current = usdcBootstrapDone;
+  }, [usdcBootstrapDone]);
+
   // Reset serverTokenIds when strict filter is off or token group is not supported
   useEffect(() => {
     if (!effectiveStrict || tokenFilter === 'all' || tokenFilter === 'reef') {
-      if (!arraysEqual(serverTokenIds, null)) setServerTokenIds(null);
+      if (serverTokenIdsRef.current !== null) {
+        setServerTokenIds(null);
+      }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveStrict, tokenFilter]);
+  }, [effectiveStrict, tokenFilter, setServerTokenIds]);
 
   // Hex address: update once on filter change, preserve checksum casing
   useEffect(() => {
@@ -75,38 +89,37 @@ export function useTokenBootstrap({
     if (!isHexAddress(tokenFilter)) return;
     const next = [tokenFilter];
     const tid = (typeof window !== 'undefined') ? window.setTimeout(() => {
-      if (!arraysEqual(serverTokenIds, next)) setServerTokenIds(next);
+      if (!arraysEqual(serverTokenIdsRef.current, next)) {
+        setServerTokenIds(next);
+      }
     }, 150) : undefined;
     return () => { if (typeof window !== 'undefined' && tid) window.clearTimeout(tid); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveStrict, tokenFilter]);
+  }, [effectiveStrict, tokenFilter, setServerTokenIds]);
 
   // Seed ids immediately when strict filter is enabled to avoid initial query without tokenIds
   useEffect(() => {
     if (!effectiveStrict) return;
-    if (serverTokenIds && serverTokenIds.length > 0) return;
-    const isHex = (v: string) => /^0x[0-9a-fA-F]{40}$/.test(v);
+    if (serverTokenIdsRef.current && serverTokenIdsRef.current.length > 0) return;
     if (tokenFilter === 'usdc') {
       const next = Array.from(new Set<string>([...USDC_ID_SET, ...USDC_SESSION_SET]));
-      if (next.length > 0 && !arraysEqual(serverTokenIds, next)) {
+      if (next.length > 0 && !arraysEqual(serverTokenIdsRef.current, next)) {
         setServerTokenIds(next);
         if (softFallbackActive) setSoftFallbackActive(false);
       }
     } else if (tokenFilter === 'mrd') {
       const next = Array.from(new Set<string>([...MRD_ID_SET, ...MRD_SESSION_SET]));
-      if (next.length > 0 && !arraysEqual(serverTokenIds, next)) {
+      if (next.length > 0 && !arraysEqual(serverTokenIdsRef.current, next)) {
         setServerTokenIds(next);
         if (softFallbackActive) setSoftFallbackActive(false);
       }
-    } else if (isHex(tokenFilter)) {
+    } else if (isHexAddress(tokenFilter)) {
       const next = [tokenFilter];
-      if (!arraysEqual(serverTokenIds, next)) {
+      if (!arraysEqual(serverTokenIdsRef.current, next)) {
         setServerTokenIds(next);
         if (softFallbackActive) setSoftFallbackActive(false);
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveStrict, tokenFilter]);
+  }, [effectiveStrict, tokenFilter, softFallbackActive, setServerTokenIds, setSoftFallbackActive]);
 
   // On first mount, load persisted session ids
   useEffect(() => {
@@ -116,31 +129,23 @@ export function useTokenBootstrap({
     for (const id of mrd) MRD_SESSION_SET.add(id);
   }, []);
 
-  // USDC: use stable, predefined id set (unioned with any session-observed USDC ids) to avoid oscillation
+  // USDC/MRD: update server ids if session set changes (observed via page rows)
   useEffect(() => {
     if (!effectiveStrict) return;
-    if (tokenFilter !== 'usdc') return;
-    const next = Array.from(new Set<string>([...USDC_ID_SET, ...USDC_SESSION_SET]));
+    if (tokenFilter !== 'usdc' && tokenFilter !== 'mrd') return;
+    const next = tokenFilter === 'usdc' 
+      ? Array.from(new Set<string>([...USDC_ID_SET, ...USDC_SESSION_SET]))
+      : Array.from(new Set<string>([...MRD_ID_SET, ...MRD_SESSION_SET]));
     const tid = (typeof window !== 'undefined') ? window.setTimeout(() => {
-      if (!arraysEqual(serverTokenIds, next)) setServerTokenIds(next);
+      if (!arraysEqual(serverTokenIdsRef.current, next)) {
+        setServerTokenIds(next);
+      }
     }, 150) : undefined;
     return () => { if (typeof window !== 'undefined' && tid) window.clearTimeout(tid); };
-  }, [effectiveStrict, tokenFilter, serverTokenIds, setServerTokenIds]);
-
-  // MRD: same logic as USDC
-  useEffect(() => {
-    if (!effectiveStrict) return;
-    if (tokenFilter !== 'mrd') return;
-    const next = Array.from(new Set<string>([...MRD_ID_SET, ...MRD_SESSION_SET]));
-    const tid = (typeof window !== 'undefined') ? window.setTimeout(() => {
-      if (!arraysEqual(serverTokenIds, next)) setServerTokenIds(next);
-    }, 150) : undefined;
-    return () => { if (typeof window !== 'undefined' && tid) window.clearTimeout(tid); };
-  }, [effectiveStrict, tokenFilter, serverTokenIds, setServerTokenIds]);
+  }, [effectiveStrict, tokenFilter, setServerTokenIds]);
 
   // Activate soft fallback when strict USDC/MRD filter returns no items on first load
   useEffect(() => {
-    // Disable soft fallback for enforced strict tokens (USDC/MRD/custom 0x)
     if (enforceStrict) {
       if (softFallbackActive) setSoftFallbackActive(false);
       if (softFallbackAttempted) setSoftFallbackAttempted(false);
@@ -153,37 +158,50 @@ export function useTokenBootstrap({
       return;
     }
     if (isLoading) return;
-    // Включать fallback только после попытки строгого фильтра (когда ids известны)
-    if (!serverTokenIds || serverTokenIds.length === 0) return;
+    if (!serverTokenIdsRef.current || serverTokenIdsRef.current.length === 0) return;
     const count = (initialTransactions || []).length;
     if (count === 0 && !softFallbackActive && !softFallbackAttempted) {
       setSoftFallbackActive(true);
       setSoftFallbackAttempted(true);
       if (dbg) dbg('[ERC20][fallback] activating soft fallback (no items under strict filter)', { tokenFilter });
     }
-  }, [effectiveStrict, tokenFilter, isLoading, initialTransactions, softFallbackActive, softFallbackAttempted, serverTokenIds, enforceStrict, setSoftFallbackActive, setSoftFallbackAttempted, dbg]);
+  }, [effectiveStrict, tokenFilter, isLoading, initialTransactions, softFallbackActive, softFallbackAttempted, enforceStrict, setSoftFallbackActive, setSoftFallbackAttempted, dbg]);
 
-  // Exit soft fallback once we have concrete server token ids (observed via session/bootstrap)
+  // Exit soft fallback once we have concrete server token ids
   useEffect(() => {
-    if (enforceStrict) { if (softFallbackActive) setSoftFallbackActive(false); return; }
+    if (enforceStrict) {
+      if (softFallbackActive) setSoftFallbackActive(false);
+      return;
+    }
     if (!softFallbackActive) return;
     const eligible = (tokenFilter === 'usdc' || tokenFilter === 'mrd');
-    if (!effectiveStrict || !eligible) { setSoftFallbackActive(false); return; }
+    if (!effectiveStrict || !eligible) {
+      setSoftFallbackActive(false);
+      return;
+    }
     const discovered = tokenFilter === 'usdc' ? (USDC_SESSION_SET.size > 0) : (MRD_SESSION_SET.size > 0);
     if (discovered) {
       setSoftFallbackActive(false);
       if (dbg) dbg('[ERC20][fallback] discovered ids via session, returning to strict mode');
     }
-  }, [softFallbackActive, effectiveStrict, tokenFilter, initialTransactions, enforceStrict, setSoftFallbackActive, dbg]);
+  }, [softFallbackActive, effectiveStrict, tokenFilter, enforceStrict, setSoftFallbackActive, dbg]);
 
-  // Bootstrap USDC ids by querying verified contracts by name once when strict filter is enabled
+  // Bootstrap USDC ids
   useEffect(() => {
-    if (!effectiveStrict) { setUsdcBootstrapDone(false); return; }
-    if (tokenFilter !== 'usdc') { setUsdcBootstrapDone(false); return; }
-    if (usdcBootstrapDone) return;
-    if (!ENABLE_USDC_BOOTSTRAP) { setUsdcBootstrapDone(true); return; }
-    if (!softFallbackActive) return; // запускать только когда строгий фильтр ничего не вернул
-    if (USDC_SESSION_SET.size > 0) { setUsdcBootstrapDone(true); return; }
+    if (!effectiveStrict || tokenFilter !== 'usdc') {
+      if (usdcBootstrapDoneRef.current) setUsdcBootstrapDone(false);
+      return;
+    }
+    if (usdcBootstrapDoneRef.current) return;
+    if (!ENABLE_USDC_BOOTSTRAP) {
+      setUsdcBootstrapDone(true);
+      return;
+    }
+    if (!softFallbackActive) return;
+    if (USDC_SESSION_SET.size > 0) {
+      setUsdcBootstrapDone(true);
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
@@ -203,68 +221,47 @@ export function useTokenBootstrap({
         }
         if (added > 0 && !cancelled) {
           const next = Array.from(new Set<string>([...USDC_ID_SET, ...USDC_SESSION_SET]));
-          if (!arraysEqual(serverTokenIds, next)) setServerTokenIds(next);
+          if (!arraysEqual(serverTokenIdsRef.current, next)) {
+            setServerTokenIds(next);
+          }
         }
       } catch (_e) {
-        // ignore, fallback to defaults
+        // ignore
       } finally {
         if (!cancelled) setUsdcBootstrapDone(true);
       }
     })();
     return () => { cancelled = true; };
-  }, [effectiveStrict, tokenFilter, apollo, usdcBootstrapDone, softFallbackActive, setUsdcBootstrapDone, setServerTokenIds, serverTokenIds]);
+  }, [effectiveStrict, tokenFilter, apollo, softFallbackActive, setUsdcBootstrapDone, setServerTokenIds]);
 
-  // Observe current page for any tokens named USDC (including synonyms and swap legs) and extend session set
+  // Observe current page for tokens and extend session sets
   useEffect(() => {
     if (!effectiveStrict) return;
-    if (tokenFilter !== 'usdc') return;
+    if (tokenFilter !== 'usdc' && tokenFilter !== 'mrd') return;
     const list = initialTransactions || [];
     let added = 0;
-    const nameSynonyms = new Set(['usdc', 'usdc.e', 'usd coin']);
+    const isUsdc = tokenFilter === 'usdc';
+    const nameSynonyms = isUsdc ? new Set(['usdc', 'usdc.e', 'usd coin']) : new Set(['mrd']);
+    const sessionSet = isUsdc ? USDC_SESSION_SET : MRD_SESSION_SET;
+    const storageKey = isUsdc ? USDC_STORAGE_KEY : MRD_STORAGE_KEY;
+    const idSet = isUsdc ? USDC_ID_SET : MRD_ID_SET;
     for (const t of list) {
-      const tok = (t as any)?.token as { id?: string; name?: string } | undefined;
       const addIf = (maybe?: { id?: string; name?: string }) => {
         const id = (maybe?.id || '').toLowerCase();
         if (!id) return;
         const nm = (maybe?.name || '').toString().toLowerCase();
-        if (nm && nameSynonyms.has(nm) && !USDC_SESSION_SET.has(id)) { USDC_SESSION_SET.add(id); added += 1; }
+        if (nm && nameSynonyms.has(nm) && !sessionSet.has(id)) { sessionSet.add(id); added += 1; }
       };
-      if (tok) addIf(tok);
+      addIf((t as any)?.token);
       const s = (t as any)?.swapInfo;
       if (s) { addIf(s.sold?.token); addIf(s.bought?.token); }
     }
     if (added > 0) {
-      const next = Array.from(new Set<string>([...USDC_ID_SET, ...USDC_SESSION_SET]));
-      if (!arraysEqual(serverTokenIds, next)) setServerTokenIds(next);
-      saveIds(USDC_STORAGE_KEY, USDC_SESSION_SET);
+      const next = Array.from(new Set<string>([...idSet, ...sessionSet]));
+      if (!arraysEqual(serverTokenIdsRef.current, next)) {
+        setServerTokenIds(next);
+      }
+      saveIds(storageKey, sessionSet);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveStrict, tokenFilter, initialTransactions]);
-
-  // Observe current page for MRD tokens (case-insensitive) and extend session set
-  useEffect(() => {
-    if (!effectiveStrict) return;
-    if (tokenFilter !== 'mrd') return;
-    const list = initialTransactions || [];
-    let added = 0;
-    const nameSynonyms = new Set(['mrd']);
-    for (const t of list) {
-      const tok = (t as any)?.token as { id?: string; name?: string } | undefined;
-      const addIf = (maybe?: { id?: string; name?: string }) => {
-        const id = (maybe?.id || '').toLowerCase();
-        if (!id) return;
-        const nm = (maybe?.name || '').toString().toLowerCase();
-        if (nm && nameSynonyms.has(nm) && !MRD_SESSION_SET.has(id)) { MRD_SESSION_SET.add(id); added += 1; }
-      };
-      if (tok) addIf(tok);
-      const s = (t as any)?.swapInfo;
-      if (s) { addIf(s.sold?.token); addIf(s.bought?.token); }
-    }
-    if (added > 0) {
-      const next = Array.from(new Set<string>([...MRD_ID_SET, ...MRD_SESSION_SET]));
-      if (!arraysEqual(serverTokenIds, next)) setServerTokenIds(next);
-      saveIds(MRD_STORAGE_KEY, MRD_SESSION_SET);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveStrict, tokenFilter, initialTransactions]);
+  }, [effectiveStrict, tokenFilter, initialTransactions, setServerTokenIds]);
 }

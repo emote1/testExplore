@@ -3,29 +3,19 @@ import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, SlidersHorizontal } from '
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 
+import { useTransactionFilterStore, type TxTypeFilter } from '../stores/use-transaction-filter-store';
+
 interface TokenOption {
   label: string;
   value: string;
 }
 
 interface TransactionsFiltersProps {
-  txType: 'all' | 'incoming' | 'outgoing' | 'swap';
-  setTxType: (value: 'all' | 'incoming' | 'outgoing' | 'swap') => void;
-  getTypeBadge: (intent: 'all' | 'incoming' | 'outgoing' | 'swap') => number | null;
-  typeBtnClass: (intent: 'all' | 'incoming' | 'outgoing' | 'swap') => string;
-
-  tokenFilter: string;
+  getTypeBadge: (intent: TxTypeFilter) => number | null;
+  typeBtnClass: (intent: TxTypeFilter) => string;
   tokenOptions: TokenOption[];
-  onTokenFilterChange: (value: string) => void;
-
   selectedTokenLabel: string;
   selectedTokenDecimals: number;
-
-  minInput: string;
-  setMinInput: (value: string) => void;
-  maxInput: string;
-  setMaxInput: (value: string) => void;
-
   isAllMode: boolean;
   isReefMode: boolean;
   isMinInvalid: boolean;
@@ -35,19 +25,11 @@ interface TransactionsFiltersProps {
 }
 
 export function TransactionsFilters({
-  txType,
-  setTxType,
   getTypeBadge,
   typeBtnClass,
-  tokenFilter,
   tokenOptions,
-  onTokenFilterChange,
   selectedTokenLabel,
   selectedTokenDecimals,
-  minInput,
-  setMinInput,
-  maxInput,
-  setMaxInput,
   isAllMode,
   isReefMode,
   isMinInvalid,
@@ -55,6 +37,16 @@ export function TransactionsFilters({
   isRangeInvalid,
   debouncedMinInput,
 }: TransactionsFiltersProps) {
+  const txType = useTransactionFilterStore(state => state.txType);
+  const setTxType = useTransactionFilterStore(state => state.setTxType);
+  const tokenFilter = useTransactionFilterStore(state => state.tokenFilter);
+  const setTokenFilter = useTransactionFilterStore(state => state.setTokenFilter);
+  const minInput = useTransactionFilterStore(state => state.minAmountInput);
+  const setMinInput = useTransactionFilterStore(state => state.setMinAmountInput);
+  const maxInput = useTransactionFilterStore(state => state.maxAmountInput);
+  const setMaxInput = useTransactionFilterStore(state => state.setMaxAmountInput);
+  const resetFilters = useTransactionFilterStore(state => state.resetFilters);
+
   const [isFiltersOpen, setIsFiltersOpen] = React.useState<boolean>(false);
 
   const hasActiveFilters = React.useMemo(() => {
@@ -152,6 +144,17 @@ export function TransactionsFilters({
             </Badge>
           ) : null}
         </Button>
+        {hasActiveFilters && (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-9 px-4 text-xs text-gray-500 hover:text-gray-900"
+            onClick={resetFilters}
+          >
+            Reset All
+          </Button>
+        )}
       </div>
 
       <div
@@ -165,7 +168,7 @@ export function TransactionsFilters({
               <select
                 className="h-9 px-3 text-sm border border-gray-200 rounded-md bg-white text-gray-700 hover:bg-gray-50"
                 value={tokenFilter}
-                onChange={(e) => onTokenFilterChange(e.target.value)}
+                onChange={(e) => setTokenFilter(e.target.value)}
                 title="Filter by token contract"
               >
                 {tokenOptions.map((opt) => (
