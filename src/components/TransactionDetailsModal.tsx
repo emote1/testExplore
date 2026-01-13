@@ -531,6 +531,26 @@ export function TransactionDetailsModal({ open, transfer, onClose, pricesById, r
                               ) : null}
                             </div>
                           )}
+                          {(() => {
+                            // Debug: check why chart might not render
+                            if (import.meta.env.DEV) {
+                              console.log('[PnLDualMiniChart DEBUG]', {
+                                bought: transfer.swapInfo!.bought.token.name,
+                                sold: transfer.swapInfo!.sold.token.name,
+                                aThenVal,
+                                aNowVal,
+                                bThenVal,
+                                bNowVal,
+                                aValid: (typeof aThenVal === 'number' && isFinite(aThenVal) && typeof aNowVal === 'number' && isFinite(aNowVal)),
+                                bValid: (typeof bThenVal === 'number' && isFinite(bThenVal) && typeof bNowVal === 'number' && isFinite(bNowVal)),
+                                reefUsd,
+                                pricesById,
+                                usdThenPerUnitBought,
+                                usdThenPerUnitSold,
+                              });
+                            }
+                            return null;
+                          })()}
                           <PnLDualMiniChart
                             aLabel={transfer.swapInfo!.bought.token.name}
                             aQtyText={formatTokenAmount(transfer.swapInfo!.bought.amount, transfer.swapInfo!.bought.token.decimals, transfer.swapInfo!.bought.token.name)}
