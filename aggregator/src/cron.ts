@@ -4,7 +4,7 @@
  */
 
 import { request, gql } from 'graphql-request';
-import { initDb, getDb, saveDb, closeDb } from './db.ts';
+import { initDb, getDb, saveDb, closeDb } from './db.js';
 
 const REEF_EXPLORER_URL = 'https://squid.subsquid.io/reef-explorer/graphql';
 
