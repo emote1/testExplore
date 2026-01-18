@@ -1,0 +1,16 @@
+{
+  "canisters": {
+    "reef_metrics_onchain": {
+      "type": "custom",
+      "candid": "src/reef_metrics_onchain/reef_metrics_onchain.did",
+      "wasm": "target/wasm32-unknown-unknown/release/reef_metrics_onchain.wasm",
+      "build": "cargo build --release --target wasm32-unknown-unknown -p reef_metrics_onchain",
+      "metadata": [
+        {
+          "name": "candid:service"
+        }
+      ]
+    }
+  },
+  "version": 1
+}
