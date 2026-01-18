@@ -4,6 +4,7 @@
  */
 
 import { request, gql } from 'graphql-request';
+import { fileURLToPath } from 'url';
 import { initDb, getDb, saveDb, closeDb } from './db.js';
 
 const REEF_EXPLORER_URL = 'https://squid.subsquid.io/reef-explorer/graphql';
@@ -127,7 +128,12 @@ function walletExists(db: ReturnType<typeof getDb>, account: string): boolean {
   return exists;
 }
 
-async function runAggregation() {
+type RunOptions = {
+  close?: boolean;
+};
+
+export async function runAggregation(options: RunOptions = {}) {
+  const { close = true } = options;
   console.log('Starting aggregation at', new Date().toISOString());
   
   // Initialize DB first
@@ -224,12 +230,17 @@ async function runAggregation() {
 
   // Save DB to disk
   saveDb();
-  
+
   console.log('Aggregation complete at', new Date().toISOString());
-  closeDb();
+  if (close) {
+    closeDb();
+  }
 }
 
-runAggregation().catch((err) => {
-  console.error('Aggregation failed:', err);
-  process.exit(1);
-});
+const currentFile = fileURLToPath(import.meta.url);
+if (process.argv[1] === currentFile) {
+  runAggregation().catch((err) => {
+    console.error('Aggregation failed:', err);
+    process.exit(1);
+  });
+}

@@ -1,12 +1,16 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import { initDb, getDb } from './db.js';
+import { runAggregation } from './cron.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(express.json());
+
+const CRON_TOKEN = process.env.CRON_TOKEN;
+let cronRunning = false;
 
 // Helper to run SELECT and get rows from sql.js
 function queryAll(sql: string, params: unknown[] = []): Record<string, unknown>[] {
@@ -39,6 +43,28 @@ app.get('/', (_req: Request, res: Response) => {
 // Health check
 app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Trigger aggregation manually (protected by CRON_TOKEN)
+app.get('/admin/run-cron', async (req: Request, res: Response) => {
+  if (!CRON_TOKEN || req.query.token !== CRON_TOKEN) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+
+  if (cronRunning) {
+    return res.status(409).json({ error: 'cron_already_running' });
+  }
+
+  cronRunning = true;
+  try {
+    await runAggregation({ close: false });
+    res.json({ status: 'ok', ranAt: new Date().toISOString() });
+  } catch (err) {
+    console.error('Error in /admin/run-cron:', err);
+    res.status(500).json({ error: 'internal', message: 'Failed to run cron' });
+  } finally {
+    cronRunning = false;
+  }
 });
 
 // GET /v1/metrics/growth24h
