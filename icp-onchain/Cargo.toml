@@ -1,0 +1,3 @@
+[workspace]
+members = ["src/reef_metrics_onchain"]
+resolver = "2"

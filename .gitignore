@@ -25,6 +25,9 @@ dist-ssr
 
 # Generated files
 # src/types/graphql-generated.ts
+icp-assets/.dfx/
+icp-onchain/.dfx/
+icp-onchain/target/
 
 
 # Env files
