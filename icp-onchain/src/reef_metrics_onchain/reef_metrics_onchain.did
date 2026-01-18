@@ -1,0 +1,28 @@
+type HeaderField = record { text; text };
+
+type HttpRequest = record {
+  method: text;
+  url: text;
+  headers: vec HeaderField;
+  body: blob;
+};
+
+type HttpResponse = record {
+  status_code: nat16;
+  headers: vec HeaderField;
+  body: blob;
+};
+
+type Status = record {
+  source_url: text;
+  last_updated: opt nat64;
+  payload_bytes: nat64;
+};
+
+service : {
+  http_request: (HttpRequest) -> (HttpResponse) query;
+  get_active_wallets_daily: () -> (text) query;
+  get_status: () -> (Status) query;
+  set_source_url: (text) -> ();
+  refresh_now: () -> (text);
+}
