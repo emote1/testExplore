@@ -5,6 +5,7 @@ import { useWsStatus } from '../hooks/use-ws-status';
 import { useTpsLive } from '../hooks/use-tps-live';
 import { useNetworkGrowthAggregator } from '../hooks/use-network-growth-aggregator';
 import { useActiveWallets24h } from '../hooks/use-active-wallets-24h';
+import { useActiveWallets24hIcp } from '../hooks/use-active-wallets-24h-icp';
 
 export function NetworkStatistics() {
   const { perMin, tpsTrend } = useTpsLive(60, 'extrinsics');
@@ -26,6 +27,7 @@ export function NetworkStatistics() {
   }, [growth.loading, growth.growthPct]);
 
   const active = useActiveWallets24h();
+  const activeIcp = useActiveWallets24hIcp();
   const activeValueText = React.useMemo(() => {
     if (active.loading) return '…';
     if (active.last24h == null) return '—';
@@ -45,6 +47,28 @@ export function NetworkStatistics() {
     return `${fmt(from)} → ${fmt(to)}\nChart: ${active.spark.length} days`;
   }, [active.asOf, active.spark.length]);
 
+  const activeIcpValueText = React.useMemo(() => {
+    if (!activeIcp.enabled) return '—';
+    if (activeIcp.loading) return '…';
+    if (activeIcp.last24h == null) return '—';
+    return activeIcp.last24h.toLocaleString();
+  }, [activeIcp.enabled, activeIcp.loading, activeIcp.last24h]);
+  const activeIcpDeltaText = React.useMemo(() => {
+    if (!activeIcp.enabled) return 'ICP off';
+    if (activeIcp.loading) return '…';
+    const v = activeIcp.growthPct;
+    if (v == null) return '—';
+    return `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
+  }, [activeIcp.enabled, activeIcp.loading, activeIcp.growthPct]);
+  const activeIcpTooltip = React.useMemo(() => {
+    if (!activeIcp.enabled) return 'Set VITE_ICP_ACTIVE_WALLETS_DAILY_URL to enable ICP data.';
+    if (!activeIcp.asOf) return 'ICP: Unique wallets in 24h. Chart: daily';
+    const to = new Date(activeIcp.asOf);
+    const from = new Date(to.getTime() - 24 * 60 * 60 * 1000);
+    const fmt = (d: Date) => d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return `${fmt(from)} → ${fmt(to)}\nICP chart: ${activeIcp.spark.length} days`;
+  }, [activeIcp.enabled, activeIcp.asOf, activeIcp.spark.length]);
+
   return (
     <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Glass background gradient */}
@@ -60,12 +84,41 @@ export function NetworkStatistics() {
           </div>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard 
-          title="Total Volume" 
-          value="$2.4B" 
-          delta="+12.5%" 
-          icon={<LineChart className="h-6 w-6 text-emerald-600" />} 
-          color="emerald" 
+        <StatCard
+          title="Active Wallets (24h, ICP)"
+          value={activeIcpValueText}
+          delta={activeIcpDeltaText}
+          tooltip={activeIcpTooltip}
+          icon={<LineChart className="h-6 w-6 text-emerald-600" />}
+          color="emerald"
+          sparkClassName="h-[137px]"
+          sparkNode={
+            activeIcp.enabled && activeIcp.spark.length > 0 ? (
+              <div className="relative h-full w-full rounded-lg overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-t from-emerald-100/80 via-emerald-50/40 to-transparent" />
+                <div className="relative flex items-end justify-center gap-[3px] h-full w-full px-2 py-1">
+                  {activeIcp.spark.map((val, i) => {
+                    const maxVal = Math.max(...activeIcp.spark, 1);
+                    const h = Math.max(15, (val / maxVal) * 100);
+                    const day = new Date(Date.now() - (activeIcp.spark.length - 1 - i) * 24 * 60 * 60 * 1000);
+                    const dayLabel = day.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
+                    return (
+                      <div
+                        key={i}
+                        className="flex-1 max-w-3 rounded-sm transition-all cursor-pointer bg-gradient-to-t from-emerald-600 to-emerald-400 hover:from-emerald-500 hover:to-emerald-300 hover:scale-110 shadow-sm"
+                        style={{ height: `${h}%` }}
+                        title={`${dayLabel}: ${val} wallets (ICP)`}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center h-full text-gray-400 text-sm bg-gradient-to-t from-emerald-50/50 to-transparent rounded-lg">
+                {activeIcp.enabled ? 'No ICP data yet' : 'ICP URL not set'}
+              </div>
+            )
+          }
         />
         <StatCard
           title="Active Wallets (24h)"

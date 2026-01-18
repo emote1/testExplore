@@ -1,0 +1,8 @@
+{
+  "canisters": {
+    "reef_metrics_assets": {
+      "type": "assets",
+      "source": ["public"]
+    }
+  }
+}
