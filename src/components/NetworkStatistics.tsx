@@ -10,15 +10,7 @@ import { useNewWalletsInflowIcp } from '../hooks/use-new-wallets-inflow-icp';
 import { AddressDisplay } from './AddressDisplay';
 import { useSquidHealth } from '../hooks/use-squid-health';
 
-const ICP_DAILY_UPDATE_UTC = import.meta.env.VITE_ICP_DAILY_UPDATE_UTC || '';
-
-function parseUtcTime(value: string): { hour: number; minute: number } | null {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const match = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(trimmed);
-  if (!match) return null;
-  return { hour: Number(match[1]), minute: Number(match[2]) };
-}
+const ICP_CRON_INTERVAL_HOURS = Number(import.meta.env.VITE_ICP_CRON_INTERVAL_HOURS ?? '4');
 
 function formatEta(ms: number): string {
   if (!Number.isFinite(ms) || ms <= 0) return 'soon';
@@ -29,13 +21,47 @@ function formatEta(ms: number): string {
   return `${hours}h ${minutes}m`;
 }
 
+function formatNextUpdate(asOf: string | undefined, now: Date): string | null {
+  if (!asOf || !Number.isFinite(ICP_CRON_INTERVAL_HOURS) || ICP_CRON_INTERVAL_HOURS <= 0) return null;
+  const asOfDate = new Date(asOf);
+  if (Number.isNaN(asOfDate.getTime())) return null;
+  const intervalMs = ICP_CRON_INTERVAL_HOURS * 60 * 60 * 1000;
+  const nowMs = now.getTime();
+  let nextMs = asOfDate.getTime() + intervalMs;
+  if (nowMs >= nextMs) {
+    const periods = Math.floor((nowMs - asOfDate.getTime()) / intervalMs) + 1;
+    nextMs = asOfDate.getTime() + periods * intervalMs;
+  }
+  return `Next update in ${formatEta(nextMs - nowMs)}`;
+}
+
+const REEF_STANDARD_FORMATTER = new Intl.NumberFormat('en-US', {
+  maximumFractionDigits: 2,
+});
+
+function formatCompactReef(value?: string): string | null {
+  if (!value) return null;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return value;
+  const abs = Math.abs(numeric);
+  const formatScaled = (scaled: number, suffix: string) => {
+    const truncated = Math.trunc(scaled * 100) / 100;
+    return `${truncated.toFixed(2)}${suffix}`;
+  };
+  if (abs >= 1_000_000_000) return formatScaled(numeric / 1_000_000_000, 'B');
+  if (abs >= 1_000_000) return formatScaled(numeric / 1_000_000, 'M');
+  if (abs >= 1_000) return formatScaled(numeric / 1_000, 'K');
+  return REEF_STANDARD_FORMATTER.format(numeric);
+}
+
 function formatMinReef(raw?: string): string | null {
   if (!raw) return null;
   try {
     const value = BigInt(raw);
     const base = 10n ** 18n;
     const whole = value / base;
-    return `${whole.toString()} REEF`;
+    const formatted = formatCompactReef(whole.toString()) ?? whole.toString();
+    return `${formatted} REEF`;
   } catch {
     return null;
   }
@@ -131,23 +157,6 @@ export function NetworkStatistics() {
     return `${fmt(from)} → ${fmt(to)}\nICP chart: ${activeIcp.spark.length} days`;
   }, [activeIcp.enabled, activeIcp.asOf, activeIcp.spark.length]);
 
-  const nextUpdateText = React.useMemo(() => {
-    if (!activeIcp.enabled) return null;
-    const time = parseUtcTime(ICP_DAILY_UPDATE_UTC);
-    if (!time) return null;
-    const nextUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), time.hour, time.minute, 0));
-    if (now.getTime() >= nextUtc.getTime()) {
-      nextUtc.setUTCDate(nextUtc.getUTCDate() + 1);
-    }
-    const timeLabel = nextUtc.toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      timeZone: 'UTC',
-    });
-    const eta = formatEta(nextUtc.getTime() - now.getTime());
-    return `Next update ~${timeLabel} UTC (${eta})`;
-  }, [activeIcp.enabled, now]);
-
   const inflowMinText = React.useMemo(
     () => formatMinReef(inflow.data?.minRaw),
     [inflow.data?.minRaw]
@@ -161,6 +170,10 @@ export function NetworkStatistics() {
         minute: '2-digit',
       })
     : null;
+  const inflowNextUpdateText = React.useMemo(
+    () => (inflow.enabled ? formatNextUpdate(inflow.data?.asOf, now) : null),
+    [inflow.enabled, inflow.data?.asOf, now]
+  );
 
   return (
     <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -173,178 +186,189 @@ export function NetworkStatistics() {
         <div className={`inline-flex items-center gap-2 text-sm ${combinedStyle.text}`}>
           <span className={`w-2 h-2 rounded-full ${combinedStyle.dot} ${combinedTone === 'live' || combinedTone === 'info' ? 'animate-pulse' : ''}`} />
           <span>{combinedLabel}</span>
-          {nextUpdateText ? <span className="text-gray-500">• {nextUpdateText}</span> : null}
           </div>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="New Wallets (24h, ICP)"
-          value={activeIcpValueText}
-          delta={activeIcpDeltaText}
-          tooltip={activeIcpTooltip}
-          icon={<LineChart className="h-6 w-6 text-emerald-600" />}
-          color="emerald"
-          sparkClassName="h-[137px]"
-          sparkNode={
-            activeIcp.enabled && activeIcp.spark.length > 0 ? (
-              <div className="relative h-full w-full rounded-lg overflow-hidden">
-                <div className="absolute inset-0 bg-gradient-to-t from-emerald-100/80 via-emerald-50/40 to-transparent" />
-                <div className="relative flex items-end justify-center gap-[3px] h-full w-full px-2 py-1">
-                  {activeIcp.spark.map((val, i) => {
-                    const maxVal = Math.max(...activeIcp.spark, 1);
-                    const h = Math.max(15, (val / maxVal) * 100);
-                    const day = new Date(Date.now() - (activeIcp.spark.length - 1 - i) * 24 * 60 * 60 * 1000);
-                    const dayLabel = day.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
-                    return (
-                      <div
-                        key={i}
-                        className="flex-1 max-w-3 rounded-sm transition-all cursor-pointer bg-gradient-to-t from-emerald-600 to-emerald-400 hover:from-emerald-500 hover:to-emerald-300 hover:scale-110 shadow-sm"
-                        style={{ height: `${h}%` }}
-                        title={`${dayLabel}: ${val} new wallets (ICP)`}
-                      />
-                    );
-                  })}
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center justify-center h-full text-gray-400 text-sm bg-gradient-to-t from-emerald-50/50 to-transparent rounded-lg">
-                {activeIcp.enabled ? 'No ICP data yet' : 'ICP URL not set'}
-              </div>
-            )
-          }
-        />
-        <StatCard
-          title="Active Wallets (24h)"
-          value={activeValueText}
-          delta={activeDeltaText}
-          tooltip={activeTooltip}
-          icon={<Wallet className="h-6 w-6 text-blue-600" />}
-          color="blue"
-          sparkClassName="h-[137px]"
-          sparkNode={
-            active.spark.length > 0 ? (
-              <div className="relative h-full w-full rounded-lg overflow-hidden">
-                {/* Gradient background */}
-                <div className="absolute inset-0 bg-gradient-to-t from-blue-100/80 via-blue-50/40 to-transparent" />
-                <div className="relative flex items-end justify-center gap-[3px] h-full w-full px-2 py-1">
-                  {active.spark.map((val, i) => {
-                    const maxVal = Math.max(...active.spark, 1);
-                    const h = Math.max(15, (val / maxVal) * 100);
-                    const day = new Date(Date.now() - (active.spark.length - 1 - i) * 24 * 60 * 60 * 1000);
-                    const dayLabel = day.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
-                    return (
-                      <div
-                        key={i}
-                        className="flex-1 max-w-3 rounded-sm transition-all cursor-pointer bg-gradient-to-t from-blue-600 to-blue-400 hover:from-blue-500 hover:to-blue-300 hover:scale-110 shadow-sm"
-                        style={{ height: `${h}%` }}
-                        title={`${dayLabel}: ${val} wallets`}
-                      />
-                    );
-                  })}
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center justify-center h-full text-gray-400 text-sm bg-gradient-to-t from-blue-50/50 to-transparent rounded-lg">
-                Run cron to collect data
-              </div>
-            )
-          }
-        />
-        <StatCard
-          title="Tx/min (Live)"
-          value={`${perMinText} tx/min`}
-          valueNode={
-            <div className="flex items-baseline gap-1">
-              <span className="text-2xl font-semibold text-gray-800 tabular-nums">{perMinText}</span>
-              <span className="text-sm text-gray-500 font-medium">tx/min</span>
-            </div>
-          }
-          sparkNode={<TpsSparkline series={tpsTrend} trendWin={60} trendRes={24} trendZoom={1.1} height={20} width={40} xpad={4} emaAlpha={0.08} fixedXFrac={0.5} yPadPx={6} pathAnimMs={1500} />}
-          sparkClassName="h-[137px]"
-          delta="Live"
-          icon={<Activity className="h-6 w-6 text-violet-600" />}
-          color="violet"
-        />
-        <StatCard
-          title="Transactions (24h)"
-          value={growthValueText}
-          delta={growthDeltaText}
-          tooltip={growth.asOf ? `Total transactions in 24h\nChart: ${growth.spark.length} days` : 'Total transactions in last 24 hours'}
-          icon={<TrendingUp className="h-6 w-6 text-orange-600" />}
-          color="orange"
-          sparkClassName="h-[137px]"
-          sparkNode={
-            growth.spark.length > 0 ? (
-              <div className="relative h-full w-full rounded-lg overflow-hidden">
-                {/* Gradient background */}
-                <div className="absolute inset-0 bg-gradient-to-t from-orange-100/80 via-amber-50/40 to-transparent" />
-                <div className="relative flex items-end justify-center gap-[3px] h-full w-full px-2 py-1">
-                  {growth.spark.map((val, i) => {
-                    const maxVal = Math.max(...growth.spark, 1);
-                    const h = Math.max(15, (val / maxVal) * 100);
-                    const day = new Date(Date.now() - (growth.spark.length - 1 - i) * 24 * 60 * 60 * 1000);
-                    const dayLabel = day.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
-                    return (
-                      <div
-                        key={i}
-                        className="flex-1 max-w-3 rounded-sm transition-all cursor-pointer bg-gradient-to-t from-orange-500 to-amber-400 hover:from-orange-400 hover:to-amber-300 hover:scale-110 shadow-sm"
-                        style={{ height: `${h}%` }}
-                        title={`${dayLabel}: ${val.toLocaleString()} txs`}
-                      />
-                    );
-                  })}
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center justify-center h-full text-gray-400 text-sm bg-gradient-to-t from-orange-50/50 to-transparent rounded-lg">
-                Run cron to collect data
-              </div>
-            )
-          }
-        />
-        </div>
-        <div className="mt-6 rounded-2xl border border-white/60 bg-white/60 backdrop-blur-sm p-4 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <div className="text-sm font-semibold text-gray-800">New Wallets Inflow (24h, ICP)</div>
-              <div className="text-xs text-gray-500">
-                {inflowMinText ? `≥ ${inflowMinText}` : 'Minimum not set'}
-                {inflowAsOfText ? ` • Updated ${inflowAsOfText}` : ''}
-              </div>
-            </div>
-            {inflow.data ? (
-              <div className="text-xs text-gray-500">
-                Qualified {inflow.data.qualified}/{inflow.data.totalNew}
-                {inflow.data.truncated ? ` • Top ${inflowEntries.length}` : ''}
-              </div>
-            ) : null}
-          </div>
-
-          <div className="mt-3">
-            {!inflow.enabled ? (
-              <div className="text-sm text-gray-500">ICP URL not set</div>
-            ) : inflow.loading ? (
-              <div className="text-sm text-gray-500">Loading…</div>
-            ) : inflowEntries.length === 0 ? (
-              <div className="text-sm text-gray-500">No wallets above the threshold yet.</div>
-            ) : (
-              <div className="space-y-2">
-                {inflowEntries.map((entry) => (
-                  <div
-                    key={entry.address}
-                    className="flex items-center justify-between gap-4 rounded-xl border border-emerald-100/60 bg-emerald-50/40 px-3 py-2"
-                  >
-                    <AddressDisplay
-                      address={entry.address}
-                      className="inline-block text-sm font-mono text-emerald-900 bg-white/60 px-2 py-1 rounded"
-                    />
-                    <div className="text-sm font-semibold text-emerald-900 tabular-nums">
-                      {entry.incomingReef} REEF
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.8fr)] gap-4">
+          <div className="space-y-4">
+            <StatCard
+              title="New Wallets (24h, ICP)"
+              value={activeIcpValueText}
+              delta={activeIcpDeltaText}
+              tooltip={activeIcpTooltip}
+              icon={<LineChart className="h-6 w-6 text-emerald-600" />}
+              color="emerald"
+              sparkClassName="h-[137px]"
+              sparkNode={
+                activeIcp.enabled && activeIcp.spark.length > 0 ? (
+                  <div className="relative h-full w-full rounded-lg overflow-hidden">
+                    <div className="absolute inset-0 bg-gradient-to-t from-emerald-100/80 via-emerald-50/40 to-transparent" />
+                    <div className="relative flex items-end justify-center gap-[3px] h-full w-full px-2 py-1">
+                      {activeIcp.spark.map((val, i) => {
+                        const maxVal = Math.max(...activeIcp.spark, 1);
+                        const h = Math.max(15, (val / maxVal) * 100);
+                        const day = new Date(Date.now() - (activeIcp.spark.length - 1 - i) * 24 * 60 * 60 * 1000);
+                        const dayLabel = day.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
+                        return (
+                          <div
+                            key={i}
+                            className="flex-1 max-w-3 rounded-sm transition-all cursor-pointer bg-gradient-to-t from-emerald-600 to-emerald-400 hover:from-emerald-500 hover:to-emerald-300 hover:scale-110 shadow-sm"
+                            style={{ height: `${h}%` }}
+                            title={`${dayLabel}: ${val} new wallets (ICP)`}
+                          />
+                        );
+                      })}
                     </div>
                   </div>
-                ))}
+                ) : (
+                  <div className="flex items-center justify-center h-full text-gray-400 text-sm bg-gradient-to-t from-emerald-50/50 to-transparent rounded-lg">
+                    {activeIcp.enabled ? 'No ICP data yet' : 'ICP URL not set'}
+                  </div>
+                )
+              }
+            />
+            <div className="rounded-2xl border border-white/60 bg-white/60 backdrop-blur-sm p-4 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-semibold text-gray-800">New Wallets Inflow (24h, ICP)</div>
+                  <div className="text-xs text-gray-500">
+                    {inflowMinText ? `≥ ${inflowMinText}` : 'Minimum not set'}
+                    {inflowAsOfText ? ` • Updated ${inflowAsOfText}` : ''}
+                    {inflowNextUpdateText ? ` • ${inflowNextUpdateText}` : ''}
+                  </div>
+                </div>
+                {inflow.data ? (
+                  <div className="text-xs text-gray-500">
+                    Qualified {inflow.data.qualified}/{inflow.data.totalNew}
+                    {inflow.data.truncated ? ` • Top ${inflowEntries.length}` : ''}
+                  </div>
+                ) : null}
               </div>
-            )}
+
+              <div className="mt-3">
+                {!inflow.enabled ? (
+                  <div className="text-sm text-gray-500">ICP URL not set</div>
+                ) : inflow.loading ? (
+                  <div className="text-sm text-gray-500">Loading…</div>
+                ) : inflowEntries.length === 0 ? (
+                  <div className="text-sm text-gray-500">No wallets above the threshold yet.</div>
+                ) : (
+                  <div className="space-y-2">
+                    {inflowEntries.map((entry) => {
+                      const formattedReef = formatCompactReef(entry.incomingReef) ?? entry.incomingReef;
+                      return (
+                      <div
+                        key={entry.address}
+                        className="flex items-center justify-between gap-4 rounded-xl border border-emerald-100/60 bg-emerald-50/40 px-3 py-2"
+                      >
+                        <AddressDisplay
+                          address={entry.address}
+                          className="inline-block text-sm font-mono text-emerald-900 bg-white/60 px-2 py-1 rounded"
+                          copyable
+                        />
+                        <div
+                          className="text-sm font-semibold text-emerald-900 tabular-nums"
+                          title={`${entry.incomingReef} REEF`}
+                        >
+                          {formattedReef} REEF
+                        </div>
+                      </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <StatCard
+              title="Active Wallets (24h)"
+              value={activeValueText}
+              delta={activeDeltaText}
+              tooltip={activeTooltip}
+              icon={<Wallet className="h-6 w-6 text-blue-600" />}
+              color="blue"
+              sparkClassName="h-[137px]"
+              sparkNode={
+                active.spark.length > 0 ? (
+                  <div className="relative h-full w-full rounded-lg overflow-hidden">
+                    {/* Gradient background */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-blue-100/80 via-blue-50/40 to-transparent" />
+                    <div className="relative flex items-end justify-center gap-[3px] h-full w-full px-2 py-1">
+                      {active.spark.map((val, i) => {
+                        const maxVal = Math.max(...active.spark, 1);
+                        const h = Math.max(15, (val / maxVal) * 100);
+                        const day = new Date(Date.now() - (active.spark.length - 1 - i) * 24 * 60 * 60 * 1000);
+                        const dayLabel = day.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
+                        return (
+                          <div
+                            key={i}
+                            className="flex-1 max-w-3 rounded-sm transition-all cursor-pointer bg-gradient-to-t from-blue-600 to-blue-400 hover:from-blue-500 hover:to-blue-300 hover:scale-110 shadow-sm"
+                            style={{ height: `${h}%` }}
+                            title={`${dayLabel}: ${val} wallets`}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center h-full text-gray-400 text-sm bg-gradient-to-t from-blue-50/50 to-transparent rounded-lg">
+                    Run cron to collect data
+                  </div>
+                )
+              }
+            />
+            <StatCard
+              title="Tx/min (Live)"
+              value={`${perMinText} tx/min`}
+              valueNode={
+                <div className="flex items-baseline gap-1">
+                  <span className="text-2xl font-semibold text-gray-800 tabular-nums">{perMinText}</span>
+                  <span className="text-sm text-gray-500 font-medium">tx/min</span>
+                </div>
+              }
+              sparkNode={<TpsSparkline series={tpsTrend} trendWin={60} trendRes={24} trendZoom={1.1} height={20} width={40} xpad={4} emaAlpha={0.08} fixedXFrac={0.5} yPadPx={6} pathAnimMs={1500} />}
+              sparkClassName="h-[137px]"
+              delta="Live"
+              icon={<Activity className="h-6 w-6 text-violet-600" />}
+              color="violet"
+            />
+            <StatCard
+              title="Transactions (24h)"
+              value={growthValueText}
+              delta={growthDeltaText}
+              tooltip={growth.asOf ? `Total transactions in 24h\nChart: ${growth.spark.length} days` : 'Total transactions in last 24 hours'}
+              icon={<TrendingUp className="h-6 w-6 text-orange-600" />}
+              color="orange"
+              sparkClassName="h-[137px]"
+              sparkNode={
+                growth.spark.length > 0 ? (
+                  <div className="relative h-full w-full rounded-lg overflow-hidden">
+                    {/* Gradient background */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-orange-100/80 via-amber-50/40 to-transparent" />
+                    <div className="relative flex items-end justify-center gap-[3px] h-full w-full px-2 py-1">
+                      {growth.spark.map((val, i) => {
+                        const maxVal = Math.max(...growth.spark, 1);
+                        const h = Math.max(15, (val / maxVal) * 100);
+                        const day = new Date(Date.now() - (growth.spark.length - 1 - i) * 24 * 60 * 60 * 1000);
+                        const dayLabel = day.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
+                        return (
+                          <div
+                            key={i}
+                            className="flex-1 max-w-3 rounded-sm transition-all cursor-pointer bg-gradient-to-t from-orange-500 to-amber-400 hover:from-orange-400 hover:to-amber-300 hover:scale-110 shadow-sm"
+                            style={{ height: `${h}%` }}
+                            title={`${dayLabel}: ${val.toLocaleString()} txs`}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center h-full text-gray-400 text-sm bg-gradient-to-t from-orange-50/50 to-transparent rounded-lg">
+                    Run cron to collect data
+                  </div>
+                )
+              }
+            />
           </div>
         </div>
       </div>
