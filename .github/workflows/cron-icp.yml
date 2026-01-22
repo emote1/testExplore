@@ -24,9 +24,10 @@ jobs:
       - name: Restore cron identity
         env:
           CRON_PEM_BASE64: ${{ secrets.CRON_PEM_BASE64 }}
+          DFX_IDENTITY_STORAGE_MODE: plaintext
         run: |
           echo "$CRON_PEM_BASE64" | base64 -d > /tmp/cron.pem
-          dfx identity import cron /tmp/cron.pem
+          dfx identity import --storage-mode plaintext cron /tmp/cron.pem
 
       - name: Run cron:icp
         working-directory: aggregator
