@@ -8,7 +8,8 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "cron": "tsx src/cron.ts"
+    "cron": "tsx src/cron.ts",
+    "cron:icp": "tsx src/cron-icp.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",

@@ -13,10 +13,10 @@ interface ActiveWallets24hIcp {
 }
 
 /**
- * Calculates growth percentage from daily sparkline data.
+ * Calculates growth percentage from daily new-wallet sparkline data.
  * Compares last day vs previous day (consistent with chart).
  */
-function calcGrowthFromSpark(series: { active: number; ts: string }[]): {
+function calcGrowthFromSpark(series: { new: number; ts: string }[]): {
   last24h: number | null;
   prev24h: number | null;
   growthPct: number | null;
@@ -24,8 +24,8 @@ function calcGrowthFromSpark(series: { active: number; ts: string }[]): {
   if (series.length < 1) {
     return { last24h: null, prev24h: null, growthPct: null };
   }
-  const last = series[series.length - 1]?.active ?? null;
-  const prev = series.length >= 2 ? series[series.length - 2]?.active ?? null : null;
+  const last = series[series.length - 1]?.new ?? null;
+  const prev = series.length >= 2 ? series[series.length - 2]?.new ?? null : null;
 
   let growthPct: number | null = null;
   if (last !== null && prev !== null && prev > 0) {
@@ -72,7 +72,7 @@ export function useActiveWallets24hIcp(): ActiveWallets24hIcp {
           last24h,
           prev24h,
           growthPct,
-          spark: (sparkData.series ?? []).map((p: { active: number }) => p.active),
+          spark: (sparkData.series ?? []).map((p: { new: number }) => p.new),
           asOf: sparkData.series?.[sparkData.series.length - 1]?.ts,
         });
       } catch (e) {

@@ -6,12 +6,68 @@ import { useTpsLive } from '../hooks/use-tps-live';
 import { useNetworkGrowthAggregator } from '../hooks/use-network-growth-aggregator';
 import { useActiveWallets24h } from '../hooks/use-active-wallets-24h';
 import { useActiveWallets24hIcp } from '../hooks/use-active-wallets-24h-icp';
+import { useNewWalletsInflowIcp } from '../hooks/use-new-wallets-inflow-icp';
+import { AddressDisplay } from './AddressDisplay';
+import { useSquidHealth } from '../hooks/use-squid-health';
+
+const ICP_DAILY_UPDATE_UTC = import.meta.env.VITE_ICP_DAILY_UPDATE_UTC || '';
+
+function parseUtcTime(value: string): { hour: number; minute: number } | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const match = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(trimmed);
+  if (!match) return null;
+  return { hour: Number(match[1]), minute: Number(match[2]) };
+}
+
+function formatEta(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return 'soon';
+  const totalMinutes = Math.round(ms / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours <= 0) return `${minutes}m`;
+  return `${hours}h ${minutes}m`;
+}
+
+function formatMinReef(raw?: string): string | null {
+  if (!raw) return null;
+  try {
+    const value = BigInt(raw);
+    const base = 10n ** 18n;
+    const whole = value / base;
+    return `${whole.toString()} REEF`;
+  } catch {
+    return null;
+  }
+}
 
 export function NetworkStatistics() {
   const { perMin, tpsTrend } = useTpsLive(60, 'extrinsics');
   const perMinText = Number.isFinite(perMin) && perMin >= 0 ? perMin.toFixed(0) : '0';
   const ws = useWsStatus();
-  const wsDot = ws.tone === 'live' ? 'bg-green-500' : ws.tone === 'warning' ? 'bg-yellow-500' : ws.tone === 'error' ? 'bg-red-500' : 'bg-gray-400';
+  const squid = useSquidHealth({ intervalMs: 30_000 });
+  const wsOk = ws.tone === 'live';
+  const squidOk = squid.status === 'live';
+  const squidLoading = squid.status === 'loading';
+  const combinedLabel = wsOk && squidOk
+    ? 'Live'
+    : (!wsOk && !squidOk && !squidLoading)
+      ? 'WS + Subsquid Down'
+      : (!wsOk ? 'WS Down' : (squidLoading ? 'Connecting' : 'Subsquid Down'));
+  const combinedTone = wsOk && squidOk
+    ? 'live'
+    : (ws.tone === 'error' || squid.status === 'down')
+      ? 'error'
+      : squidLoading
+        ? 'info'
+        : 'warning';
+  const combinedStyles = {
+    live: { dot: 'bg-emerald-500', text: 'text-emerald-700' },
+    warning: { dot: 'bg-yellow-500', text: 'text-yellow-700' },
+    error: { dot: 'bg-red-500', text: 'text-red-700' },
+    info: { dot: 'bg-blue-500', text: 'text-blue-700' },
+  } as const;
+  const combinedStyle = combinedStyles[combinedTone];
 
   const growth = useNetworkGrowthAggregator();
   const growthValueText = React.useMemo(() => {
@@ -28,6 +84,12 @@ export function NetworkStatistics() {
 
   const active = useActiveWallets24h();
   const activeIcp = useActiveWallets24hIcp();
+  const inflow = useNewWalletsInflowIcp();
+  const [now, setNow] = React.useState(() => new Date());
+  React.useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
   const activeValueText = React.useMemo(() => {
     if (active.loading) return '…';
     if (active.last24h == null) return '—';
@@ -62,12 +124,43 @@ export function NetworkStatistics() {
   }, [activeIcp.enabled, activeIcp.loading, activeIcp.growthPct]);
   const activeIcpTooltip = React.useMemo(() => {
     if (!activeIcp.enabled) return 'Set VITE_ICP_ACTIVE_WALLETS_DAILY_URL to enable ICP data.';
-    if (!activeIcp.asOf) return 'ICP: Unique wallets in 24h. Chart: daily';
+    if (!activeIcp.asOf) return 'ICP: New wallets in 24h. Chart: daily';
     const to = new Date(activeIcp.asOf);
     const from = new Date(to.getTime() - 24 * 60 * 60 * 1000);
     const fmt = (d: Date) => d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
     return `${fmt(from)} → ${fmt(to)}\nICP chart: ${activeIcp.spark.length} days`;
   }, [activeIcp.enabled, activeIcp.asOf, activeIcp.spark.length]);
+
+  const nextUpdateText = React.useMemo(() => {
+    if (!activeIcp.enabled) return null;
+    const time = parseUtcTime(ICP_DAILY_UPDATE_UTC);
+    if (!time) return null;
+    const nextUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), time.hour, time.minute, 0));
+    if (now.getTime() >= nextUtc.getTime()) {
+      nextUtc.setUTCDate(nextUtc.getUTCDate() + 1);
+    }
+    const timeLabel = nextUtc.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: 'UTC',
+    });
+    const eta = formatEta(nextUtc.getTime() - now.getTime());
+    return `Next update ~${timeLabel} UTC (${eta})`;
+  }, [activeIcp.enabled, now]);
+
+  const inflowMinText = React.useMemo(
+    () => formatMinReef(inflow.data?.minRaw),
+    [inflow.data?.minRaw]
+  );
+  const inflowEntries = inflow.data?.entries ?? [];
+  const inflowAsOfText = inflow.data?.asOf
+    ? new Date(inflow.data.asOf).toLocaleString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : null;
 
   return (
     <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -77,15 +170,15 @@ export function NetworkStatistics() {
         <div className="relative bg-white/40 backdrop-blur-sm rounded-2xl p-6 border border-white/60 shadow-xl">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-semibold text-gray-900 tracking-tight">Network Statistics</h2>
-        <div className="inline-flex items-center gap-2 text-sm text-gray-600">
-          <span className={`w-2 h-2 rounded-full ${wsDot} ${ws.tone === 'live' ? 'animate-pulse' : ''}`} />
-          <span>Live</span>
-          {ws.tone !== 'live' ? <span className="text-gray-500">• {ws.text}</span> : null}
+        <div className={`inline-flex items-center gap-2 text-sm ${combinedStyle.text}`}>
+          <span className={`w-2 h-2 rounded-full ${combinedStyle.dot} ${combinedTone === 'live' || combinedTone === 'info' ? 'animate-pulse' : ''}`} />
+          <span>{combinedLabel}</span>
+          {nextUpdateText ? <span className="text-gray-500">• {nextUpdateText}</span> : null}
           </div>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
-          title="Active Wallets (24h, ICP)"
+          title="New Wallets (24h, ICP)"
           value={activeIcpValueText}
           delta={activeIcpDeltaText}
           tooltip={activeIcpTooltip}
@@ -107,7 +200,7 @@ export function NetworkStatistics() {
                         key={i}
                         className="flex-1 max-w-3 rounded-sm transition-all cursor-pointer bg-gradient-to-t from-emerald-600 to-emerald-400 hover:from-emerald-500 hover:to-emerald-300 hover:scale-110 shadow-sm"
                         style={{ height: `${h}%` }}
-                        title={`${dayLabel}: ${val} wallets (ICP)`}
+                        title={`${dayLabel}: ${val} new wallets (ICP)`}
                       />
                     );
                   })}
@@ -209,6 +302,50 @@ export function NetworkStatistics() {
             )
           }
         />
+        </div>
+        <div className="mt-6 rounded-2xl border border-white/60 bg-white/60 backdrop-blur-sm p-4 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-sm font-semibold text-gray-800">New Wallets Inflow (24h, ICP)</div>
+              <div className="text-xs text-gray-500">
+                {inflowMinText ? `≥ ${inflowMinText}` : 'Minimum not set'}
+                {inflowAsOfText ? ` • Updated ${inflowAsOfText}` : ''}
+              </div>
+            </div>
+            {inflow.data ? (
+              <div className="text-xs text-gray-500">
+                Qualified {inflow.data.qualified}/{inflow.data.totalNew}
+                {inflow.data.truncated ? ` • Top ${inflowEntries.length}` : ''}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="mt-3">
+            {!inflow.enabled ? (
+              <div className="text-sm text-gray-500">ICP URL not set</div>
+            ) : inflow.loading ? (
+              <div className="text-sm text-gray-500">Loading…</div>
+            ) : inflowEntries.length === 0 ? (
+              <div className="text-sm text-gray-500">No wallets above the threshold yet.</div>
+            ) : (
+              <div className="space-y-2">
+                {inflowEntries.map((entry) => (
+                  <div
+                    key={entry.address}
+                    className="flex items-center justify-between gap-4 rounded-xl border border-emerald-100/60 bg-emerald-50/40 px-3 py-2"
+                  >
+                    <AddressDisplay
+                      address={entry.address}
+                      className="inline-block text-sm font-mono text-emerald-900 bg-white/60 px-2 py-1 rounded"
+                    />
+                    <div className="text-sm font-semibold text-emerald-900 tabular-nums">
+                      {entry.incomingReef} REEF
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

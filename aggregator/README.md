@@ -46,6 +46,35 @@ pnpm dev
    */10 * * * * cd /path/to/aggregator && pnpm cron >> /var/log/aggregator.log 2>&1
    ```
 
+   **Windows Task Scheduler (cron:icp every 4 hours)**
+
+   The repo includes a helper script:
+   `aggregator/run-cron-icp.cmd`
+
+   Commands:
+   ```bat
+   schtasks /Query /TN "Reef Cron ICP"
+   schtasks /Run /TN "Reef Cron ICP"
+   schtasks /End /TN "Reef Cron ICP"
+   schtasks /Delete /TN "Reef Cron ICP" /F
+   ```
+
+   **ICP canister commands (mainnet)**
+
+   Canister: `reef_metrics_onchain` (`ndhxz-raaaa-aaaag-avdoa-cai`)
+
+   ```bash
+   # Status
+   dfx canister --network ic status reef_metrics_onchain
+
+   # Read JSON payloads
+   dfx canister --network ic call reef_metrics_onchain get_active_wallets_daily
+   dfx canister --network ic call reef_metrics_onchain get_new_wallets_inflow
+
+   # Set logical owner (run as current owner)
+   dfx canister --network ic call reef_metrics_onchain set_owner '(principal "iy46i-qmw5w-rekft-irzxz-qtg3w-exghw-ywunj-cx2w3-sw2k5-woqz6-mae")'
+   ```
+
 2. Run API server with PM2 or systemd:
    ```bash
    pnpm build

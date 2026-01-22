@@ -28,6 +28,8 @@ interface Options {
   lagWarnSec?: number; // default 60
   staleSec?: number;   // default 5*60
   latencyWindow?: number; // default 20
+  circuitTripErrors?: number; // default 2
+  circuitCooldownMs?: number; // default 2*60*1000
 }
 
 export function useSquidHealth(opts: Options = {}): SquidHealth {
@@ -36,14 +38,19 @@ export function useSquidHealth(opts: Options = {}): SquidHealth {
   const lagWarnSec = opts.lagWarnSec ?? 60;
   const staleSec = opts.staleSec ?? 5 * 60;
   const latencyWindow = Math.max(1, Math.floor(opts.latencyWindow ?? 20));
+  const circuitTripErrors = Math.max(1, Math.floor(opts.circuitTripErrors ?? 2));
+  const circuitCooldownMs = Math.max(5_000, Math.floor(opts.circuitCooldownMs ?? 2 * 60 * 1000));
 
   const [height, setHeight] = useState<number | undefined>(undefined);
   const [lastBlockTs, setLastBlockTs] = useState<number | undefined>(undefined);
   const [processorTs, setProcessorTs] = useState<number | undefined>(undefined);
   const [lastUpdated, setLastUpdated] = useState<number | undefined>(undefined);
+  const [outageActive, setOutageActive] = useState(false);
   const latenciesRef = useRef<number[]>([]);
   const intervalMsRef = useRef(intervalMs);
   const latencyWindowRef = useRef(latencyWindow);
+  const outageActiveRef = useRef(false);
+  const cooldownUntilRef = useRef<number | null>(null);
 
   useEffect(() => {
     intervalMsRef.current = intervalMs;
@@ -91,6 +98,16 @@ export function useSquidHealth(opts: Options = {}): SquidHealth {
     async function tick() {
       if (!alive || document.hidden) return;
 
+      if (cooldownUntilRef.current) {
+        const now = Date.now();
+        if (now < cooldownUntilRef.current) {
+          const remaining = cooldownUntilRef.current - now;
+          timer = window.setTimeout(tick, remaining);
+          return;
+        }
+        cooldownUntilRef.current = null;
+      }
+
       try {
         const data = await timedQuery<HealthQueryResult>(HEALTH_COMBINED_QUERY as unknown as TypedDocumentNode);
         if (!alive) return;
@@ -108,10 +125,46 @@ export function useSquidHealth(opts: Options = {}): SquidHealth {
 
         errorCount = 0;
         backoffMs = intervalMsRef.current;
+        if (outageActiveRef.current) {
+          outageActiveRef.current = false;
+          setOutageActive(false);
+          try { window.dispatchEvent(new CustomEvent('squid-recovered')); } catch { /* ignore */ }
+        }
       } catch (err) {
         if (!alive) return;
         errorCount++;
         backoffMs = Math.min(backoffMs * 2, maxBackoffMs);
+        const anyErr = err as {
+          message?: string;
+          response?: { status?: number };
+          networkError?: { statusCode?: number; response?: { status?: number } };
+        };
+        const status = anyErr?.networkError?.statusCode
+          ?? anyErr?.networkError?.response?.status
+          ?? anyErr?.response?.status;
+        const message = anyErr?.message ?? 'Unknown error';
+        const isOutage = status === 504
+          || (typeof status === 'number' && status >= 500)
+          || /504/.test(message)
+          || /gateway time-out/i.test(message)
+          || /failed to fetch/i.test(message)
+          || /networkerror/i.test(message)
+          || /cors/i.test(message);
+        if (isOutage && !outageActiveRef.current) {
+          outageActiveRef.current = true;
+          setOutageActive(true);
+          try {
+            window.dispatchEvent(new CustomEvent('squid-outage', {
+              detail: { status, message },
+            }));
+          } catch { /* ignore */ }
+        }
+        if (isOutage && errorCount >= circuitTripErrors) {
+          const nextCooldown = Date.now() + circuitCooldownMs;
+          if (!cooldownUntilRef.current || nextCooldown > cooldownUntilRef.current) {
+            cooldownUntilRef.current = nextCooldown;
+          }
+        }
         console.warn(`[SquidHealth] Query failed (attempt ${errorCount}), backing off to ${backoffMs}ms`, err);
       }
 
@@ -142,6 +195,7 @@ export function useSquidHealth(opts: Options = {}): SquidHealth {
   }, []);
 
   const status: SquidHealth['status'] = useMemo(() => {
+    if (outageActive) return 'down';
     if (!lastUpdated) return 'loading';
     if (!lastBlockTs) return 'lagging';
     const now = Date.now();
@@ -149,7 +203,7 @@ export function useSquidHealth(opts: Options = {}): SquidHealth {
     if (lagSec > staleSec) return 'stale';
     if (lagSec > lagWarnSec) return 'lagging';
     return 'live';
-  }, [lastUpdated, lastBlockTs, lagWarnSec, staleSec]);
+  }, [outageActive, lastUpdated, lastBlockTs, lagWarnSec, staleSec]);
 
   return {
     status,

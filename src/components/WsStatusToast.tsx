@@ -21,7 +21,15 @@ function toneIcon(tone: ToastState['tone']) {
   return <RefreshCw className="h-5 w-5" />;
 }
 
-export function WsStatusToast() {
+export function WsStatusToast({
+  enabled = true,
+  wsEnabled = true,
+  squidEnabled = true,
+}: {
+  enabled?: boolean;
+  wsEnabled?: boolean;
+  squidEnabled?: boolean;
+}) {
   const [state, setState] = React.useState<ToastState>({ text: '', tone: 'info', visible: false });
   const hideTimer = React.useRef<number | null>(null);
   const hadIssueRef = React.useRef<boolean>(false);
@@ -36,6 +44,14 @@ export function WsStatusToast() {
   }
 
   React.useEffect(() => {
+    if (!enabled) {
+      setState((s) => (s.visible ? { ...s, visible: false } : s));
+      if (hideTimer.current) {
+        window.clearTimeout(hideTimer.current);
+        hideTimer.current = null;
+      }
+      return;
+    }
     const onOpened = () => { /* no toast on initial open */ };
     const onConnected = () => { if (hadIssueRef.current) show('WebSocket restored', 'success', 2500); };
     const onClosed = (e: Event) => {
@@ -61,22 +77,44 @@ export function WsStatusToast() {
       hadIssueRef.current = true;
       show(`Reconnecting in ${secs}s (attempt ${tries})`, 'warning', Math.min(4000, delayMs + 1000));
     };
-
-    window.addEventListener('ws-opened', onOpened as EventListener);
-    window.addEventListener('ws-connected', onConnected as EventListener);
-    window.addEventListener('ws-closed', onClosed as EventListener);
-    window.addEventListener('ws-error', onError as EventListener);
-    window.addEventListener('ws-retry', onRetry as EventListener);
-    return () => {
-      window.removeEventListener('ws-opened', onOpened as EventListener);
-      window.removeEventListener('ws-connected', onConnected as EventListener);
-      window.removeEventListener('ws-closed', onClosed as EventListener);
-      window.removeEventListener('ws-error', onError as EventListener);
-      window.removeEventListener('ws-retry', onRetry as EventListener);
+    const onSquidOutage = (e: Event) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const detail: any = (e as CustomEvent).detail ?? {};
+      const status = detail.status != null ? ` (status ${detail.status})` : '';
+      hadIssueRef.current = true;
+      show(`Subsquid API outage${status}. Retrying...`, 'error', 7000);
     };
-  }, []);
+    const onSquidRecovered = () => {
+      if (hadIssueRef.current) show('Subsquid API restored', 'success', 3000);
+    };
 
-  if (!state.visible) return null;
+    if (wsEnabled) {
+      window.addEventListener('ws-opened', onOpened as EventListener);
+      window.addEventListener('ws-connected', onConnected as EventListener);
+      window.addEventListener('ws-closed', onClosed as EventListener);
+      window.addEventListener('ws-error', onError as EventListener);
+      window.addEventListener('ws-retry', onRetry as EventListener);
+    }
+    if (squidEnabled) {
+      window.addEventListener('squid-outage', onSquidOutage as EventListener);
+      window.addEventListener('squid-recovered', onSquidRecovered as EventListener);
+    }
+    return () => {
+      if (wsEnabled) {
+        window.removeEventListener('ws-opened', onOpened as EventListener);
+        window.removeEventListener('ws-connected', onConnected as EventListener);
+        window.removeEventListener('ws-closed', onClosed as EventListener);
+        window.removeEventListener('ws-error', onError as EventListener);
+        window.removeEventListener('ws-retry', onRetry as EventListener);
+      }
+      if (squidEnabled) {
+        window.removeEventListener('squid-outage', onSquidOutage as EventListener);
+        window.removeEventListener('squid-recovered', onSquidRecovered as EventListener);
+      }
+    };
+  }, [enabled, wsEnabled, squidEnabled]);
+
+  if (!enabled || !state.visible) return null;
 
   return (
     <div

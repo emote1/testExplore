@@ -4,6 +4,8 @@ import { apolloClient } from './apollo-client';
 import { Loader2 } from 'lucide-react';
 import { Navigation } from './components/Navigation';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { WsStatusToast } from './components/WsStatusToast';
+import { useSquidHealth } from './hooks/use-squid-health';
 
 const TransactionHistoryWithBlocks = React.lazy(() =>
   import('./components/TransactionHistoryWithBlocks').then(m => ({ default: m.TransactionHistoryWithBlocks }))
@@ -31,30 +33,37 @@ function App() {
     setCurrentPage('wallet');
   }
 
+  function AppShell() {
+    useSquidHealth({ intervalMs: 30_000 });
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Navigation currentPage={currentPage} onPageChange={handlePageChange} />
+        <WsStatusToast wsEnabled={currentPage !== 'wallet'} />
+        <main className="pt-16">
+          <React.Suspense fallback={<div className="flex items-center justify-center p-8"><Loader2 className="h-6 w-6 animate-spin" /></div>}>
+            {currentPage === 'wallet' && searchAddr
+              ? (
+                <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                  <ErrorBoundary name="WalletPage">
+                    <TransactionHistoryWithBlocks key={searchAddr} initialAddress={searchAddr} />
+                  </ErrorBoundary>
+                </div>
+              )
+              : (
+                <ErrorBoundary name="HomePage">
+                  <HomeLanding onSearch={handleSearch} />
+                </ErrorBoundary>
+              )}
+          </React.Suspense>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <ApolloProvider client={apolloClient}>
       <ErrorBoundary name="AppRoot">
-        <div className="min-h-screen bg-gray-50">
-          <Navigation currentPage={currentPage} onPageChange={handlePageChange} />
-          
-          <main className="pt-16">
-            <React.Suspense fallback={<div className="flex items-center justify-center p-8"><Loader2 className="h-6 w-6 animate-spin" /></div>}>
-              {currentPage === 'wallet' && searchAddr
-                ? (
-                  <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                    <ErrorBoundary name="WalletPage">
-                      <TransactionHistoryWithBlocks key={searchAddr} initialAddress={searchAddr} />
-                    </ErrorBoundary>
-                  </div>
-                )
-                : (
-                  <ErrorBoundary name="HomePage">
-                    <HomeLanding onSearch={handleSearch} />
-                  </ErrorBoundary>
-                )}
-            </React.Suspense>
-          </main>
-        </div>
+        <AppShell />
       </ErrorBoundary>
     </ApolloProvider>
   );

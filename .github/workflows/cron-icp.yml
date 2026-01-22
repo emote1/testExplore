@@ -1,0 +1,41 @@
+name: cron-icp
+
+on:
+  schedule:
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
+
+jobs:
+  cron-icp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dfx
+        run: |
+          sh -ci "$(curl -fsSL https://sdk.dfinity.org/install.sh)"
+          echo "$HOME/.local/share/dfx/bin" >> $GITHUB_PATH
+
+      - name: Restore cron identity
+        env:
+          CRON_PEM_BASE64: ${{ secrets.CRON_PEM_BASE64 }}
+        run: |
+          echo "$CRON_PEM_BASE64" | base64 -d > /tmp/cron.pem
+          dfx identity import cron /tmp/cron.pem
+
+      - name: Run cron:icp
+        working-directory: aggregator
+        env:
+          DFX_IDENTITY: cron
+          DFX_WARNING: -mainnet_plaintext_identity
+          DFX_BIN: /home/runner/.local/share/dfx/bin/dfx
+          NEW_WALLETS_LIMIT: 50
+          RETRY_COUNT: 3
+          RETRY_DELAY_MS: 30000
+        run: |
+          npm ci
+          npm run cron:icp

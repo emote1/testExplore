@@ -17,12 +17,18 @@ type Status = record {
   source_url: text;
   last_updated: opt nat64;
   payload_bytes: nat64;
+  refresh_enabled: bool;
 };
 
 service : {
   http_request: (HttpRequest) -> (HttpResponse) query;
   get_active_wallets_daily: () -> (text) query;
+  get_extrinsics_daily: () -> (text) query;
+  get_new_wallets_inflow: () -> (text) query;
   get_status: () -> (Status) query;
   set_source_url: (text) -> ();
+  set_refresh_enabled: (bool) -> ();
+  ingest_daily_snapshot: (record { ts: text; active: nat64; new_wallets: nat64; extrinsics: nat64 }) -> (text);
+  ingest_new_wallets_inflow: (text) -> (text);
   refresh_now: () -> (text);
 }
