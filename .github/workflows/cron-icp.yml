@@ -17,6 +17,7 @@ jobs:
 
       - name: Install dfx
         run: |
+          export DFXVM_INIT_YES=1
           sh -ci "$(curl -fsSL https://sdk.dfinity.org/install.sh)"
           echo "$HOME/.local/share/dfx/bin" >> $GITHUB_PATH
 
