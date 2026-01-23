@@ -182,7 +182,7 @@ export const TpsSparkline = React.memo(function TpsSparkline({
   const areaUrl = `url(#${gradAreaId})`;
   const fadeUrl = `url(#${fadeRightId})`;
   const maskUrl = `url(#${maskRightId})`;
-  const smoothed = React.useMemo(() => rollingAverage(baseSeries, 12), [baseSeries]);
+  const smoothed = React.useMemo(() => rollingAverage(baseSeries, 10), [baseSeries]);
   const windowed = React.useMemo(() => smoothed.slice(-trendWin), [smoothed, trendWin]);
   const renderSeries = React.useMemo(() => {
     const arr = upsampleLinear(windowed, trendRes);
@@ -253,8 +253,8 @@ export const TpsSparkline = React.memo(function TpsSparkline({
         
         // Update path with actual data (no artificial scrolling)
         // Graph now reflects real tx/min changes - jumps up when rate increases!
-        // Higher smoothing (1.2) for very smooth curves
-        const d = trendToCurvePath(blended, W, H, 1.2, XPAD, yPadPx, yRef.current);
+        // Slightly less smoothing for quicker response
+        const d = trendToCurvePath(blended, W, H, 1.05, XPAD, yPadPx, yRef.current);
         if (pathTopRef.current) pathTopRef.current.setAttribute('d', d);
         if (areaRef.current) {
           const areaD = `${d} L ${W - XPAD} ${H} L ${XPAD} ${H} Z`;
@@ -361,11 +361,22 @@ export const TpsSparkline = React.memo(function TpsSparkline({
   const trendColor = lastDelta > 0 ? '#10b981' : lastDelta < 0 ? '#f59e0b' : '#7c3aed';
   const colorStart = lastDelta > 0 ? '#34d399' : lastDelta < 0 ? '#fbbf24' : '#a78bfa';
 
-  // Keep last curve shape - only draw flat when data is truly empty
-  // Don't collapse to flat just because values are near zero (prevents flicker)
-  const drawFlat = displaySeries.length < 2;
+  const isFlat = React.useMemo(() => {
+    if (displaySeries.length < 2) return true;
+    let min = Infinity;
+    let max = -Infinity;
+    for (const v of displaySeries) {
+      if (!Number.isFinite(v)) continue;
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+    if (!Number.isFinite(min) || !Number.isFinite(max)) return true;
+    return Math.abs(max - min) <= 0.0001;
+  }, [displaySeries]);
+  // Keep last curve shape - draw flat when data is empty or effectively constant
+  const drawFlat = displaySeries.length < 2 || isFlat;
   const sparkPath = React.useMemo(
-    () => drawFlat ? flatPath(W, H, XPAD) : trendToCurvePath(displaySeries, W, H, 0.9, XPAD, yPadPx, yDomain),
+    () => drawFlat ? flatPath(W, H, XPAD) : trendToCurvePath(displaySeries, W, H, 0.8, XPAD, yPadPx, yDomain),
     [displaySeries, yDomain, drawFlat, W, H, XPAD, yPadPx]
   );
   const areaPath = React.useMemo(() => `${sparkPath} L ${W - XPAD} ${H} L ${XPAD} ${H} Z`, [sparkPath, W, H, XPAD]);
@@ -426,7 +437,7 @@ export const TpsSparkline = React.memo(function TpsSparkline({
       </g>
       {/* Always show area (even when flat) to avoid flicker */}
       <path ref={areaRef} d={areaPath} fill={areaUrl} stroke="none" mask={maskUrl} />
-      <path ref={pathTopRef} d={sparkPath} fill="none" stroke={strokeUrl} strokeWidth={0.5} strokeLinecap="round" strokeLinejoin="round" />
+      <path ref={pathTopRef} d={sparkPath} fill="none" stroke={strokeUrl} strokeWidth={isFlat ? 0.8 : 0.5} strokeLinecap="round" strokeLinejoin="round" />
       <circle ref={markerRef} cx={marker.x} cy={marker.y} r={0.8} fill={trendColor} stroke="#fff" strokeWidth={0.3} />
     </svg>
   );

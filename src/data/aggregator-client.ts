@@ -63,15 +63,10 @@ export interface TopEntitiesResponse {
 }
 
 // Config
-const AGGREGATOR_BASE_URL = import.meta.env.VITE_AGGREGATOR_URL || '';
-const USE_MOCK = !AGGREGATOR_BASE_URL;
-
-function getBaseUrl(): string {
-  return USE_MOCK ? '' : AGGREGATOR_BASE_URL;
-}
+const USE_MOCK = true;
 
 async function fetchJson<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const url = USE_MOCK ? path : `${getBaseUrl()}${path}`;
+  const url = path;
   const res = await fetch(url, {
     signal,
     cache: 'no-store',
@@ -206,8 +201,3 @@ export async function getTopEntities(
   return fetchJson<TopEntitiesResponse>(`/v1/top-entities?${params}`, signal);
 }
 
-// Export config for debugging
-export const aggregatorConfig = {
-  baseUrl: AGGREGATOR_BASE_URL,
-  useMock: USE_MOCK,
-};

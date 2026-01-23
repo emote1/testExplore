@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { getExtrinsicsSparklineDaily } from '../data/aggregator-client';
 import { getExtrinsicsSparklineDailyIcp, icpConfig } from '../data/icp-client';
 
 interface NetworkGrowthState {
@@ -48,11 +47,22 @@ export function useNetworkGrowthAggregator(): NetworkGrowthState {
   useEffect(() => {
     let cancelled = false;
 
+    if (!icpConfig.extrinsicsEnabled) {
+      setState({
+        loading: false,
+        error: null,
+        growthPct: null,
+        last24h: null,
+        prev24h: null,
+        asOf: null,
+        spark: [],
+      });
+      return;
+    }
+
     async function load() {
       try {
-        const sparkData = icpConfig.extrinsicsEnabled
-          ? await getExtrinsicsSparklineDailyIcp()
-          : await getExtrinsicsSparklineDaily(30);
+        const sparkData = await getExtrinsicsSparklineDailyIcp();
         if (cancelled) return;
         
         // Calculate growth from sparkline (last day vs prev day)

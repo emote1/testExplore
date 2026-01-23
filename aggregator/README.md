@@ -81,11 +81,6 @@ pnpm dev
    pm2 start dist/index.js --name reef-aggregator
    ```
 
-3. Set `VITE_AGGREGATOR_URL` in frontend:
-   ```bash
-   VITE_AGGREGATOR_URL=http://localhost:3001
-   ```
-
 ## Database Schema
 
 - `hourly_buckets` - Time-series data per hour

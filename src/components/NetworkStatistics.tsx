@@ -1,10 +1,9 @@
 import React from 'react';
-import { Wallet, Activity, LineChart, TrendingUp } from 'lucide-react';
+import { Activity, ChevronDown, ChevronUp, LineChart, TrendingUp } from 'lucide-react';
 import { TpsSparkline } from './TpsSparkline';
 import { useWsStatus } from '../hooks/use-ws-status';
 import { useTpsLive } from '../hooks/use-tps-live';
 import { useNetworkGrowthAggregator } from '../hooks/use-network-growth-aggregator';
-import { useActiveWallets24h } from '../hooks/use-active-wallets-24h';
 import { useActiveWallets24hIcp } from '../hooks/use-active-wallets-24h-icp';
 import { useNewWalletsInflowIcp } from '../hooks/use-new-wallets-inflow-icp';
 import { AddressDisplay } from './AddressDisplay';
@@ -108,33 +107,14 @@ export function NetworkStatistics() {
     return `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
   }, [growth.loading, growth.growthPct]);
 
-  const active = useActiveWallets24h();
   const activeIcp = useActiveWallets24hIcp();
   const inflow = useNewWalletsInflowIcp();
   const [now, setNow] = React.useState(() => new Date());
+  const [showAllInflow, setShowAllInflow] = React.useState(false);
   React.useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 60 * 1000);
     return () => clearInterval(id);
   }, []);
-  const activeValueText = React.useMemo(() => {
-    if (active.loading) return '…';
-    if (active.last24h == null) return '—';
-    return active.last24h.toLocaleString();
-  }, [active.loading, active.last24h]);
-  const activeDeltaText = React.useMemo(() => {
-    if (active.loading) return '…';
-    const v = active.growthPct;
-    if (v == null) return '—';
-    return `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
-  }, [active.loading, active.growthPct]);
-  const activeTooltip = React.useMemo(() => {
-    if (!active.asOf) return 'Unique wallets in 24h. Chart: daily';
-    const to = new Date(active.asOf);
-    const from = new Date(to.getTime() - 24 * 60 * 60 * 1000);
-    const fmt = (d: Date) => d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-    return `${fmt(from)} → ${fmt(to)}\nChart: ${active.spark.length} days`;
-  }, [active.asOf, active.spark.length]);
-
   const activeIcpValueText = React.useMemo(() => {
     if (!activeIcp.enabled) return '—';
     if (activeIcp.loading) return '…';
@@ -162,6 +142,11 @@ export function NetworkStatistics() {
     [inflow.data?.minRaw]
   );
   const inflowEntries = inflow.data?.entries ?? [];
+  const inflowMaxVisible = 5;
+  const inflowVisibleEntries = showAllInflow
+    ? inflowEntries
+    : inflowEntries.slice(0, inflowMaxVisible);
+  const inflowHiddenCount = Math.max(0, inflowEntries.length - inflowVisibleEntries.length);
   const inflowAsOfText = inflow.data?.asOf
     ? new Date(inflow.data.asOf).toLocaleString('en-US', {
         month: 'short',
@@ -253,7 +238,7 @@ export function NetworkStatistics() {
                   <div className="text-sm text-gray-500">No wallets above the threshold yet.</div>
                 ) : (
                   <div className="space-y-2">
-                    {inflowEntries.map((entry) => {
+                    {inflowVisibleEntries.map((entry) => {
                       const formattedReef = formatCompactReef(entry.incomingReef) ?? entry.incomingReef;
                       return (
                       <div
@@ -274,49 +259,26 @@ export function NetworkStatistics() {
                       </div>
                       );
                     })}
+                    {inflowHiddenCount > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowAllInflow((prev) => !prev)}
+                        className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-200/60 bg-white/70 px-3 py-2 text-xs font-medium text-emerald-800 shadow-sm transition hover:bg-white"
+                      >
+                        {showAllInflow ? 'Show less' : `Show ${inflowHiddenCount} more`}
+                        {showAllInflow ? (
+                          <ChevronUp className="h-4 w-4" />
+                        ) : (
+                          <ChevronDown className="h-4 w-4" />
+                        )}
+                      </button>
+                    ) : null}
                   </div>
                 )}
               </div>
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <StatCard
-              title="Active Wallets (24h)"
-              value={activeValueText}
-              delta={activeDeltaText}
-              tooltip={activeTooltip}
-              icon={<Wallet className="h-6 w-6 text-blue-600" />}
-              color="blue"
-              sparkClassName="h-[137px]"
-              sparkNode={
-                active.spark.length > 0 ? (
-                  <div className="relative h-full w-full rounded-lg overflow-hidden">
-                    {/* Gradient background */}
-                    <div className="absolute inset-0 bg-gradient-to-t from-blue-100/80 via-blue-50/40 to-transparent" />
-                    <div className="relative flex items-end justify-center gap-[3px] h-full w-full px-2 py-1">
-                      {active.spark.map((val, i) => {
-                        const maxVal = Math.max(...active.spark, 1);
-                        const h = Math.max(15, (val / maxVal) * 100);
-                        const day = new Date(Date.now() - (active.spark.length - 1 - i) * 24 * 60 * 60 * 1000);
-                        const dayLabel = day.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
-                        return (
-                          <div
-                            key={i}
-                            className="flex-1 max-w-3 rounded-sm transition-all cursor-pointer bg-gradient-to-t from-blue-600 to-blue-400 hover:from-blue-500 hover:to-blue-300 hover:scale-110 shadow-sm"
-                            style={{ height: `${h}%` }}
-                            title={`${dayLabel}: ${val} wallets`}
-                          />
-                        );
-                      })}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-center h-full text-gray-400 text-sm bg-gradient-to-t from-blue-50/50 to-transparent rounded-lg">
-                    Run cron to collect data
-                  </div>
-                )
-              }
-            />
             <StatCard
               title="Tx/min (Live)"
               value={`${perMinText} tx/min`}
