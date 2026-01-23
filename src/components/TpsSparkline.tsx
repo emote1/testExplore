@@ -29,6 +29,27 @@ function rollingAverage(data: number[], window: number): number[] {
   return out;
 }
 
+function pointAtX(path: SVGPathElement, targetX: number): { x: number; y: number } | null {
+  try {
+    const total = path.getTotalLength();
+    let start = 0;
+    let end = total;
+    for (let i = 0; i < 16; i++) {
+      const mid = (start + end) / 2;
+      const pt = path.getPointAtLength(mid);
+      if (pt.x < targetX) {
+        start = mid;
+      } else {
+        end = mid;
+      }
+    }
+    const point = path.getPointAtLength(end);
+    return { x: point.x, y: point.y };
+  } catch {
+    return null;
+  }
+}
+
 function upsampleLinear(data: number[], factor: number): number[] {
   const f = Math.max(1, Math.floor(factor || 1));
   const n = data.length;
@@ -140,6 +161,17 @@ export const TpsSparkline = React.memo(function TpsSparkline({
   pathAnimMs = 2400,
 }: TpsSparklineProps) {
   const W = width, H = height, XPAD = xpad;
+  const lastNonEmptyRef = React.useRef<number[]>([]);
+  const baseSeries = React.useMemo(() => {
+    const input = (series ?? []).filter((v) => Number.isFinite(v));
+    if (input.length >= 2) {
+      lastNonEmptyRef.current = input;
+      return input;
+    }
+    if (lastNonEmptyRef.current.length >= 2) return lastNonEmptyRef.current;
+    if (input.length === 1) return [input[0], input[0]];
+    return new Array(Math.max(2, trendWin)).fill(0);
+  }, [series, trendWin]);
   // per-instance unique IDs for gradients/masks to avoid collisions
   const uid = React.useRef(`tps-${Math.random().toString(36).slice(2, 9)}`).current;
   const gradStrokeId = `${uid}-stroke`;
@@ -150,7 +182,7 @@ export const TpsSparkline = React.memo(function TpsSparkline({
   const areaUrl = `url(#${gradAreaId})`;
   const fadeUrl = `url(#${fadeRightId})`;
   const maskUrl = `url(#${maskRightId})`;
-  const smoothed = React.useMemo(() => rollingAverage(series ?? [], 12), [series]);
+  const smoothed = React.useMemo(() => rollingAverage(baseSeries, 12), [baseSeries]);
   const windowed = React.useMemo(() => smoothed.slice(-trendWin), [smoothed, trendWin]);
   const renderSeries = React.useMemo(() => {
     const arr = upsampleLinear(windowed, trendRes);
@@ -263,12 +295,16 @@ export const TpsSparkline = React.memo(function TpsSparkline({
         const vj = blended[j] ?? vi;
         const v = i === j ? vi : vi * (1 - f) + vj * f;
         
-        if (markerRef.current && Number.isFinite(v)) {
-          const targetY = scaleY(v);
-          // Very smooth exponential easing for fluid marker movement
-          const markerSmooth = 0.02; // Very low = very smooth
-          markerYRef.current += (targetY - markerYRef.current) * markerSmooth;
-          
+        if (markerRef.current) {
+          const pathPoint = pathTopRef.current ? pointAtX(pathTopRef.current, markX) : null;
+          const targetY = pathPoint?.y ?? (Number.isFinite(v) ? scaleY(v) : H / 2);
+          if (pathPoint) {
+            markerYRef.current = targetY;
+          } else {
+            const markerSmooth = 0.2;
+            markerYRef.current += (targetY - markerYRef.current) * markerSmooth;
+          }
+
           markerRef.current.setAttribute('cx', String(markX));
           markerRef.current.setAttribute('cy', String(markerYRef.current));
         }
