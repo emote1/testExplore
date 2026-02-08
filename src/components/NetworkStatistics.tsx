@@ -1,9 +1,10 @@
 import React from 'react';
-import { Activity, ChevronDown, ChevronUp, LineChart, TrendingUp } from 'lucide-react';
+import { Activity, ChevronDown, ChevronUp, LineChart, Lock } from 'lucide-react';
 import { TpsSparkline } from './TpsSparkline';
 import { useWsStatus } from '../hooks/use-ws-status';
 import { useTpsLive } from '../hooks/use-tps-live';
-import { useNetworkGrowthAggregator } from '../hooks/use-network-growth-aggregator';
+import { useTotalStaked } from '../hooks/use-total-staked';
+import { useReefPrice } from '../hooks/use-reef-price';
 import { useActiveWallets24hIcp } from '../hooks/use-active-wallets-24h-icp';
 import { useNewWalletsInflowIcp } from '../hooks/use-new-wallets-inflow-icp';
 import { AddressDisplay } from './AddressDisplay';
@@ -94,18 +95,23 @@ export function NetworkStatistics() {
   } as const;
   const combinedStyle = combinedStyles[combinedTone];
 
-  const growth = useNetworkGrowthAggregator();
-  const growthValueText = React.useMemo(() => {
-    if (growth.loading) return '…';
-    if (growth.last24h == null) return '—';
-    return growth.last24h.toLocaleString();
-  }, [growth.loading, growth.last24h]);
-  const growthDeltaText = React.useMemo(() => {
-    if (growth.loading) return '…';
-    if (growth.growthPct == null) return '—';
-    const v = growth.growthPct;
-    return `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
-  }, [growth.loading, growth.growthPct]);
+  const staked = useTotalStaked();
+  const { price: reefPrice } = useReefPrice();
+  const stakedValueText = React.useMemo(() => {
+    if (staked.loading) return '…';
+    if (staked.totalStakedReef === 0) return '—';
+    const v = staked.totalStakedReef;
+    if (v >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(2)}B`;
+    if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(2)}M`;
+    return v.toLocaleString();
+  }, [staked.loading, staked.totalStakedReef]);
+  const stakedUsdText = React.useMemo(() => {
+    if (staked.loading || !reefPrice?.usd || staked.totalStakedReef === 0) return null;
+    const usd = staked.totalStakedReef * reefPrice.usd;
+    if (usd >= 1_000_000) return `$${(usd / 1_000_000).toFixed(2)}M`;
+    if (usd >= 1_000) return `$${(usd / 1_000).toFixed(1)}K`;
+    return `$${usd.toFixed(2)}`;
+  }, [staked.loading, staked.totalStakedReef, reefPrice?.usd]);
 
   const activeIcp = useActiveWallets24hIcp();
   const inflow = useNewWalletsInflowIcp();
@@ -130,12 +136,13 @@ export function NetworkStatistics() {
   }, [activeIcp.enabled, activeIcp.loading, activeIcp.growthPct]);
   const activeIcpTooltip = React.useMemo(() => {
     if (!activeIcp.enabled) return 'Set VITE_ICP_ACTIVE_WALLETS_DAILY_URL to enable ICP data.';
-    if (!activeIcp.asOf) return 'ICP: New wallets in 24h. Chart: daily';
+    if (!activeIcp.asOf) return 'ICP: Active wallets in 24h. Chart: daily';
     const to = new Date(activeIcp.asOf);
     const from = new Date(to.getTime() - 24 * 60 * 60 * 1000);
     const fmt = (d: Date) => d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-    return `${fmt(from)} → ${fmt(to)}\nICP chart: ${activeIcp.spark.length} days`;
-  }, [activeIcp.enabled, activeIcp.asOf, activeIcp.spark.length]);
+    return `${fmt(from)} → ${fmt(to)}
+Active wallets chart: ${activeIcp.sparkDated.length} days`;
+  }, [activeIcp.enabled, activeIcp.asOf, activeIcp.sparkDated.length]);
 
   const inflowMinText = React.useMemo(
     () => formatMinReef(inflow.data?.minRaw),
@@ -176,7 +183,7 @@ export function NetworkStatistics() {
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.8fr)] gap-4">
           <div className="space-y-4">
             <StatCard
-              title="New Wallets (24h, ICP)"
+              title="Active Wallets (24h, ICP)"
               value={activeIcpValueText}
               delta={activeIcpDeltaText}
               tooltip={activeIcpTooltip}
@@ -184,21 +191,30 @@ export function NetworkStatistics() {
               color="emerald"
               sparkClassName="h-[137px]"
               sparkNode={
-                activeIcp.enabled && activeIcp.spark.length > 0 ? (
+                activeIcp.enabled && activeIcp.sparkDated.length > 0 ? (
                   <div className="relative h-full w-full rounded-lg overflow-hidden">
                     <div className="absolute inset-0 bg-gradient-to-t from-emerald-100/80 via-emerald-50/40 to-transparent" />
                     <div className="relative flex items-end justify-center gap-[3px] h-full w-full px-2 py-1">
-                      {activeIcp.spark.map((val, i) => {
-                        const maxVal = Math.max(...activeIcp.spark, 1);
-                        const h = Math.max(15, (val / maxVal) * 100);
-                        const day = new Date(Date.now() - (activeIcp.spark.length - 1 - i) * 24 * 60 * 60 * 1000);
-                        const dayLabel = day.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
+                      {activeIcp.sparkDated.map((pt) => {
+                        const maxVal = Math.max(...activeIcp.sparkDated.map(p => p.value ?? 0), 1);
+                        const dayLabel = new Date(pt.ts + 'T00:00:00Z').toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
+                        if (pt.value === null) {
+                          return (
+                            <div
+                              key={pt.ts}
+                              className="flex-1 max-w-2 self-end rounded-sm bg-emerald-100 border border-dashed border-emerald-300/80 cursor-default"
+                              style={{ height: '20px' }}
+                              title={`${dayLabel}: no data`}
+                            />
+                          );
+                        }
+                        const h = Math.max(15, (pt.value / maxVal) * 100);
                         return (
                           <div
-                            key={i}
+                            key={pt.ts}
                             className="flex-1 max-w-3 rounded-sm transition-all cursor-pointer bg-gradient-to-t from-emerald-600 to-emerald-400 hover:from-emerald-500 hover:to-emerald-300 hover:scale-110 shadow-sm"
                             style={{ height: `${h}%` }}
-                            title={`${dayLabel}: ${val} new wallets (ICP)`}
+                            title={`${dayLabel}: ${pt.value} active wallets (ICP)`}
                           />
                         );
                       })}
@@ -295,40 +311,50 @@ export function NetworkStatistics() {
               color="violet"
             />
             <StatCard
-              title="Transactions (24h)"
-              value={growthValueText}
-              delta={growthDeltaText}
-              tooltip={growth.asOf ? `Total transactions in 24h\nChart: ${growth.spark.length} days` : 'Total transactions in last 24 hours'}
-              icon={<TrendingUp className="h-6 w-6 text-orange-600" />}
+              title="Total Staked"
+              value={`${stakedValueText} REEF`}
+              delta={staked.loading ? '…' : `${staked.stakedPct.toFixed(1)}%`}
+              tooltip={staked.era != null ? `Era ${staked.era} • ${staked.validatorCount} validators\n${staked.stakedPct.toFixed(2)}% of total supply staked` : 'Total REEF staked across all validators'}
+              icon={<Lock className="h-6 w-6 text-amber-600" />}
               color="orange"
               sparkClassName="h-[137px]"
               sparkNode={
-                growth.spark.length > 0 ? (
-                  <div className="relative h-full w-full rounded-lg overflow-hidden">
-                    {/* Gradient background */}
-                    <div className="absolute inset-0 bg-gradient-to-t from-orange-100/80 via-amber-50/40 to-transparent" />
-                    <div className="relative flex items-end justify-center gap-[3px] h-full w-full px-2 py-1">
-                      {growth.spark.map((val, i) => {
-                        const maxVal = Math.max(...growth.spark, 1);
-                        const h = Math.max(15, (val / maxVal) * 100);
-                        const day = new Date(Date.now() - (growth.spark.length - 1 - i) * 24 * 60 * 60 * 1000);
-                        const dayLabel = day.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
-                        return (
-                          <div
-                            key={i}
-                            className="flex-1 max-w-3 rounded-sm transition-all cursor-pointer bg-gradient-to-t from-orange-500 to-amber-400 hover:from-orange-400 hover:to-amber-300 hover:scale-110 shadow-sm"
-                            style={{ height: `${h}%` }}
-                            title={`${dayLabel}: ${val.toLocaleString()} txs`}
-                          />
-                        );
-                      })}
+                <div className="relative h-full w-full rounded-lg overflow-hidden">
+                  <div className="absolute inset-0 bg-gradient-to-t from-amber-100/80 via-amber-50/40 to-transparent" />
+                  <div className="relative flex flex-col items-center justify-center h-full gap-3 px-4">
+                    {/* Progress bar */}
+                    <div className="w-full">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs text-gray-500">Staked</span>
+                        <span className="text-xs font-medium text-amber-700">
+                          {staked.loading ? '…' : `${staked.stakedPct.toFixed(1)}%`}
+                        </span>
+                      </div>
+                      <div className="w-full h-3 bg-gray-200/60 rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-amber-500 to-orange-400 transition-all duration-700"
+                          style={{ width: `${Math.min(staked.stakedPct, 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                    {/* Details */}
+                    <div className="flex items-center justify-between w-full text-xs text-gray-600">
+                      <div className="flex items-center gap-1">
+                        <span className="font-medium">{staked.loading ? '…' : staked.validatorCount}</span>
+                        <span>validators</span>
+                      </div>
+                      {stakedUsdText ? (
+                        <span className="font-medium text-amber-700">{stakedUsdText}</span>
+                      ) : null}
+                      {staked.era != null ? (
+                        <div className="flex items-center gap-1">
+                          <span>Era</span>
+                          <span className="font-medium">{staked.era.toLocaleString()}</span>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
-                ) : (
-                  <div className="flex items-center justify-center h-full text-gray-400 text-sm bg-gradient-to-t from-orange-50/50 to-transparent rounded-lg">
-                    Run cron to collect data
-                  </div>
-                )
+                </div>
               }
             />
           </div>

@@ -17,16 +17,6 @@ const NEW_WALLETS_LIMIT = Number(process.env.NEW_WALLETS_LIMIT ?? '50');
 const RETRY_COUNT = Number(process.env.RETRY_COUNT ?? '3');
 const RETRY_DELAY_MS = Number(process.env.RETRY_DELAY_MS ?? '2000');
 
-const EXTRINSICS_COUNT = gql`
-  query ExtrinsicsCount($from: DateTime!, $to: DateTime!) {
-    extrinsicsConnection(
-      where: { timestamp_gte: $from, timestamp_lt: $to }
-      orderBy: timestamp_ASC
-    ) {
-      totalCount
-    }
-  }
-`;
 
 const TRANSFERS_PAGE = gql`
   query TransfersPage($from: DateTime!, $to: DateTime!, $after: String) {
@@ -79,15 +69,6 @@ async function requestWithRetry<T>(query: string, variables: Record<string, unkn
       await new Promise((resolve) => setTimeout(resolve, waitMs));
     }
   }
-}
-
-async function fetchExtrinsicsCount(from: string, to: string): Promise<number> {
-  const data = await requestWithRetry<{ extrinsicsConnection: { totalCount: number } }>(
-    EXTRINSICS_COUNT,
-    { from, to },
-    'extrinsics count'
-  );
-  return data.extrinsicsConnection.totalCount;
 }
 
 async function fetchAllTransfers(from: string, to: string): Promise<TransferEdge[]> {
@@ -227,10 +208,6 @@ async function run() {
   const last24hIso = last24hStart.toISOString();
   const prev24hIso = prev24hStart.toISOString();
 
-  console.log('Fetching extrinsics counts...');
-  const extLast24h = await fetchExtrinsicsCount(last24hIso, toIso);
-  console.log(`  extrinsics last24h=${extLast24h}`);
-
   console.log('Fetching transfers for last 24h...');
   const transfersLast24h = await fetchAllTransfers(last24hIso, toIso);
   console.log(`  got ${transfersLast24h.length} transfers`);
@@ -276,7 +253,7 @@ async function run() {
     ts: toIsoDay(now),
     active: activeLast24h.size,
     new_wallets: newWalletsSet.size,
-    extrinsics: extLast24h,
+    extrinsics: 0,
   };
 
   console.log('Snapshot:', snapshot);

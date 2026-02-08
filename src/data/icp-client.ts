@@ -4,7 +4,7 @@
  * Fetches pre-aggregated JSON payloads hosted on ICP (asset canister).
  */
 
-import type { DailyExtrinsicsSparklineResponse, DailyWalletsSparklineResponse } from './aggregator-client';
+import type { DailyWalletsSparklineResponse } from './aggregator-client';
 
 export interface NewWalletsInflowEntry {
   address: string;
@@ -24,7 +24,6 @@ export interface NewWalletsInflowResponse {
 }
 
 const ICP_ACTIVE_WALLETS_DAILY_URL = import.meta.env.VITE_ICP_ACTIVE_WALLETS_DAILY_URL || '';
-const ICP_EXTRINSICS_DAILY_URL = import.meta.env.VITE_ICP_EXTRINSICS_DAILY_URL || '';
 const ICP_NEW_WALLETS_INFLOW_URL = import.meta.env.VITE_ICP_NEW_WALLETS_INFLOW_URL || '';
 
 async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
@@ -48,15 +47,6 @@ export async function getActiveWalletsSparklineDailyIcp(
   return fetchJson<DailyWalletsSparklineResponse>(ICP_ACTIVE_WALLETS_DAILY_URL, signal);
 }
 
-export async function getExtrinsicsSparklineDailyIcp(
-  signal?: AbortSignal
-): Promise<DailyExtrinsicsSparklineResponse> {
-  if (!ICP_EXTRINSICS_DAILY_URL) {
-    throw new Error('VITE_ICP_EXTRINSICS_DAILY_URL is not set');
-  }
-  return fetchJson<DailyExtrinsicsSparklineResponse>(ICP_EXTRINSICS_DAILY_URL, signal);
-}
-
 export async function getNewWalletsInflowIcp(
   signal?: AbortSignal
 ): Promise<NewWalletsInflowResponse> {
@@ -68,9 +58,7 @@ export async function getNewWalletsInflowIcp(
 
 export const icpConfig = {
   activeWalletsDailyUrl: ICP_ACTIVE_WALLETS_DAILY_URL,
-  extrinsicsDailyUrl: ICP_EXTRINSICS_DAILY_URL,
   newWalletsInflowUrl: ICP_NEW_WALLETS_INFLOW_URL,
   enabled: Boolean(ICP_ACTIVE_WALLETS_DAILY_URL),
-  extrinsicsEnabled: Boolean(ICP_EXTRINSICS_DAILY_URL),
   newWalletsInflowEnabled: Boolean(ICP_NEW_WALLETS_INFLOW_URL),
 };
