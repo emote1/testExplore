@@ -46,6 +46,7 @@ export function useSquidHealth(opts: Options = {}): SquidHealth {
   const [processorTs, setProcessorTs] = useState<number | undefined>(undefined);
   const [lastUpdated, setLastUpdated] = useState<number | undefined>(undefined);
   const [outageActive, setOutageActive] = useState(false);
+  const [nowMs, setNowMs] = useState(Date.now);
   const latenciesRef = useRef<number[]>([]);
   const intervalMsRef = useRef(intervalMs);
   const latencyWindowRef = useRef(latencyWindow);
@@ -55,6 +56,11 @@ export function useSquidHealth(opts: Options = {}): SquidHealth {
   useEffect(() => {
     intervalMsRef.current = intervalMs;
   }, [intervalMs]);
+
+  useEffect(() => {
+    const t = window.setInterval(() => setNowMs(Date.now()), 10_000);
+    return () => window.clearInterval(t);
+  }, []);
 
   useEffect(() => {
     latencyWindowRef.current = latencyWindow;
@@ -192,18 +198,17 @@ export function useSquidHealth(opts: Options = {}): SquidHealth {
     const idx = Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95));
     const p95 = sorted[idx];
     return { avg, p95 };
-  }, []);
+  }, [lastUpdated]);
 
   const status: SquidHealth['status'] = useMemo(() => {
     if (outageActive) return 'down';
     if (!lastUpdated) return 'loading';
     if (!lastBlockTs) return 'lagging';
-    const now = Date.now();
-    const lagSec = Math.max(0, (now - lastBlockTs) / 1000);
+    const lagSec = Math.max(0, (nowMs - lastBlockTs) / 1000);
     if (lagSec > staleSec) return 'stale';
     if (lagSec > lagWarnSec) return 'lagging';
     return 'live';
-  }, [outageActive, lastUpdated, lastBlockTs, lagWarnSec, staleSec]);
+  }, [outageActive, lastUpdated, lastBlockTs, lagWarnSec, staleSec, nowMs]);
 
   return {
     status,

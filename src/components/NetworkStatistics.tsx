@@ -117,6 +117,7 @@ export function NetworkStatistics() {
   const inflow = useNewWalletsInflowIcp();
   const [now, setNow] = React.useState(() => new Date());
   const [showAllInflow, setShowAllInflow] = React.useState(false);
+  const [showValidators, setShowValidators] = React.useState(false);
   React.useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 60 * 1000);
     return () => clearInterval(id);
@@ -311,23 +312,56 @@ Active wallets chart: ${activeIcp.sparkDated.length} days`;
               color="violet"
             />
             <StatCard
-              title="Total Staked"
-              value={`${stakedValueText} REEF`}
-              delta={staked.loading ? '…' : `${staked.stakedPct.toFixed(1)}%`}
-              tooltip={staked.era != null ? `Era ${staked.era} • ${staked.validatorCount} validators\n${staked.stakedPct.toFixed(2)}% of total supply staked` : 'Total REEF staked across all validators'}
+              title={
+                <span className="flex items-baseline gap-1.5 flex-wrap">
+                  <span>Total Staked</span>
+                  <span className="text-amber-600 font-semibold tabular-nums">{stakedValueText} REEF</span>
+                </span>
+              }
+              value=""
+              delta=""
+              tooltip={staked.era != null ? `Era ${staked.era} • ${staked.validatorCount} validators\n${staked.stakedPct.toFixed(2)}% of total supply staked${staked.apy != null ? `\nAPY: ~${staked.apy.toFixed(1)}%` : ''}` : 'Total REEF staked across all validators'}
               icon={<Lock className="h-6 w-6 text-amber-600" />}
               color="orange"
-              sparkClassName="h-[137px]"
+              sparkClassName={showValidators ? 'min-h-[137px]' : 'h-[137px]'}
               sparkNode={
-                <div className="relative h-full w-full rounded-lg overflow-hidden">
-                  <div className="absolute inset-0 bg-gradient-to-t from-amber-100/80 via-amber-50/40 to-transparent" />
-                  <div className="relative flex flex-col items-center justify-center h-full gap-3 px-4">
+                <div className="relative w-full rounded-lg overflow-hidden bg-gradient-to-t from-amber-100/80 via-amber-50/40 to-transparent">
+                  {staked.loading ? (
+                    <div className="flex flex-col gap-3 px-4 py-3 animate-pulse">
+                      <div className="flex items-center justify-between">
+                        <div className="h-3 w-16 bg-amber-200/60 rounded" />
+                        <div className="h-3 w-10 bg-amber-200/60 rounded" />
+                      </div>
+                      <div className="w-full h-3 bg-amber-200/40 rounded-full" />
+                      <div className="flex items-center gap-2">
+                        <div className="h-3 w-10 bg-amber-200/60 rounded" />
+                        <div className="h-4 w-14 bg-emerald-200/60 rounded" />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div className="h-5 w-28 bg-amber-200/50 rounded-md" />
+                        <div className="h-3 w-14 bg-amber-200/40 rounded" />
+                        <div className="h-3 w-16 bg-amber-200/40 rounded" />
+                      </div>
+                    </div>
+                  ) : staked.error ? (
+                    <div className="flex flex-col items-center justify-center gap-2 px-4 py-6 text-center">
+                      <span className="text-sm text-red-500 font-medium">Ошибка загрузки данных</span>
+                      <span className="text-[10px] text-gray-400">{staked.error.message.slice(0, 80)}</span>
+                      <button
+                        onClick={() => window.location.reload()}
+                        className="mt-1 text-xs px-3 py-1 rounded-md border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
+                      >
+                        Обновить
+                      </button>
+                    </div>
+                  ) : (
+                  <div className="flex flex-col items-center justify-center gap-3 px-4 py-3">
                     {/* Progress bar */}
                     <div className="w-full">
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-xs text-gray-500">Staked</span>
                         <span className="text-xs font-medium text-amber-700">
-                          {staked.loading ? '…' : `${staked.stakedPct.toFixed(1)}%`}
+                          {`${staked.stakedPct.toFixed(1)}%`}
                         </span>
                       </div>
                       <div className="w-full h-3 bg-gray-200/60 rounded-full overflow-hidden">
@@ -337,12 +371,23 @@ Active wallets chart: ${activeIcp.sparkDated.length} days`;
                         />
                       </div>
                     </div>
+                    {/* APY */}
+                    {staked.apy != null ? (
+                      <div className="flex items-center gap-2 w-full">
+                        <span className="text-xs text-gray-500">APY</span>
+                        <span className="text-sm font-semibold text-emerald-600">~{staked.apy.toFixed(1)}%</span>
+                      </div>
+                    ) : null}
                     {/* Details */}
                     <div className="flex items-center justify-between w-full text-xs text-gray-600">
-                      <div className="flex items-center gap-1">
-                        <span className="font-medium">{staked.loading ? '…' : staked.validatorCount}</span>
+                      <button
+                        onClick={() => setShowValidators((v) => !v)}
+                        className="flex items-center gap-1 px-2 py-0.5 rounded-md border border-amber-200/60 bg-amber-50/50 hover:bg-amber-100/70 hover:text-amber-700 transition-colors cursor-pointer"
+                      >
+                        <span className="font-medium">{staked.validatorCount}</span>
                         <span>validators</span>
-                      </div>
+                        {showValidators ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                      </button>
                       {stakedUsdText ? (
                         <span className="font-medium text-amber-700">{stakedUsdText}</span>
                       ) : null}
@@ -353,7 +398,33 @@ Active wallets chart: ${activeIcp.sparkDated.length} days`;
                         </div>
                       ) : null}
                     </div>
+                    {/* Validators list */}
+                    {showValidators && staked.validators.length > 0 ? (
+                      <div className="w-full max-h-[200px] overflow-y-auto space-y-1 mt-1">
+                        <div className="flex items-center gap-1.5 text-[9px] text-gray-400 uppercase tracking-wider px-2">
+                          <span className="w-3 shrink-0" />
+                          <span className="flex-1">Validator</span>
+                          <span className="whitespace-nowrap shrink-0 w-12 text-right">Comm.</span>
+                          <span className="whitespace-nowrap shrink-0 w-10 text-right">APY</span>
+                        </div>
+                        {staked.validators.map((v, i) => (
+                          <div key={v.address} className="flex items-center gap-1.5 text-[10px] text-gray-600 bg-white/60 rounded px-2 py-1" title={v.address}>
+                            <span className="text-gray-400 w-3 text-right shrink-0">{i + 1}</span>
+                            <span className="truncate flex-1 font-medium">
+                              {v.name ?? `${v.address.slice(0, 6)}…${v.address.slice(-4)}`}
+                            </span>
+                            <span className="text-gray-400 whitespace-nowrap shrink-0 w-12 text-right">
+                              {v.commissionPct != null ? `${v.commissionPct.toFixed(0)}%` : '—'}
+                            </span>
+                            <span className="font-semibold text-emerald-600 whitespace-nowrap shrink-0 w-10 text-right">
+                              {v.apy != null ? `${v.apy.toFixed(0)}%` : '—'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
+                  )}
                 </div>
               }
             />
@@ -367,7 +438,7 @@ Active wallets chart: ${activeIcp.sparkDated.length} days`;
 
 // StatCard component
 interface StatCardProps {
-  title: string;
+  title: React.ReactNode;
   value: string;
   sub?: string;
   tooltip?: string;
@@ -437,7 +508,7 @@ function StatCard({ title, value, sub, tooltip, valueNode, sparkNode, sparkClass
           )}
           {sub ? <div className="text-xs text-gray-500">{sub}</div> : null}
         </div>
-        <div className={`text-xs px-2 py-1 rounded-lg border backdrop-blur-sm font-medium ${delta.startsWith('-') ? 'text-red-600 bg-red-100/70 border-red-200/50' : 'text-emerald-600 bg-emerald-100/70 border-emerald-200/50'}`}>{delta}</div>
+        {delta ? <div className={`text-xs px-2 py-1 rounded-lg border backdrop-blur-sm font-medium ${delta.startsWith('-') ? 'text-red-600 bg-red-100/70 border-red-200/50' : 'text-emerald-600 bg-emerald-100/70 border-emerald-200/50'}`}>{delta}</div> : null}
       </div>
       {bottomChart}
       </div>
