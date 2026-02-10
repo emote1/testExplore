@@ -229,10 +229,16 @@ export const TpsSparkline = React.memo(function TpsSparkline({
           const aLowerMax = Math.max(aBase * 1.5, 0.08); // faster when lowering max
           const aMin = yT.min > cur.min ? aRaiseMin : aLowerMin;
           const aMax = yT.max > cur.max ? aRaiseMax : aLowerMax;
-          yRef.current = {
-            min: cur.min + aMin * (yT.min - cur.min),
-            max: cur.max + aMax * (yT.max - cur.max),
-          };
+          const newMin = cur.min + aMin * (yT.min - cur.min);
+          const newMax = cur.max + aMax * (yT.max - cur.max);
+          // Enforce minimum span so line never collapses into a thick band
+          const minYSpan = 3;
+          if (newMax - newMin < minYSpan) {
+            const center = (newMin + newMax) / 2;
+            yRef.current = { min: center - minYSpan / 2, max: center + minYSpan / 2 };
+          } else {
+            yRef.current = { min: newMin, max: newMax };
+          }
         }
       }
       const to = targetRef.current;
@@ -242,7 +248,7 @@ export const TpsSparkline = React.memo(function TpsSparkline({
         const fromArr = resampleToLength(base, outLen);
         const tgtArr = resampleToLength(to, outLen);
         // Very smooth exponential interpolation for fluid transitions
-        const smoothFactor = 0.012; // Very low = very smooth (0.01-0.02 range)
+        const smoothFactor = 0.012; // Very low = very smooth marker movement
         const blended = new Array(outLen);
         for (let i = 0; i < outLen; i++) {
           const diff = tgtArr[i] - fromArr[i];
@@ -371,7 +377,7 @@ export const TpsSparkline = React.memo(function TpsSparkline({
       if (v > max) max = v;
     }
     if (!Number.isFinite(min) || !Number.isFinite(max)) return true;
-    return Math.abs(max - min) <= 0.0001;
+    return Math.abs(max - min) <= 0.5;
   }, [displaySeries]);
   // Keep last curve shape - draw flat when data is empty or effectively constant
   const drawFlat = displaySeries.length < 2 || isFlat;
@@ -437,7 +443,7 @@ export const TpsSparkline = React.memo(function TpsSparkline({
       </g>
       {/* Always show area (even when flat) to avoid flicker */}
       <path ref={areaRef} d={areaPath} fill={areaUrl} stroke="none" mask={maskUrl} />
-      <path ref={pathTopRef} d={sparkPath} fill="none" stroke={strokeUrl} strokeWidth={isFlat ? 0.8 : 0.5} strokeLinecap="round" strokeLinejoin="round" />
+      <path ref={pathTopRef} d={sparkPath} fill="none" stroke={strokeUrl} strokeWidth={0.5} strokeLinecap="round" strokeLinejoin="round" />
       <circle ref={markerRef} cx={marker.x} cy={marker.y} r={0.8} fill={trendColor} stroke="#fff" strokeWidth={0.3} />
     </svg>
   );

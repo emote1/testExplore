@@ -5,7 +5,7 @@ import { Loader2 } from 'lucide-react';
 import { Navigation } from './components/Navigation';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { WsStatusToast } from './components/WsStatusToast';
-import { useSquidHealth } from './hooks/use-squid-health';
+
 
 const TransactionHistoryWithBlocks = React.lazy(() =>
   import('./components/TransactionHistoryWithBlocks').then(m => ({ default: m.TransactionHistoryWithBlocks }))
@@ -34,7 +34,6 @@ function App() {
   }
 
   function AppShell() {
-    useSquidHealth({ intervalMs: 30_000 });
     return (
       <div className="min-h-screen bg-gray-50">
         <Navigation currentPage={currentPage} onPageChange={handlePageChange} />
