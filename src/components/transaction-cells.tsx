@@ -260,16 +260,16 @@ export const ValueCell = React.memo(function ValueCell(ctx: CellContext<UiTransf
   if (t.method === 'swap' && t.swapInfo) {
     const soldUsd = usdFor(t.swapInfo.sold.token, t.swapInfo.sold.amount);
     const boughtUsd = usdFor(t.swapInfo.bought.token, t.swapInfo.bought.amount);
-    if (!soldUsd && !boughtUsd) return <span className="block w-full text-right truncate">—</span>;
+    if (!soldUsd && !boughtUsd) return <span className="block w-full text-right">—</span>;
     if (soldUsd && boughtUsd) {
       const label = `≈ ${soldUsd} → ${boughtUsd}`;
       return (
-        <span className="block w-full text-right truncate text-gray-700" title={label}>{label}</span>
+        <span className="block w-full text-right text-gray-700 text-sm" title={label}>{label}</span>
       );
     }
     // Fallbacks when price known only for one side: show single approx line
     const approx = soldUsd ?? boughtUsd;
-    return <span className="block w-full text-right truncate text-gray-700" title={approx ?? undefined}>{approx ?? '—'}</span>;
+    return <span className="block w-full text-right text-gray-700" title={approx ?? undefined}>{approx ?? '—'}</span>;
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

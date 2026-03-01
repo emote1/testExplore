@@ -75,6 +75,7 @@ export function useTanstackTransactionAdapter(
   appliedTokenMinRaw: string | null,
   appliedTokenMaxRaw: string | null,
   strictServerTokenFilter: boolean = false,
+  isActive: boolean = true,
 ): TanstackTransactionAdapterReturn {
   const direction = useTransactionFilterStore(state => state.direction);
   const tokenFilter = useTransactionFilterStore(state => state.tokenFilter);
@@ -142,7 +143,7 @@ export function useTanstackTransactionAdapter(
 
   // When swapOnly is true, use reef-swap path instead of transfers
   // Disable swap events fetching when not on Swap tab to avoid extra network traffic
-  const swapAdapter = useSwapEvents(swapOnly ? address : null, apiPageSize, swapOnly);
+  const swapAdapter = useSwapEvents((swapOnly && isActive) ? address : null, apiPageSize, swapOnly && isActive);
   const baseAdapter = useTransactionDataWithBlocks(
     (swapOnly ? null : address),
     apiPageSize,
@@ -155,6 +156,7 @@ export function useTanstackTransactionAdapter(
     (effectiveServerTokenIds ? (appliedTokenMaxRaw ?? null) : null),
     erc20Only,
     swapOnly,
+    isActive,
   );
 
   const initialTransactions = useMemo(() => (swapOnly ? (swapAdapter.items || []) : (baseAdapter.transfers || [])), [swapOnly, swapAdapter.items, baseAdapter.transfers]);
@@ -162,7 +164,7 @@ export function useTanstackTransactionAdapter(
   const error = swapOnly ? (swapAdapter.error as ApolloError | Error | undefined) : baseAdapter.error;
   const fetchMore = swapOnly ? swapAdapter.fetchMore : baseAdapter.fetchMore;
   const hasNextPage = swapOnly ? swapAdapter.hasMore : baseAdapter.hasMore;
-  const totalCount = swapOnly ? undefined : baseAdapter.totalCount;
+  const totalCount = swapOnly ? swapAdapter.totalCount : baseAdapter.totalCount;
   const fetchWindow = baseAdapter.fetchWindow;
 
   useTokenBootstrap({

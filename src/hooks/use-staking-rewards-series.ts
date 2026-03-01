@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apolloClient } from '@/apollo-client';
-import { STAKINGS_CONNECTION_QUERY, STAKINGS_LIST_MIN_QUERY } from '@/data/staking';
+import { STAKINGS_CONNECTION_QUERY, STAKINGS_LIST_MIN_QUERY, buildStakingWhere } from '@/data/staking';
 import { useAddressResolver } from './use-address-resolver';
+import { isHasuraExplorerMode } from '@/utils/transfer-query';
 
 interface RawReward {
   id: string;
@@ -30,9 +31,22 @@ function toUtcDay(ts: string): string {
   return d.toISOString().slice(0, 10);
 }
 
-function amountToReef(amount: string): number {
+function amountToReef(amount: string | number): number {
   try {
-    const bi = BigInt(amount);
+    // Handle Hasura numeric which may come as number (possibly in scientific notation)
+    // or as string. Convert to string first, then handle scientific notation.
+    let str = String(amount);
+    // If scientific notation (e.g. 2.5649908465e+22), convert to integer string
+    if (str.includes('e') || str.includes('E')) {
+      const num = Number(str);
+      if (!Number.isFinite(num)) return 0;
+      // For very large numbers, we lose precision but it's acceptable for display
+      // Divide by 1e18 directly
+      return num / 1e18;
+    }
+    // Remove any decimal point (shouldn't have one for base units, but just in case)
+    str = str.replace('.', '');
+    const bi = BigInt(str);
     // 18 decimals -> keep ~4 decimals safely: divide by 1e14 (BigInt) then by 1e4 as float (total 1e18)
     return Number(bi / 100000000000000n) / 1e4;
   } catch {
@@ -67,11 +81,23 @@ async function fetchRewards(nativeAddress: string, range: RangeKey): Promise<{ i
     to = new Date(toMs).toISOString();
   }
 
+  const where = buildStakingWhere({
+    accountId: nativeAddress,
+    from: from ?? null,
+    to: to ?? null,
+  });
+
   let totalCount: number | undefined = undefined;
   if (!days) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const conn = await apolloClient.query({ query: STAKINGS_CONNECTION_QUERY as any, variables: { accountId: nativeAddress, from, to }, fetchPolicy: 'network-only' });
-    totalCount = (conn?.data?.stakingsConnection?.totalCount ?? 0) as number;
+    const conn = await apolloClient.query({
+      query: STAKINGS_CONNECTION_QUERY as any,
+      variables: isHasuraExplorerMode
+        ? { where }
+        : { accountId: nativeAddress, from, to },
+      fetchPolicy: 'network-only',
+    });
+    totalCount = (conn?.data?.stakingsConnection?.totalCount ?? conn?.data?.stakingsConnection?.aggregate?.count ?? 0) as number;
     if (!totalCount) return { items: [], totalCount: 0 };
   }
 
@@ -86,7 +112,9 @@ async function fetchRewards(nativeAddress: string, range: RangeKey): Promise<{ i
       const q = await apolloClient.query({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         query: STAKINGS_LIST_MIN_QUERY as any,
-        variables: { accountId: nativeAddress, first: pageSize, after: offset, from, to },
+        variables: isHasuraExplorerMode
+          ? { where, first: pageSize, after: offset }
+          : { accountId: nativeAddress, first: pageSize, after: offset, from, to },
         fetchPolicy: 'network-only',
       });
       const chunk = (q?.data?.stakings ?? []) as Array<{ id: unknown; amount: unknown; timestamp: unknown }>;
@@ -174,11 +202,14 @@ export function useStakingRewardsSeries(accountAddress: string | null | undefine
 
   // Note: background prefetch of 'all' disabled to avoid лишняя нагрузка сети и задержки
 
-  return {
+  const totalCount = data?.totalCount ?? 0;
+  const errorResult = useMemo(() => isError ? (error as Error) : undefined, [isError, error]);
+
+  return useMemo(() => ({
     daily,
     cumulative,
     loading: isPending,
-    error: isError ? (error as Error) : undefined,
-    totalCount: data?.totalCount ?? 0,
-  };
+    error: errorResult,
+    totalCount,
+  }), [daily, cumulative, isPending, errorResult, totalCount]);
 }

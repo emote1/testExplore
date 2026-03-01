@@ -1,211 +1,429 @@
-# Reef Web3 History - Architecture Overview
+# Reef Explorer — Architecture Overview
 
-This document provides a high-level overview of the project's structure, architecture, and data flow. It is intended to be a guide for developers working on this codebase.
+Документ описывает архитектуру проекта Reef Explorer: структуру, потоки данных, взаимодействие с backend (Hasura/Subsquid), Docker стек и рекомендации по разработке.
 
-## 📂 Project Structure
+**Последнее обновление:** 2026-03-01
 
-The project follows a feature-oriented structure. Below is the updated map of key files and their responsibilities:
+---
+
+## 📂 Структура проекта
 
 ```
-reef-web3-history-vite/
-├── 📌 src/
-│   ├── 📄 main.tsx           # Application entry point, Apollo Client setup
-│   ├── 📄 App.tsx              # Main application component, layout
+testExplore/
+├── 📌 src/                          # Frontend (React + Vite)
+│   ├── main.tsx                     # Entry point, Apollo Client setup
+│   ├── App.tsx                      # Main component, routing
+│   ├── apollo-client.ts             # Apollo Client config (HTTP + WS)
+│   ├── reef-explorer-client.ts      # HTTP-only explorer client
+│   ├── reef-swap-client.ts          # Reefswap GraphQL client
 │   │
-│   ├── 📂 components/         # React components
-│   │   ├── TransactionHistoryWithBlocks.tsx  # Main view, orchestrates data fetching and display
-│   │   ├── TransactionTableWithTanStack.tsx  # Reusable TanStack Table component
-│   │   ├── transaction-columns.tsx           # Column definitions for the table
-│   │   ├── NftGallery.tsx                    # NFTs view (collections grid and collection items)
-│   │   ├── NftCard.tsx                       # NFT item card
-│   │   ├── CollectionCard.tsx               # Collection card
-│   │   └── ui/                               # Shadcn UI components
+│   ├── 📂 components/               # React компоненты (38 файлов)
+│   │   ├── NetworkStatistics.tsx    # Dashboard: blocks/min, staking, wallets
+│   │   ├── TransactionHistoryWithBlocks.tsx  # Wallet page: tabs + transactions
+│   │   ├── TransactionTableWithTanStack.tsx  # TanStack Table component
+│   │   ├── BalancesTable.tsx        # Holdings tab: token balances
+│   │   ├── NftGallery.tsx           # NFTs tab: collections + items
+│   │   ├── StakingTable.tsx         # Staking rewards table
+│   │   ├── RewardsChart.tsx         # Staking rewards chart
+│   │   ├── TpsSparkline.tsx         # Live sparkline for blocks/min
+│   │   └── ui/                      # Shadcn UI components
 │   │
-│   ├── 📂 data/               # GraphQL queries, mappers, and cache logic
-│   │   ├── transfers.ts                  # All GraphQL queries/fragments for transfers
-│   │   ├── transfer-mapper.ts            # Maps raw GraphQL data to the `UiTransfer` model
-│   │   └── cache-manager.ts              # Apollo Client cache management logic
+│   ├── 📂 hooks/                    # Custom hooks (44 файла)
+│   │   ├── use-tps-live.ts          # Blocks/min live subscription
+│   │   ├── use-total-staked.ts      # Total staked + validators
+│   │   ├── use-active-wallets-24h-icp.ts  # Active wallets from ICP
+│   │   ├── use-new-wallets-inflow-icp.ts  # New wallets from ICP
+│   │   ├── use-transaction-data-with-blocks.ts  # Paginated transfers
+│   │   ├── useTransferSubscription.ts     # Real-time transfer polling
+│   │   ├── use-token-balances.ts    # Token holdings query
+│   │   ├── use-token-usd-prices.ts  # Token prices via Reefswap
+│   │   ├── use-address-resolver.ts  # EVM ↔ Native address resolution
+│   │   ├── use-sqwid-nfts.ts        # NFT metadata fetching
+│   │   └── validator-meta.ts        # Validator names + commissions
 │   │
-│   ├── 📂 hooks/              # Custom React hooks for business logic
-│   │   ├── use-transaction-data-with-blocks.ts # Fetches paginated transaction data
-│   │   ├── usePaginationAndSorting.ts        # Manages pagination & sorting state
-│   │   ├── useTanstackTransactionAdapter.ts  # Adapts data for TanStack Table
-│   │   └── useTransferSubscription.ts        # Handles real-time updates via subscriptions
-│   │   ├── use-sqwid-collections-by-owner.ts # Loads NFT collections via Sqwid API
-│   │   ├── use-sqwid-collection.ts           # Loads NFTs for selected collection
-│   │   └── use-sqwid-nfts.ts                 # Types/helpers for Sqwid NFTs
+│   ├── 📂 data/                     # GraphQL queries + mappers (16 файлов)
+│   │   ├── transfers.ts             # Transfer queries (Subsquid + Hasura)
+│   │   ├── transfer-mapper.ts       # Raw → UiTransfer mapping
+│   │   ├── balances.ts              # Token holder queries
+│   │   ├── staking.ts               # Staking queries
+│   │   ├── nfts.ts                  # NFT queries
+│   │   ├── addresses.ts             # Account resolution queries
+│   │   ├── icp-client.ts            # ICP canister fetch
+│   │   └── ttl-cache.ts             # TTL cache with localStorage
 │   │
-│   ├── 📂 types/              # TypeScript type definitions
-│   │   ├── graphql-generated.ts          # Auto-generated types from GraphQL schema (DO NOT EDIT)
-│   │   └── tanstack-table.d.ts           # TanStack Table type extensions
+│   ├── 📂 utils/                    # Helpers (19 файлов)
+│   │   ├── transfer-query.ts        # isHasuraExplorerMode, where builders
+│   │   ├── formatters.ts            # Amount, date, hash formatting
+│   │   ├── token-helpers.ts         # Token metadata parsing
+│   │   ├── address-helpers.ts       # Address validation
+│   │   └── ipfs.ts                  # IPFS URL normalization
 │   │
-│   └── 📂 utils/              # General helper functions
-│       ├── abi.ts                         # ABI helpers: toHex, decodeAbiString, ERC1155 id template
-│       ├── data-url.ts                    # Parse data:application/json (base64/URL-encoded)
-│       ├── number.ts                      # Numeric helpers (toU64)
-│       ├── object.ts                      # Path getters: get, getString, getNumber
-│       ├── time.ts                        # Time helpers (sleep)
-│       ├── url.ts                         # URL heuristics (isLikelyRpcEndpoint)
-│       ├── address-helpers.ts             # Address validation and formatting
-│       ├── error-handler.ts               # Centralized error handling
-│       ├── formatters.ts                  # Display formatting for dates, amounts, etc.
-│       └── ui.ts                          # UI utility functions (e.g., `cn`)
+│   ├── 📂 stores/                   # Zustand stores
+│   │   └── use-transaction-filter-store.ts  # Filter state persistence
+│   │
+│   └── 📂 gql/                      # GraphQL codegen output
+│       └── graphql.ts               # Generated types (DO NOT EDIT)
 │
-├── 📂 tests/                  # Test suites
-│   └── 📂 e2e/
-│       └── nft.spec.ts       # Playwright E2E for NFTs flow
-├── 📄 playwright.config.ts    # Playwright configuration
-├── 📂 .github/workflows/
-│   └── e2e.yml               # GitHub Actions workflow for Playwright
-├── 📄 .npmrc                  # npm config (cleaned from pnpm-only keys)
-└── 📄 CODE_REVIEW.md         # This file
+├── 📂 docker/                       # Backend stack
+│   ├── docker-compose.yml           # Dev stack (postgres + hasura + pgadmin + indexer)
+│   ├── docker-compose.prod.yml      # Production stack
+│   ├── init.sql                     # PostgreSQL schema (12 tables)
+│   ├── seed.sql                     # Test data
+│   ├── 📂 indexer/                  # TypeScript indexer
+│   │   └── src/
+│   │       ├── index.ts             # Main loop (forward + backfill)
+│   │       ├── parser.ts            # Block parsing (transfers, extrinsics, NFTs)
+│   │       └── db.ts                # PostgreSQL client + batch insert
+│   └── README.md                    # Docker documentation
+│
+├── 📂 tests/                        # Test suites
+│   └── e2e/                         # Playwright E2E tests
+│
+└── 📂 icp-onchain/                  # ICP canister (Rust)
+    └── ICP-SETUP.md                 # ICP deployment docs
 ```
 
 ---
 
-## 🌊 Data Flow (Transactions)
+## 🏗️ Архитектура системы
 
-The application's data flow is designed to be unidirectional and reactive, centered around Apollo Client and custom hooks.
-
-1.  **Initiation**: The process starts in `TransactionHistoryWithBlocks.tsx`, which is the primary component responsible for displaying transaction history.
-
-2.  **Data Fetching**: It calls the `use-transaction-data-with-blocks.ts` hook. This hook uses Apollo Client's `useQuery` to execute the `PAGINATED_TRANSFERS_QUERY` against the Subsquid GraphQL API. It also integrates the `usePaginationAndSorting` hook to manage the table's state (current page, page size, sorting order).
-
-3.  **Real-time Updates**: In parallel, the `useTransferSubscription.ts` hook establishes a GraphQL subscription. When a new transaction occurs, the subscription pushes the new data to the client, which is then used to update the Apollo Client cache via `cache-manager.ts`.
-
-4.  **Data Transformation**: The raw data from both the initial query and the subscription is processed by the `mapTransfersToUiTransfers` function in `transfer-mapper.ts`. This crucial step transforms the complex, nested GraphQL data into a flattened, UI-friendly `UiTransfer` object. This is also where the transaction **fee** is extracted by parsing the `TransactionFeePaid` event from the extrinsic's event list.
-
-5.  **Table Adaptation**: The resulting array of `UiTransfer` objects is passed to the `useTanstackTransactionAdapter.ts` hook. This hook prepares the final `table` object required by TanStack Table, bundling the data, columns, and state management logic together.
-
-6.  **Rendering**: The `table` object is passed to the `TransactionTableWithTanStack.tsx` component, which handles the rendering of the table rows and cells.
-
-7.  **Column Definition**: The appearance and behavior of each column are defined in `transaction-columns.tsx`. This file specifies how to render data for each cell, leveraging helper functions from `formatters.ts` to display addresses, amounts, and dates in a readable format.
-
-## 🖼️ Data Flow (NFTs)
-
-1. **Инициация**: пользователь кликает вкладку `NFTs` в `TransactionHistoryWithBlocks.tsx` (кнопка с `data-testid="tab-nfts"`).
-2. **Коллекции**: `NftGallery.tsx` вызывает `use-sqwid-collections-by-owner.ts` (Sqwid REST API) и показывает грид коллекций (`CollectionCard`, `data-testid="collection-card"`). Заголовок списка имеет `data-testid="collections-title"`.
-3. **Открытие коллекции**: выбор коллекции переключает локальное состояние и дергает `use-sqwid-collection.ts` для загрузки NFT внутри коллекции. Пагинация управляется локальным стейтом (`limit`, `startFrom`).
-4. **Рендер**: `NftCard.tsx` показывает карточки NFT, бейдж `xN` для количества > 1. IPFS ссылки нормализуются.
-5. **Стабильность E2E**: тесты используют только `data-testid` и явные ожидания сетевых ответов Sqwid.
-
----
-
-## ✅ Code Review Summary
-
-* __Сильные стороны__
-  - Чёткое разделение слоёв: `components` / `hooks` / `data` / `utils` / `types`.
-  - Типобезопасность GraphQL через `graphql-generated.ts`.
-  - Табличный слой изолирован (TanStack) + адаптер-хук.
-  - E2E покрытие основного NFT-сценария, стабильные селекторы (`data-testid`).
-  - CI для Playwright на GitHub Actions.
-
-* __Риски/замечания__
-  - Дубликация логики пагинации между таблицей и NFTs (локальный стейт). Рассмотреть унификацию API/хелперов для пагинации.
-  - В `useTransferSubscription.ts` важно следить за корректностью фильтров `section_eq`/`method_eq` и `argsStr_contains` для live API; любые изменения схемы будут ломать прод.
-  - Потенциальная зависимость от нестабильности внешнего Sqwid API (тайм-ауты/скорость). Добавить ретраи/таймауты/кеширование.
-  - Обновления пакетов Polkadot/reef могут вызывать ворнинги совместимости — уже частично решено через overrides/alias в сборке, но требует мониторинга.
-
-* __Рекомендации__
-  - Вынести общие хелперы пагинации в `utils` и переиспользовать в NFTs.
-  - Добавить `data-testid` для кнопки «Back to collections» и селекта «Items per page» (для ещё более надёжных ожиданий E2E).
-  - Включить ESLint/Prettier в CI, добавить Husky + lint-staged (pre-commit) и commitlint (Conventional Commits).
-  - В `README.md` добавить бейдж статуса E2E.
-  - Рассмотреть кеширование ответов Sqwid (in-memory) на время сессии.
-  
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              FRONTEND (Vite + React)                        │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐ │
+│  │ Dashboard   │  │ Wallet Page │  │ NFT Gallery │  │ Staking Charts      │ │
+│  │ (blocks/min)│  │ (transfers) │  │ (Sqwid API) │  │ (rewards history)   │ │
+│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────────┬──────────┘ │
+│         │                │                │                     │           │
+│         └────────────────┴────────────────┴─────────────────────┘           │
+│                                    │                                        │
+│                          Apollo Client (HTTP + WS)                          │
+└────────────────────────────────────┬────────────────────────────────────────┘
+                                     │
+                    ┌────────────────┼────────────────┐
+                    ▼                ▼                ▼
+          ┌─────────────────┐ ┌─────────────┐ ┌─────────────────┐
+          │ Hasura GraphQL  │ │ Subsquid    │ │ ICP Canister    │
+          │ (localhost:8080)│ │ (squid.io)  │ │ (icp0.io)       │
+          │ - transfers     │ │ - fallback  │ │ - active wallets│
+          │ - blocks        │ │ - staking   │ │ - new wallets   │
+          │ - token_holder  │ │ - swaps     │ │                 │
+          └────────┬────────┘ └─────────────┘ └─────────────────┘
+                   │
+          ┌────────┴────────┐
+          │   PostgreSQL    │
+          │ (reef_explorer) │
+          └────────┬────────┘
+                   │
+          ┌────────┴────────┐
+          │    Indexer      │
+          │  (TypeScript)   │
+          └────────┬────────┘
+                   │
+          ┌────────┴────────┐
+          │  Reef Chain RPC │
+          │ (wss://rpc...)  │
+          └─────────────────┘
+```
 
 ---
 
-## 🧪 Стратегия тестирования
+## 🌊 Потоки данных
 
-* __Unit (Vitest)__ — модульные тесты для утилит и небольших функций
-  - Конфиг: `vitest.config.ts`.
-  - Пути: `tests/unit/**/*.{spec,test}.ts?(x)`, также поддерживаются `src/**/*.{spec,test}.ts?(x)`.
-  - Запуск: `npm run test:unit` (или `npm run test:unit:watch`).
+### 1. Dashboard (NetworkStatistics)
 
-* __E2E (Playwright)__ — интеграционные сценарии UI
-  - Конфиг: `playwright.config.ts`.
-  - Тесты: `tests/e2e/*.spec.ts` (например, `tests/e2e/nft.spec.ts`).
-  - Запуск:
-    - `npm run test:e2e`
-    - `npm run test:e2e:ui`
-    - `npm run test:e2e:headed`
-  - Стабилизация: используем `data-testid`, `page.waitForLoadState('networkidle')`, `page.waitForResponse` для Sqwid.
+| Метрика | Источник | Хук | Обновление |
+|---------|----------|-----|------------|
+| Blocks/min (Live) | Hasura subscription | `use-tps-live.ts` | Real-time (WS) |
+| Total Staked | Subsquid | `use-total-staked.ts` | 5 мин |
+| Validators | Subsquid + RPC | `validator-meta.ts` | 30 мин cache |
+| Active Wallets (24h) | ICP canister | `use-active-wallets-24h-icp.ts` | 4ч (cron) |
+| New Wallets Inflow | ICP canister | `use-new-wallets-inflow-icp.ts` | 4ч (cron) |
+| REEF Price | CoinGecko | `use-reef-price.ts` | 5 мин |
+
+### 2. Wallet Page (Transactions)
+
+```
+User enters address
+        ↓
+use-address-resolver.ts (EVM → Native)
+        ↓
+use-transaction-data-with-blocks.ts
+        ↓ PAGINATED_TRANSFERS_QUERY
+Hasura/Subsquid → transfer[]
+        ↓
+transfer-mapper.ts → UiTransfer[]
+        ↓
+useTanstackTransactionAdapter.ts
+        ↓
+TransactionTableWithTanStack.tsx
+```
+
+**Real-time updates:**
+- `useTransferSubscription.ts` — polling каждые 5 сек
+- При новых transfers → prepend в Apollo cache
+
+### 3. Holdings Tab
+
+```
+use-token-balances.ts
+        ↓ TOKEN_HOLDERS_PAGED_QUERY
+Hasura → token_holder[]
+        ↓
+use-token-icons.ts (batch query)
+        ↓
+use-token-usd-prices.ts
+        ↓ poolsReserves (Reefswap Squid)
+BalancesTable.tsx
+```
+
+### 4. NFTs Tab
+
+```
+use-sqwid-collections-by-owner.ts
+        ↓ Sqwid REST API
+Collections grid
+        ↓ (user clicks collection)
+use-sqwid-collection.ts
+        ↓
+use-sqwid-nfts.ts (metadata fetch)
+        ↓
+NftGallery.tsx
+```
 
 ---
 
-## ⚡ Тюнинг производительности: конкуренция NFT (для ревьюера)
+## 🗄️ База данных (PostgreSQL + Hasura)
 
-* __Где реализовано__
-  - `src/hooks/use-sqwid-nfts.ts` —
-    - `PREFETCH_MAX_WORKERS` (env `VITE_PREFETCH_MAX_WORKERS`, дефолт 16) — параллелизм префетча tokenURI/uri между контрактами.
-    - `FETCH_CONCURRENCY` (env `VITE_FETCH_CONCURRENCY`, дефолт 12) — параллелизм основной стадии загрузки метаданных. Используется в воркер-пуле вместо хардкода.
-  - Документация переменных: `.env.example`, `README.md` раздел «Performance Tuning: NFT Metadata Fetch Concurrency».
+### Основные таблицы
 
-* __Как быстро проверить__
-  - Запуск (PowerShell):
-    - `npx cross-env VITE_PREFETCH_MAX_WORKERS=16 VITE_FETCH_CONCURRENCY=12 npm run dev`
-  - В DevTools → Network: оценить пик параллельных запросов, общее время, отсутствие 429/ошибок.
-  - Профили для сравнения: 16/12 (быстрый провайдер), 8/8 (осторожно/лимитированный провайдер).
+| Таблица | Описание | Индексы |
+|---------|----------|---------|
+| `account` | Аккаунты (SS58 + EVM) | `evm_address`, `active` |
+| `verified_contract` | Контракты (ERC20/721/1155) | `type`, `name` (trigram) |
+| `transfer` | Все переводы | `from_id`, `to_id`, `timestamp`, `token_id`, `amount` |
+| `token_holder` | Балансы токенов | `signer_id`, `token_id`, `balance` |
+| `block` | Блоки | `height`, `timestamp` |
+| `extrinsic` | Транзакции | `signer_id`, `method`, `section` |
+| `event` | События | `section`, `method` |
+| `staking` | Стейкинг события | `signer_id`, `type`, `era` |
+| `era_validator_info` | Валидаторы по эрам | `era`, `address`, `total` |
+| `nft_metadata` | NFT метаданные | `contract_id`, `owner_id` |
+| `contract_call` | Вызовы контрактов | `from_id`, `to_id` |
+| `indexer_cursor` | Курсор индексера | — |
 
-* __Риски/замечания__
-  - На медленных/ограниченных RPC/REST возможны 429/таймауты — снижать значения.
-  - Требуется перезапуск dev-сервера после изменения env.
+### Hasura vs Subsquid синтаксис
 
-* __E2E/CI__
-  - E2E не зависят от конкретных значений, но для стабильности в CI при проблемных провайдерах можно использовать 8/8.
+| Аспект | Subsquid | Hasura |
+|--------|----------|--------|
+| Root field | `transfersConnection` | `transfer` |
+| Pagination | `first/after` (cursor) | `limit/offset` |
+| Filters | `{ from: { id_eq: $x } }` | `{ from_id: { _eq: $x } }` |
+| Order | `orderBy: [timestamp_DESC]` | `order_by: [{ timestamp: desc }]` |
+| Count | `totalCount` | `aggregate { count }` |
+| Field names | camelCase | snake_case |
 
-## 🚀 CI/CD
+**Runtime switch:** `isHasuraExplorerMode` в `src/utils/transfer-query.ts`
 
-* __GitHub Actions__
-  - Workflow: `.github/workflows/e2e.yml` — Node 20, `npm ci`, установка браузеров, запуск E2E, артефакты отчётов при падении.
+---
 
-* __Рекомендации__
-  - Добавить job для Unit-тестов и линтинга.
-  - Включить загрузку Playwright report всегда (для анализа), и `trace: on-first-retry`.
+## 🐳 Docker Stack
+
+### Сервисы
+
+| Сервис | Порт | Описание |
+|--------|------|----------|
+| `postgres` | 5432 | PostgreSQL 16 |
+| `hasura` | 8080 | GraphQL Engine + Console |
+| `pgadmin` | 5050 | Database admin (dev only) |
+| `indexer` | — | TypeScript indexer |
+
+### Команды
+
+```bash
+# Запуск
+cd docker && docker-compose up -d
+
+# Логи индексера
+docker-compose logs -f indexer
+
+# SQL запрос
+docker exec docker-postgres-1 psql -U reef -d reef_explorer -c "SELECT COUNT(*) FROM transfer;"
+
+# Пересборка индексера
+docker-compose up -d --build indexer
+
+# Полная очистка
+docker-compose down -v
+```
+
+### Environment Variables (indexer)
+
+```env
+PG_HOST=postgres
+PG_PORT=5432
+PG_DB=reef_explorer
+PG_USER=reef
+PG_PASS=reef_local
+RPC_URL=wss://rpc.reefscan.info/ws
+START_BLOCK=12834548
+BATCH_SIZE=100
+CONCURRENCY=10
+BACKFILL=true
+BACKFILL_TARGET=7834548
+```
+
+---
+
+## 🔄 Indexer: что индексируется
+
+| Источник | Таблица | Режим |
+|----------|---------|-------|
+| `balances.Transfer` | `transfer` (Native) | forward + backfill |
+| `evm.Log` (Transfer) | `transfer` (ERC20/NFT) | forward + backfill |
+| `evm.Log` (Swap) | `transfer.reefswap_action` | forward + backfill |
+| Block headers | `block` | forward + backfill |
+| Extrinsics | `extrinsic` | **forward only** |
+| Token holders | `token_holder` (upsert) | forward + backfill |
+| Accounts | `account` (upsert) | forward + backfill |
+| Contracts | `verified_contract` | forward + backfill |
+
+**Inherent extrinsics** (`timestamp`, `parachainSystem`, `authorship`) пропускаются.
+
+---
+
+## ⚡ Оптимизации
+
+### Frontend
+
+1. **Tabs stay mounted** — вкладки не ремаунтятся при переключении
+2. **Polling pause** — polling останавливается на неактивных вкладках
+3. **Cache-first** — Apollo использует `cache-first` для transfers
+4. **Price cache** — TTL 5 минут для цен токенов
+5. **Fallback limit** — максимум 5 fallback запросов для цен
+
+### Indexer
+
+1. **Batch insert** — вставка блоками по 100
+2. **Parallel processing** — `CONCURRENCY=10` параллельных блоков
+3. **Skip extrinsics in backfill** — экономия места
+4. **Cursor persistence** — продолжение после restart
+
+---
+
+## 🧪 Тестирование
+
+### Unit (Vitest)
+
+```bash
+npm run test:unit
+npm run test:unit:watch
+```
+
+### E2E (Playwright)
+
+```bash
+npm run test:e2e
+npm run test:e2e:ui
+npm run test:e2e:headed
+```
+
+**Стабилизация:** `data-testid`, `waitForLoadState`, `waitForResponse`
 
 ---
 
 ## 🧭 Конвенции
 
-* __TypeScript__: использовать интерфейсы, избегать enum (карты/объекты), строго типизировать GraphQL.
-* __React__: функциональные компоненты, минимизировать `useEffect` и состояние, по возможности RSC-подходы (если переход на Next.js планируется).
-* __Стили__: Tailwind + shadcn/ui, утилита `cn` в `utils/ui.ts`.
-* __Селекторы тестов__: только через `data-testid` для E2E.
+- **TypeScript:** интерфейсы > типы, избегать enum
+- **React:** функциональные компоненты, минимум useEffect
+- **Стили:** Tailwind + shadcn/ui, утилита `cn`
+- **GraphQL:** dual docs (Subsquid + Hasura) через `parse()`
+- **Тесты:** только `data-testid` для E2E селекторов
 
 ---
 
-Документ отражает текущее состояние проекта и рекомендации по дальнейшему развитию качества кода, тестирования и CI.
+## ✅ Стандарты перед каждым изменением
 
-├── 📌 main.tsx (Application entry point, renders the root App component)
-├── 📌 App.tsx (Main application component, handles routing and layout)
-├── 📂 components
-│   ├── TransactionHistoryWithBlocks.tsx (Main component, orchestrates data fetching and display)
-│   ├── TransactionTableWithTanStack.tsx (Reusable table component powered by TanStack Table)
-│   ├── transaction-columns.tsx (Column definitions for the transaction table)
-│   └── ui/ (Directory for Shadcn UI components)
-├── 📂 hooks (Custom React hooks for business logic and data fetching)
-│   ├── use-transaction-data-with-blocks.ts (Fetches paginated transactions and associated data)
-│   ├── usePaginationAndSorting.ts (Manages state for pagination and sorting for TanStack Table)
-│   ├── useTanstackTransactionAdapter.ts (Adapts data from hooks for use with the TanStack Table component)
-│   └── useTransferSubscription.ts (Handles real-time updates via GraphQL subscriptions)
-├── 📂 data
-│   ├── transfers.ts (Contains all GraphQL queries and fragments for transfers)
-│   ├── transfer-mapper.ts (Maps data from the GraphQL API to the UI model `UiTransfer`)
-│   └── cache-manager.ts (Logic for managing the Apollo Client cache)
-├── 📂 types
-│   ├── graphql-generated.ts (Auto-generated types and hooks from GraphQL Codegen - **DO NOT EDIT MANUALLY**)
-│   └── tanstack-table.d.ts (Type declarations to extend TanStack Table functionality)
-├── 📂 utils (General helper functions)
-│   ├── abi.ts (ABI helpers: toHex, decodeAbiString, ERC1155 id template)
-│   ├── address-helpers.ts (Utilities for handling addresses)
-│   ├── data-url.ts (Parse data:application/json payloads)
-│   ├── error-handler.ts (Centralized error handling logic)
-│   ├── formatters.ts (Functions for formatting dates, amounts, and hashes for display)
-│   ├── number.ts (Numeric helpers, e.g., toU64)
-│   ├── object.ts (Object path getters: get, getString, getNumber)
-│   ├── reefscan-helpers.ts (Utilities specific to the Reefscan API data structure)
-│   ├── time.ts (Time helpers, e.g., sleep)
-│   ├── url.ts (URL heuristics like isLikelyRpcEndpoint)
-│   └── ui.ts (UI utility functions, e.g., `cn` for merging classnames)
+Перед каждым изменением кода необходимо проверить:
+
+### 1. Компиляция
+```bash
+npx tsc --noEmit
+```
+- Исправить все TypeScript ошибки
+
+### 2. Линтинг
+```bash
+npm run lint
+```
+- Исправить все предупреждения
+
+### 3. Сборка
+```bash
+npm run build
+```
+- Убедиться что билд проходит без ошибок
+
+### 4. Codegen (если менялись GraphQL запросы)
+```bash
+npm run codegen
+```
+- Обновить типы в `src/gql/graphql.ts`
+
+### 5. Тесты (опционально)
+```bash
+npm run test:unit
+```
+- Запустить перед коммитом
+
+---
+
+## 📋 Шаблон progress.md
+
+```markdown
+<!-- Don't remove the comments -->
+<!-- This file is used to track progress on the project. File uses a strict formatting and template policy:
+
+1. # Next steps section: Always on top, contains a phased plan as a list of tasks to be completed. Formatting:
+
+# Next steps
+
+## Phased plan name
+
+**Goal:**
+
+### Phase 1 name
+
+**Problem:**
+
+**Solution:**
+
+- [ ] Task 1
+- [ ] Task 2
+- [ ] Task 3
+
+### Phase 2 name
+
+**Problem:**
+
+**Solution:**
+
+- [ ] Task 1
+- [ ] Task 2
+- [ ] Task 3
+
+etc.
+
+2. # Completed tasks section: Always after the # Next steps section, contains a list of tasks that have been completed. Simply a copy/pasted content of the next steps upon completion of the task. -->
+
+
+<!-- (# Next steps) Start of the next phased plan -->
+```
+
+---
+
+## 📝 TODO
+
+- [ ] Создать агрегатор Active Wallets на Hasura вместо ICP/Subsquid
+- [ ] Добавить Unit тесты для хуков
 

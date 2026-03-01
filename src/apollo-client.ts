@@ -4,14 +4,36 @@ import { getMainDefinition } from '@apollo/client/utilities';
 import { GraphQLWsLink } from '@apollo/client/link/subscriptions';
 import { createClient as createWSClient } from 'graphql-ws';
 
+const ENV = ((import.meta as unknown as { env?: Record<string, string | undefined> }).env) ?? {};
+const EXPLORER_HTTP_URL = ENV.VITE_REEF_EXPLORER_HTTP_URL ?? 'https://squid.subsquid.io/reef-explorer/graphql';
+const EXPLORER_WS_URL = ENV.VITE_REEF_EXPLORER_WS_URL ?? toWsUrl(EXPLORER_HTTP_URL);
+const EXPLORER_ADMIN_SECRET = ENV.VITE_REEF_EXPLORER_ADMIN_SECRET ?? '';
+const EXPLORER_USE_GET_FOR_QUERIES = ENV.VITE_REEF_EXPLORER_USE_GET_FOR_QUERIES === '1'
+  || ENV.VITE_REEF_EXPLORER_USE_GET_FOR_QUERIES === 'true';
+
+function toWsUrl(httpUrl: string): string {
+  if (httpUrl.startsWith('https://')) return `wss://${httpUrl.slice('https://'.length)}`;
+  if (httpUrl.startsWith('http://')) return `ws://${httpUrl.slice('http://'.length)}`;
+  return httpUrl;
+}
+
+function buildAuthHeaders(): Record<string, string> | undefined {
+  if (!EXPLORER_ADMIN_SECRET) return undefined;
+  return { 'x-hasura-admin-secret': EXPLORER_ADMIN_SECRET };
+}
+
+const explorerHeaders = buildAuthHeaders();
+
 const httpLink = new HttpLink({
-  uri: 'https://squid.subsquid.io/reef-explorer/graphql',
-  useGETForQueries: true,
+  uri: EXPLORER_HTTP_URL,
+  useGETForQueries: EXPLORER_USE_GET_FOR_QUERIES,
+  headers: explorerHeaders,
 });
 
 let lastRetryTries = 0;
 const wsClient = createWSClient({
-  url: 'wss://squid.subsquid.io/reef-explorer/graphql',
+  url: EXPLORER_WS_URL,
+  connectionParams: explorerHeaders ? { headers: explorerHeaders } : undefined,
   lazy: true,
   keepAlive: 15000,
   retryWait: async (tries) => {

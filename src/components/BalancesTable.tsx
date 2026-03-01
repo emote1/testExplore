@@ -9,6 +9,85 @@ import { useTokenIcons } from '@/hooks/use-token-icons';
 import { isIpfsLike, buildCandidates } from '@/utils/ipfs';
 import { useTokenUsdPrices } from '@/hooks/use-token-usd-prices';
 
+interface TokenIconProps {
+  tokenName: string;
+  tokenId: string;
+  tokenImage?: string;
+  iconsById: Record<string, string | undefined>;
+  TOKEN_LOGO_FALLBACKS: Record<string, string[]>;
+  TOKEN_LOGO_OVERRIDES: Record<string, string[]>;
+  isLocalAsset: (url: string) => boolean;
+}
+
+const TokenIcon = React.memo(function TokenIcon({
+  tokenName,
+  tokenId,
+  tokenImage,
+  iconsById,
+  TOKEN_LOGO_FALLBACKS,
+  TOKEN_LOGO_OVERRIDES,
+  isLocalAsset,
+}: TokenIconProps) {
+  const sources = React.useMemo(() => {
+    const sym = (tokenName || '').toUpperCase();
+    const fallbacks = TOKEN_LOGO_FALLBACKS[sym] || [];
+    const tokenIdLower = (tokenId || '').toLowerCase();
+    const overrideList = TOKEN_LOGO_OVERRIDES[tokenIdLower] ?? [];
+    const fromQuery = iconsById[tokenId];
+    const raw = [fromQuery, ...overrideList, tokenImage, ...fallbacks].filter(Boolean) as string[];
+    const dedup = new Set<string>();
+    const localSources: string[] = [];
+    const ipfsSources: string[] = [];
+    for (const u of raw) {
+      if (isLocalAsset(u)) {
+        if (!dedup.has(u)) { dedup.add(u); localSources.push(u); }
+      } else if (isIpfsLike(u)) {
+        for (const c of buildCandidates(u)) {
+          if (!dedup.has(c)) { dedup.add(c); ipfsSources.push(c); }
+        }
+      }
+    }
+    return [...localSources, ...ipfsSources];
+  }, [tokenName, tokenId, tokenImage, iconsById, TOKEN_LOGO_FALLBACKS, TOKEN_LOGO_OVERRIDES, isLocalAsset]);
+
+  const [srcIdx, setSrcIdx] = React.useState(0);
+  const [allFailed, setAllFailed] = React.useState(false);
+
+  React.useEffect(() => {
+    setSrcIdx(0);
+    setAllFailed(false);
+  }, [sources]);
+
+  const initials = (tokenName || '?').slice(0, 2).toUpperCase();
+
+  if (sources.length === 0 || allFailed) {
+    return (
+      <div className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-100 text-gray-600 text-[10px] font-semibold">
+        {initials}
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={sources[srcIdx]!}
+      alt={`${tokenName} icon`}
+      loading="lazy"
+      decoding="async"
+      referrerPolicy="no-referrer"
+      className="h-6 w-6 rounded-full object-cover border border-gray-200"
+      onError={() => {
+        const next = srcIdx + 1;
+        if (next < sources.length) {
+          setSrcIdx(next);
+        } else {
+          setAllFailed(true);
+        }
+      }}
+    />
+  );
+});
+
 interface BalanceRowProps {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   balance: any;
@@ -55,64 +134,15 @@ const BalanceRow = React.memo(function BalanceRow({
                 title={b.token.id}
                 aria-label="Copy token contract address"
               >
-                {(() => {
-                  const sym = (b.token.name || '').toUpperCase();
-                  const fallbacks = TOKEN_LOGO_FALLBACKS[sym] || [];
-                  const tokenIdLower = (b.token.id || '').toLowerCase();
-                  const overrideList = TOKEN_LOGO_OVERRIDES[tokenIdLower] ?? [];
-                  const fromQuery = iconsById[b.token.id];
-                  const raw = [fromQuery, ...overrideList, b.token.image, ...fallbacks].filter(Boolean) as string[];
-                  const dedup = new Set<string>();
-                  const localSources: string[] = [];
-                  const ipfsSources: string[] = [];
-                  for (const u of raw) {
-                    if (isLocalAsset(u)) {
-                      if (!dedup.has(u)) { dedup.add(u); localSources.push(u); }
-                    } else if (isIpfsLike(u)) {
-                      for (const c of buildCandidates(u)) {
-                        if (!dedup.has(c)) { dedup.add(c); ipfsSources.push(c); }
-                      }
-                    }
-                  }
-                  const sources = [...localSources, ...ipfsSources];
-                  if (sources.length > 0) {
-                    return (
-                      <img
-                        src={sources[0]!}
-                        data-idx={0}
-                        alt={`${b.token.name} icon`}
-                        loading="lazy"
-                        decoding="async"
-                        referrerPolicy="no-referrer"
-                        className="h-6 w-6 rounded-full object-cover border border-gray-200"
-                        onError={(e) => {
-                          const img = e.currentTarget as HTMLImageElement & { dataset: { idx?: string } };
-                          const i = Number(img.dataset.idx ?? '0');
-                          const next = i + 1;
-                          if (next < sources.length) {
-                            img.dataset.idx = String(next);
-                            img.src = sources[next]!;
-                          } else {
-                            try {
-                              const fallback = document.createElement('div');
-                              fallback.className = 'flex h-6 w-6 items-center justify-center rounded-full bg-gray-100 text-gray-600 text-[10px] font-semibold';
-                              const text = (b.token.name || '?').slice(0, 2).toUpperCase();
-                              fallback.textContent = text;
-                              img.replaceWith(fallback);
-                            } catch {
-                              img.style.display = 'none';
-                            }
-                          }
-                        }}
-                      />
-                    );
-                  }
-                  return (
-                    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-100 text-gray-600 text-[10px] font-semibold">
-                      {(b.token.name || '?').slice(0, 2).toUpperCase()}
-                    </div>
-                  );
-                })()}
+                <TokenIcon
+                  tokenName={b.token.name}
+                  tokenId={b.token.id}
+                  tokenImage={b.token.image}
+                  iconsById={iconsById}
+                  TOKEN_LOGO_FALLBACKS={TOKEN_LOGO_FALLBACKS}
+                  TOKEN_LOGO_OVERRIDES={TOKEN_LOGO_OVERRIDES}
+                  isLocalAsset={isLocalAsset}
+                />
                 <div className="flex flex-col items-start">
                   <span className="font-medium text-gray-800">{b.token.name}</span>
                   <span className="text-xs text-gray-500 inline-flex items-center gap-1">
@@ -259,15 +289,15 @@ export function BalancesTable({ address, onCountsChange }: BalancesTableProps) {
     }
   }, [displayBalances, pricesById]);
 
-  function isLocalAsset(url: string): boolean {
+  const isLocalAsset = React.useCallback(function isLocalAsset(url: string): boolean {
     try {
       return typeof url === 'string' && url.startsWith('/') && !url.startsWith('//');
     } catch {
       return false;
     }
-  }
+  }, [])
 
-  async function handleCopy(id: string) {
+  const handleCopy = React.useCallback(async function handleCopy(id: string) {
     try {
       await navigator.clipboard.writeText(id);
       setCopied(id);
@@ -275,7 +305,7 @@ export function BalancesTable({ address, onCountsChange }: BalancesTableProps) {
     } catch {
       // ignore
     }
-  }
+  }, [])
 
   return (
     <div className="relative p-6 bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
@@ -313,7 +343,13 @@ export function BalancesTable({ address, onCountsChange }: BalancesTableProps) {
         <div className="mb-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-red-800">{String((error as any)?.message || error)}</div>
       )}
 
-      <div className="overflow-x-auto md:overflow-x-visible">
+      {loading && (
+        <div className="flex items-center justify-center p-8">
+          <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
+        </div>
+      )}
+
+      {!loading && <div className="overflow-x-auto md:overflow-x-visible">
         <table className="w-full table-fixed divide-y divide-gray-200">
           <thead className="bg-slate-50">
             <tr className="border-b-2 border-slate-200">
@@ -376,7 +412,7 @@ export function BalancesTable({ address, onCountsChange }: BalancesTableProps) {
             )}
           </tbody>
         </table>
-      </div>
+      </div>}
     </div>
   );
 }

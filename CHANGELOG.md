@@ -1,8 +1,446 @@
 # Changelog
 
+## 2026-03-01
+
+### 📊 Blocks/min (Live) вместо Tx/min
+**Файлы:** `src/hooks/use-tps-live.ts`, `src/components/NetworkStatistics.tsx`
+
+- Заменена метрика "Tx/min (Live)" на "Blocks/min (Live)" для более стабильного отображения активности сети
+- Добавлены GraphQL subscriptions `BLOCKS_STREAM` для Subsquid и Hasura
+- Хук `useTpsLive` теперь поддерживает `source: 'extrinsics' | 'transfers' | 'blocks'`
+- Sparkline показывает историю `perMin` значений вместо per-second spikes для плавной визуализации
+- Блоки приходят каждые ~6 сек, метрика показывает ~10-18 blocks/min
+
+### 🔄 Indexer: Extrinsics parsing (forward mode only)
+**Файлы:** `docker/indexer/src/db.ts`, `docker/indexer/src/parser.ts`, `docker/indexer/src/index.ts`
+
+- Добавлен интерфейс `ExtrinsicRow` для хранения extrinsics
+- Расширен `ParsedBlock` и `BlockData` для включения extrinsics
+- Extrinsics записываются в БД только в forward режиме (`skipExtrinsics = direction === -1`)
+- Inherent extrinsics (`timestamp`, `parachainSystem`, `authorship`) пропускаются для экономии места
+- Поля: id, blockHeight, blockHash, extrinsicIndex, hash, signerId, method, section, signature, nonce, tip, fee, success, errorMessage, timestamp
+
+### ⚡ Holdings tab: оптимизация первой загрузки
+**Файлы:** `src/hooks/use-token-usd-prices.ts`, `src/components/BalancesTable.tsx`
+
+- **TTL кэша цен** увеличен с 1 минуты до 5 минут — меньше запросов к Reefswap Squid
+- **Fallback запросы** ограничены до 5 токенов максимум — остальные получают `null` цену
+- **Loading spinner** добавлен в `BalancesTable` — показывается пока данные загружаются
+- Batch запрос `poolsReserves` остаётся для всех токенов, fallback `allPoolsList` только для первых 5 не найденных
+
+### 📝 ICP Aggregator: документация
+**Memory:** ICP Data Source for Active Wallets & New Wallets Inflow
+
+- Задокументированы URL для ICP данных:
+  - `VITE_ICP_ACTIVE_WALLETS_DAILY_URL` → `https://ndhxz-raaaa-aaaag-avdoa-cai.icp0.io/active-wallets-daily.json`
+  - `VITE_ICP_NEW_WALLETS_INFLOW_URL` → `https://ndhxz-raaaa-aaaag-avdoa-cai.icp0.io/new-wallets-inflow.json`
+- Архитектура: внешний cron скрипт (не в этом репо) читает из Subsquid → загружает JSON на ICP canister каждые 4ч
+- **TODO**: Создать свой агрегатор на Hasura вместо Subsquid
+
+---
+
+## 📚 Техническая документация
+
+### 🗄️ Структура базы данных Hasura
+
+**Основные таблицы:**
+
+| Таблица | Описание | Ключевые поля |
+|---------|----------|---------------|
+| `account` | Аккаунты Reef Chain | `id` (SS58), `evm_address`, `free_balance`, `locked_balance` |
+| `verified_contract` | Верифицированные контракты | `id` (адрес), `name`, `type` (ERC20/ERC721/ERC1155), `contract_data` (metadata) |
+| `transfer` | Все переводы (Native + ERC20 + NFT) | `from_id`, `to_id`, `token_id`, `amount`, `timestamp`, `reefswap_action` |
+| `token_holder` | Балансы токенов по аккаунтам | `signer_id`, `token_id`, `balance`, `nft_id` |
+| `block` | Блоки Reef Chain | `height`, `hash`, `timestamp`, `extrinsic_count` |
+| `extrinsic` | Транзакции (extrinsics) | `signer_id`, `method`, `section`, `success`, `fee` |
+| `event` | События блокчейна | `section`, `method`, `data` (JSONB) |
+| `staking` | Стейкинг события | `signer_id`, `type` (Reward/Slash/Bonded), `amount`, `era` |
+| `era_validator_info` | Информация о валидаторах по эрам | `era`, `address`, `total`, `own`, `commission` |
+| `contract_call` | Вызовы смарт-контрактов | `from_id`, `to_id`, `input`, `output`, `gas_used` |
+| `nft_metadata` | Метаданные NFT | `contract_id`, `token_id`, `owner_id`, `metadata` (JSONB) |
+| `indexer_cursor` | Курсор индексера | `last_block`, `last_block_hash`, `updated_at` |
+
+**Relationships (Hasura):**
+```
+account ←→ transfer (from_id, to_id)
+account ←→ token_holder (signer_id)
+account ←→ staking (signer_id)
+account ←→ extrinsic (signer_id)
+verified_contract ←→ transfer (token_id)
+verified_contract ←→ token_holder (token_id)
+block ←→ extrinsic (block_height)
+block ←→ event (block_height)
+extrinsic ←→ event (extrinsic_id)
+```
+
+---
+
+### 🐳 Docker: команды и взаимодействие
+
+**Запуск стека:**
+```bash
+cd docker
+docker-compose up -d                    # Development (с pgAdmin)
+docker compose -f docker-compose.prod.yml up -d  # Production
+```
+
+**Проверка статуса:**
+```bash
+docker-compose ps                       # Статус контейнеров
+docker-compose logs -f indexer          # Логи индексера
+docker-compose logs -f hasura           # Логи Hasura
+```
+
+**Работа с PostgreSQL:**
+```bash
+# Подключение к psql
+docker exec -it docker-postgres-1 psql -U reef -d reef_explorer
+
+# Выполнение SQL команды
+docker exec docker-postgres-1 psql -U reef -d reef_explorer -c "SELECT COUNT(*) FROM transfer;"
+
+# Проверка курсора индексера
+docker exec docker-postgres-1 psql -U reef -d reef_explorer -c "SELECT * FROM indexer_cursor;"
+
+# Проверка размера таблиц
+docker exec docker-postgres-1 psql -U reef -d reef_explorer -c "SELECT relname, n_live_tup FROM pg_stat_user_tables ORDER BY n_live_tup DESC;"
+```
+
+**Пересборка индексера:**
+```bash
+cd docker/indexer && npm run build      # Локальная сборка
+docker-compose up -d --build indexer    # Пересборка в Docker
+```
+
+**Backup/Restore:**
+```bash
+# Backup
+docker exec docker-postgres-1 pg_dump -U reef reef_explorer > backup.sql
+
+# Restore
+cat backup.sql | docker exec -i docker-postgres-1 psql -U reef -d reef_explorer
+```
+
+**Полная очистка:**
+```bash
+docker-compose down -v                  # Удалить контейнеры и volumes
+```
+
+---
+
+### 📡 GraphQL запросы: Frontend → Hasura
+
+**Endpoint:** `http://localhost:8080/v1/graphql`
+**Header:** `x-hasura-admin-secret: local_dev_secret`
+
+**Основные запросы (Hasura синтаксис):**
+
+```graphql
+# Transfers по адресу (пагинация)
+query TransfersByAddress($accountId: String!, $limit: Int!, $offset: Int!) {
+  transfer(
+    where: {
+      _or: [
+        { from_id: { _eq: $accountId } }
+        { to_id: { _eq: $accountId } }
+      ]
+    }
+    order_by: [{ timestamp: desc }, { id: desc }]
+    limit: $limit
+    offset: $offset
+  ) {
+    id
+    from_id
+    to_id
+    amount
+    timestamp
+    token_id
+    type
+    success
+    verified_contract { id name type contract_data }
+  }
+  transfer_aggregate(where: { _or: [{ from_id: { _eq: $accountId } }, { to_id: { _eq: $accountId } }] }) {
+    aggregate { count }
+  }
+}
+
+# Token balances (Holdings)
+query TokenHoldersByAccount($accountId: String!, $first: Int!) {
+  token_holder(
+    where: {
+      signer_id: { _eq: $accountId }
+      verified_contract: { type: { _eq: "ERC20" } }
+    }
+    order_by: [{ balance: desc }]
+    limit: $first
+  ) {
+    signer_id
+    balance
+    verified_contract { id contract_data }
+  }
+  token_holder_aggregate(
+    where: { signer_id: { _eq: $accountId }, verified_contract: { type: { _eq: "ERC20" } } }
+  ) {
+    aggregate { count }
+  }
+}
+
+# Blocks stream (subscription)
+subscription BlocksFromHeight($fromHeight: Int!, $limit: Int!) {
+  block(
+    where: { height: { _gt: $fromHeight } }
+    order_by: [{ height: asc }]
+    limit: $limit
+  ) {
+    height
+    timestamp
+  }
+}
+
+# Account resolution (EVM → Native)
+query GetAccountByEvm($evmAddress: String!) {
+  account(where: { evm_address: { _eq: $evmAddress } }) {
+    id
+    evm_address
+  }
+}
+
+# Verified contracts (token icons)
+query VerifiedContractsByIds($ids: [String!]!, $first: Int!) {
+  verified_contract(where: { id: { _in: $ids } }, limit: $first) {
+    id
+    contract_data
+  }
+}
+```
+
+**Отличия Hasura от Subsquid:**
+
+| Аспект | Subsquid | Hasura |
+|--------|----------|--------|
+| Root field | `transfersConnection` | `transfer` / `transfer_aggregate` |
+| Pagination | `first/after` (cursor) | `limit/offset` |
+| Filters | `where: { from: { id_eq: $x } }` | `where: { from_id: { _eq: $x } }` |
+| Order | `orderBy: [timestamp_DESC]` | `order_by: [{ timestamp: desc }]` |
+| Count | `totalCount` | `aggregate { count }` |
+| Field names | camelCase | snake_case |
+| Relations | `from { id }` | `account { id }` или `from_id` |
+
+---
+
+### 🔄 Indexer: поток данных
+
+```
+Reef Chain RPC (wss://rpc.reefscan.info/ws)
+         ↓
+    Indexer (TypeScript)
+         ↓ parseBlock()
+    PostgreSQL (via pg client)
+         ↓
+    Hasura (auto-tracks tables)
+         ↓
+    Frontend (Apollo Client)
+```
+
+**Что индексируется:**
+- `balances.Transfer` → `transfer` (Native REEF)
+- `evm.Log` (Transfer topic) → `transfer` (ERC20/ERC721/ERC1155)
+- `evm.Log` (Swap topic) → `transfer.reefswap_action`
+- Extrinsics → `extrinsic` (только forward mode)
+- Blocks → `block`
+- Token holders → `token_holder` (upsert на каждый transfer)
+- Accounts → `account` (upsert)
+- Contracts → `verified_contract` (auto-create для ERC20)
+
+**Environment variables (indexer):**
+```env
+PG_HOST=postgres
+PG_PORT=5432
+PG_DB=reef_explorer
+PG_USER=reef
+PG_PASS=reef_local
+RPC_URL=wss://rpc.reefscan.info/ws
+START_BLOCK=12834548
+BATCH_SIZE=100
+CONCURRENCY=10
+POLL_INTERVAL_MS=3000
+BACKFILL=true
+BACKFILL_TARGET=7834548
+```
+
+---
+
+## 2026-02-14
+
+### 🐳 Local GraphQL Stack: PostgreSQL + Hasura + pgAdmin + Indexer
+**Файлы:** `docker/docker-compose.yml`, `docker/pgadmin-servers.json`, `docker/init.sql`, `docker/seed.sql`, `docker/track-tables.json`, `docker/track-relationships.json`, `docker/indexer/package.json`, `docker/indexer/tsconfig.json`, `docker/indexer/src/index.ts`, `docker/indexer/src/parser.ts`, `docker/indexer/src/db.ts`, `docker/README.md`
+
+- Развёрнут локальный стек в Docker: PostgreSQL, Hasura Console, pgAdmin
+- Добавлена SQL-схема (account, verified_contract, transfer, token_holder, staking) с индексами под быстрые фильтры и COUNT
+- Настроен tracking таблиц и relationships в Hasura metadata
+- Добавлены seed-данные для быстрой проверки GraphQL
+- Реализован TypeScript индексер Reef Chain:
+  - чтение финализированных блоков через `@polkadot/api`
+  - парсинг `balances.Transfer` и EVM `Transfer` логов
+  - батч-запись в PostgreSQL
+  - upsert аккаунтов, автосоздание ERC20 `verified_contract`
+  - обновление `token_holder.balance` на каждом transfer
+- Проверена синхронизация: индексер догоняет head и продолжает realtime ingest
+
+### 🔌 Frontend: configurable Reef Explorer endpoint (Subsquid ↔ Local Hasura)
+**Файлы:** `src/apollo-client.ts`, `src/reef-explorer-client.ts`, `src/constants/pagination.ts`, `.env.example`
+
+- Убраны хардкоды `https://squid.subsquid.io/reef-explorer/graphql` в Apollo клиентах
+- Добавлены env-переменные:
+  - `VITE_REEF_EXPLORER_HTTP_URL`
+  - `VITE_REEF_EXPLORER_WS_URL` (опционально, авто-derive из HTTP)
+  - `VITE_REEF_EXPLORER_ADMIN_SECRET` (опционально, для Hasura)
+- HTTP и WS клиенты поддерживают заголовок `x-hasura-admin-secret`
+- `API_CONFIG.API_URL` переведён на env-конфигурацию
+
+> Важно: текущие GraphQL документы фронтенда сгенерированы под схему Subsquid. Полное переключение всего UI на локальную Hasura схему требует поэтапной миграции query layer (different root fields/filters/types).
+
+### 🔁 Frontend: миграция Transaction History query layer на Hasura schema
+**Файлы:** `src/utils/transfer-query.ts`, `src/data/transfers.ts`, `src/data/addresses.ts`, `src/data/verified-contracts.ts`, `src/data/token-icons.ts`, `src/data/balances.ts`, `src/data/nfts.ts`, `src/hooks/use-transaction-data-with-blocks.ts`, `src/hooks/useTransferSubscription.ts`, `src/hooks/use-swap-partner-legs.ts`, `src/hooks/use-token-metadata-resolver.ts`, `src/hooks/use-token-balances.ts`, `src/hooks/use-nft-count-by-owner.ts`, `src/components/TransactionHistoryWithBlocks.tsx`
+
+- Добавлен runtime-режим `isHasuraExplorerMode` для выбора Hasura/Subsquid синтаксиса в одном коде
+- Реализованы Hasura-совместимые:
+  - `where` фильтры (`_and/_or`, `_eq/_in/_gte/_lte`, snake_case поля)
+  - `orderBy` (`[{ timestamp: 'desc' }, { id: 'desc' }]`)
+  - запросы на `transfer` и `transfer_aggregate` вместо `transfersConnection`
+- В `src/data/transfers.ts` добавлены dual-документы (Subsquid + Hasura) и экспорт query selector’ов:
+  - `PAGINATED_TRANSFERS_QUERY`
+  - `PAGINATED_TRANSFERS_MIN_QUERY`
+  - `TRANSFERS_COUNT_QUERY`
+  - `TRANSFERS_BULK_COUNTS_QUERY`
+  - `TRANSFERS_POLLING_QUERY`
+- Хук `use-transaction-data-with-blocks` теперь нормализует оба формата ответа в единый `transfersConnection` runtime-shape и поддерживает:
+  - cursor pagination (`first/after`) для Subsquid
+  - offset pagination (`limit/offset`) для Hasura
+- Хук `useTransferSubscription` переведён на общий `buildTransferOrderBy()` и отключает Subsquid-specific cache prepend ветку в Hasura режиме (fallback через refetch остаётся)
+- `use-swap-partner-legs` и fast window partner fetch обновлены на Hasura where/order_by формат
+- Bulk counts в `TransactionHistoryWithBlocks` поддерживают оба формата (`totalCount` и `aggregate.count`) и не передают `orderBy` в Hasura режиме
+- Исправлена extrinsic identity резолюция для Hasura: добавлены `@include` флаги в unified query и корректный `id: extrinsic_id` mapping
+- Дополнительно мигрированы смежные запросы, нужные для вкладок и фильтров страницы кошелька:
+  - address resolver (`account` vs `accounts`)
+  - verified contracts/token icons (`verified_contract` + alias полей)
+  - balances (`token_holder` + `token_holder_aggregate`)
+  - NFT count/list queries (`token_holder`/`token_holder_aggregate`)
+
+**Технически:** UI transaction history теперь может работать с локальным Hasura endpoint (`/v1/graphql`) без ошибки `transfersConnection not found`, сохраняя обратную совместимость с Subsquid.
+
+### ⚡ Wallet Page: меньше сетевых запросов при переключении вкладок + корректные суммы из Hasura
+**Файлы:** `src/components/TransactionHistoryWithBlocks.tsx`, `src/hooks/use-squid-health.ts`, `src/hooks/useTransferSubscription.ts`, `src/hooks/use-transaction-data-with-blocks.ts`, `src/hooks/useTanstackTransactionAdapter.ts`, `src/data/transfer-mapper.ts`, `src/utils/formatters.ts`, `src/utils/token-helpers.ts`
+
+- Вкладки Wallet Page теперь не ремаунтятся при каждом переключении: после первого открытия вкладка остаётся смонтированной и просто скрывается (`hidden`), что убирает лишние повторные стартовые запросы.
+- Для Transactions добавлен флаг активности: realtime polling (`useTransferSubscription`) и health polling (`useSquidHealth`) работают только когда вкладка Transactions активна.
+- Базовый transactions query переведён на `cache-first` с ручным `refetch` только при возврате на активную вкладку Transactions (transition inactive -> active), чтобы исключить лишние сетевые запросы в фоне.
+- В `useTanstackTransactionAdapter` и `useTransactionDataWithBlocks` добавлен `isActive` passthrough: в неактивной вкладке останавливаются swap/base loader paths, при возврате выполняется единичное обновление данных.
+- `useTransferSubscription` отвязан от UI-фильтров `incoming/outgoing/all`: подписка всегда работает с `direction: 'any'` и без amount-фильтров, чтобы переключение type-кнопок не пересоздавало polling query каждый раз.
+- Исправлен показ `0.00` для больших on-chain значений из Hasura: добавлена нормализация scientific-notation/number в integer raw string перед форматированием и вычислениями.
+- В subscription fallback для Hasura убран лишний `refetchQueries`, если новых трансферов не обнаружено.
+
+**Технически:** переключение между Transactions/Holdings/NFTs теперь почти не генерирует новых сетевых запросов, а отображение amount и value остаётся корректным для `numeric` полей Hasura.
+
+### 🧪 Local QA Seed: NFT + Swap тестовые данные
+**Файлы:** `docker/seed-nft-swap.sql`
+
+- Добавлен идемпотентный SQL seed для локального стека, который создаёт:
+  - swap-ноги в одном `extrinsic_hash` (REEF -> USDC) для проверки вкладки/фильтра `Swap`;
+  - NFT transfer (`ERC721`) и `token_holder` запись с `nft_id` для проверки вкладки `NFTs`.
+- Seed включает upsert тестовых аккаунтов и контрактов (`REEF`, `USDC`, `TEST-NFT`) через `ON CONFLICT`, чтобы скрипт можно было запускать повторно.
+- Базовый адрес для теста после применения seed: `5GNJqTPyNqANBkUVMN1LPPrxXnFouWA2MRQg3gKrUYgw6HEr`.
+
+**Технически:** позволяет проверять полный пользовательский сценарий (Transactions/Holdings/NFTs/Swap) в локальной Hasura БД без ожидания deep backfill indexer.
+
+### 🧱 Indexer: устойчивость к historical metadata decode ошибкам
+**Файлы:** `docker/indexer/src/index.ts`, `docker/indexer/src/parser.ts`
+
+- В `ApiPromise.create` добавлены `REEF_TYPE_OVERRIDES` (включая `EvmAddress`, `CurrencyIdOf` и др.) для снижения числа decode-падений на исторических блоках.
+- `START_BLOCK` теперь зажимается к `chainHead`, с явным warning в логах, чтобы индексер не «ожидал вхолостую» при старте выше head.
+- Парсер переведён на block-scoped `api.at(blockHash)` + чтение `system.events`/`timestamp.now` в `try/catch`; при decode-сбое конкретный блок пропускается с warning вместо бесконечного retry того же блока.
+- Исправлен `transfer_from_id_fkey` при deep backfill: для ERC20 `evm.Log` парсер теперь валидирует `from/to` как EVM-адреса и добавляет их в `accounts` batch (id=`0x...`, evm_address=`0x...`) до вставки `transfer`.
+
+**Технически:** deep backfill продолжает прогрессировать даже при отдельных несовместимых исторических блоках/событиях, вместо остановки индексации.
+
+### 🗄️ Indexer: cursor table для production-ready checkpoint
+**Файлы:** `docker/init.sql`, `docker/indexer/src/db.ts`, `docker/indexer/src/index.ts`
+
+- Добавлена таблица `indexer_cursor` (id, last_block, last_block_hash, updated_at) для атомарного хранения прогресса индексации независимо от данных в `transfer`.
+- `getLastIndexedBlock()` теперь читает из `indexer_cursor` вместо `MAX(block_height) FROM transfer`.
+- `setLastIndexedBlock(blockNum, blockHash)` вызывается после каждого успешного батча для персистентности курсора.
+- При restart/crash индексер продолжает с точного `last_block` из cursor, а не пересчитывает по transfer-таблице.
+
+**Технически:** критично для production — позволяет безопасно рестартовать индексер без потери прогресса и без зависимости от целостности transfer-данных. Упрощает миграцию на сервер и параллельный запуск нескольких indexer-инстансов (с разными cursor id).
+
+### 🚀 Production-ready Docker setup
+**Файлы:** `docker/.env.example`, `docker/docker-compose.prod.yml`, `docker/indexer/Dockerfile`, `docker/README.md`
+
+**Создан production-ready стек:**
+- `docker-compose.prod.yml` — production конфигурация с 3 сервисами: postgres, hasura, indexer
+- `.env.example` — шаблон для всех секретов и параметров (POSTGRES_PASSWORD, HASURA_GRAPHQL_ADMIN_SECRET, RPC_URL, START_BLOCK, BATCH_SIZE и др.)
+- `indexer/Dockerfile` — multi-stage build для indexer с production dependencies
+- Hasura настроен для production: `ENABLE_CONSOLE=false`, `DEV_MODE=false`, `UNAUTHORIZED_ROLE=` (пустое = требуется auth)
+- Все секреты вынесены в `.env` (не коммитятся в git)
+- Indexer запускается автоматически как Docker service с restart policy и log rotation
+
+**Безопасность:**
+- PostgreSQL доступен только внутри Docker network (не exposed наружу в prod-compose)
+- Hasura console отключена, dev-mode выключен
+- Все пароли/секреты конфигурируются через environment variables
+- README дополнен инструкциями по backup/restore, мониторингу, обновлению
+
+**Технически:** готово к деплою на сервер — достаточно скопировать `docker/` папку, создать `.env` с production-секретами, и запустить `docker compose -f docker-compose.prod.yml up -d`. Indexer начнёт с cursor position и продолжит backfill автоматически.
+
+## 2026-02-11
+
+### 🔧 Исправления по результатам аудита Wallet Page (12 фиксов)
+**Файлы:** `src/components/BalancesTable.tsx`, `src/components/TransactionsFilters.tsx`, `src/stores/use-transaction-filter-store.ts`, `src/components/TransactionHistoryWithBlocks.tsx`, `src/hooks/useTransferSubscription.ts`, `src/hooks/use-ensure-loaded.ts`, `src/hooks/use-transaction-data-with-blocks.ts`
+
+#### React качество кода
+- **HOLD-BUG-1+2**: `handleCopy` и `isLocalAsset` обёрнуты в `useCallback` — `React.memo` на `BalanceRow` теперь работает корректно, нет лишних ре-рендеров 50 строк при каждом клике
+- **HOLD-BUG-4**: Imperative `img.replaceWith(fallback)` заменён на `TokenIcon` React.memo компонент с `useState(srcIdx)` / `useState(allFailed)` — React полностью контролирует DOM
+- **BUG-4**: Stale closure в `useEnsureLoaded` — `initialTransactions`, `filteredTransactions`, `hasNextPage` читаются через refs для актуальных данных в while loop после `await fetchMore()`
+
+#### UX фильтров
+- **FILTER-BUG-1**: Quick presets (100/1k/10k/100k) теперь рендерятся только в REEF mode — скрыты для USDC/MRD/custom токенов
+- **FILTER-BUG-2**: `direction` добавлен в `partialize` Zustand store — корректно восстанавливается из localStorage при reload
+
+#### Производительность запросов к squid
+- **PERF-CRITICAL**: Убран `orderBy: amount_ASC` из `use-transaction-data-with-blocks.ts` — вызывал таймаут squid (35+ сек) из-за full table scan на неиндексированном поле. Теперь всегда `timestamp_DESC`, клиентская сортировка по amount сохранена
+- **PERF**: Убран persist `minAmountInput`/`maxAmountInput` из Zustand store — при reload страницы автоматически летели тяжёлые запросы с amount фильтрами, даже если пользователь не включал фильтр
+- **PERF**: `orderBy` для bulk counts запроса изменён на `id_DESC` (primary key, легче для squid query plan)
+- **OPT-1**: Bulk counts запрос (3× `transfersConnection`) обёрнут в debounce 400ms — при быстрых изменениях фильтров запрос не спамится
+- **OPT-2**: Where-варианты в subscription оптимизированы: 3→1 когда оба адреса resolved, 3 только при неполном resolution
+
+#### Прочее
+- **BUG-3**: Подтверждён как false positive — `createNewItemDetector` уже имеет LRU eviction с max=200
+
+---
+
 ## 2026-02-10
 
-### 🛡️ Trusted Validators секция
+### 🔍 Аудит Transaction History + bugfix maxReefRaw
+**Файлы:** `src/utils/transfer-query.ts`, `AUDIT-transaction-history.md`
+
+- **BUG FIX**: `maxReefRaw` не применялся в server-side фильтре — `amount_lte` отсутствовал в `buildTransferWhereFilter`. Сервер возвращал лишние данные, фильтрация была только на клиенте.
+- Полный аудит архитектуры wallet page (13 файлов, ~3500 строк) записан в `AUDIT-transaction-history.md`
+- Найдено: 1 баг средней серьёзности (исправлен), 2 low-severity, 3 оптимизации
+
+---
+
+### ⏱️ Умный scheduling ICP hooks + health check cron
+**Файлы:** `src/hooks/use-active-wallets-24h-icp.ts`, `src/hooks/use-new-wallets-inflow-icp.ts`, `aggregator/src/cron-icp.ts`
+
+- **ICP hooks**: заменён `setInterval(5min)` на smart `setTimeout` — вычисляет время до следующего cron из `asOf` timestamp
+- **Stale detection**: если `asOf` не изменился после fetch (cron опоздал) — retry через 30 мин вместо 4ч
+- **Self-rescheduling chain**: после каждого fetch пересчитывает следующий таймер из свежего `asOf`
+- **Cron health check**: `waitForSubsquid()` перед началом работы — exponential backoff до 30 мин если Subsquid недоступен
+- Убран дублирующий `useSquidHealth()` из `App.tsx`
+
+---
+
+### �🛡️ Trusted Validators секция
 **Файлы:** `src/components/NetworkStatistics.tsx`
 
 - Секция внутри карточки Total Staked с 3 валидаторами REEFAQ.IO

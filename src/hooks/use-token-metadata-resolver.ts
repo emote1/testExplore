@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ApolloClient, NormalizedCacheObject, useApolloClient, type TypedDocumentNode } from '@apollo/client';
 import { getString } from '@/utils/object';
-import { VerifiedContractsByIdsDocument } from '@/gql/graphql';
+import { VERIFIED_CONTRACTS_BY_IDS_QUERY } from '@/data/token-icons';
 import { hasTokenMetaCached, primeTokenMetaCacheFromContracts } from '../data/transfer-mapper';
 
 interface Props {
@@ -33,7 +33,7 @@ export function useTokenMetadataResolver({ data }: Props) {
     (async () => {
       try {
         const { data: q } = await (client as ApolloClient<NormalizedCacheObject>).query({
-          query: VerifiedContractsByIdsDocument as unknown as TypedDocumentNode,
+          query: VERIFIED_CONTRACTS_BY_IDS_QUERY as unknown as TypedDocumentNode,
           variables: { ids: unique, first: Math.min(unique.length, 100) },
           fetchPolicy: 'cache-first',
         });

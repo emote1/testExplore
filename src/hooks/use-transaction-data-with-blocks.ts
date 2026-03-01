@@ -1,12 +1,11 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useQuery, ApolloError, useApolloClient } from '@apollo/client';
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import type { ApolloClient, NormalizedCacheObject } from '@apollo/client';
 import { PAGINATED_TRANSFERS_QUERY, PAGINATED_TRANSFERS_MIN_QUERY, TRANSFERS_POLLING_QUERY } from '../data/transfers';
-import type { TransferOrderByInput, TransfersMinQueryQuery as TransfersQuery, TransfersMinQueryQueryVariables as TransfersQueryVariables } from '@/gql/graphql';
 import { mapTransfersToUiTransfers, type UiTransfer } from '../data/transfer-mapper';
 import { useAddressResolver } from './use-address-resolver';
-import { buildTransferWhereFilter, type TransactionDirection } from '@/utils/transfer-query';
+import { buildTransferOrderBy, buildTransferWhereFilter, isHasuraExplorerMode, type TransactionDirection } from '@/utils/transfer-query';
 import { isValidEvmAddressFormat, isValidSubstrateAddressFormat } from '@/utils/address-helpers';
 import {
   ensureUniqueTransfers,
@@ -42,6 +41,7 @@ export function useTransactionDataWithBlocks(
   tokenMaxRaw: string | bigint | null = null,
   erc20Only: boolean = false,
   swapOnly: boolean = false,
+  isActive: boolean = true,
 ): UseTransactionDataReturn {
 
   const { resolveBoth } = useAddressResolver();
@@ -99,26 +99,72 @@ export function useTransactionDataWithBlocks(
     ? PAGINATED_TRANSFERS_MIN_QUERY
     : PAGINATED_TRANSFERS_QUERY;
 
-  const { data, loading, error, fetchMore: apolloFetchMore } = 
-    useQuery<TransfersQuery, TransfersQueryVariables>(
-      pagedDoc as unknown as TypedDocumentNode<TransfersQuery, TransfersQueryVariables>,
+  const where = useMemo(
+    () => buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress, direction, minReefRaw, maxReefRaw, reefOnly, tokenIds, tokenMinRaw, tokenMaxRaw, erc20Only, excludeSwapLegs: !swapOnly }),
+    [resolvedAddress, resolvedEvmAddress, direction, minReefRaw, maxReefRaw, reefOnly, tokenIds, tokenMinRaw, tokenMaxRaw, erc20Only, swapOnly]
+  );
+
+  const orderBy = useMemo(() => buildTransferOrderBy(), []);
+
+  const queryVariables = useMemo(() => {
+    if (isHasuraExplorerMode) {
+      return {
+        limit,
+        offset: 0,
+        where,
+        orderBy,
+      };
+    }
+    return {
+      first: limit,
+      where,
+      orderBy,
+    };
+  }, [limit, where, orderBy]);
+
+  const { data, loading, error, fetchMore: apolloFetchMore } =
+    useQuery<Record<string, unknown>, Record<string, unknown>>(
+      pagedDoc as unknown as TypedDocumentNode<Record<string, unknown>, Record<string, unknown>>,
       {
-        variables: {
-          first: limit,
-          where: buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress, direction, minReefRaw, maxReefRaw, reefOnly, tokenIds, tokenMinRaw, tokenMaxRaw, erc20Only, excludeSwapLegs: !swapOnly }),
-          orderBy: ((minReefRaw || maxReefRaw || tokenMinRaw || tokenMaxRaw) ? ['amount_ASC', 'id_ASC'] : ['timestamp_DESC', 'id_DESC']) as TransferOrderByInput[],
-        },
+        variables: queryVariables,
         skip: !resolvedAddress && !resolvedEvmAddress,
         notifyOnNetworkStatusChange: false,
-        fetchPolicy: 'cache-and-network',
+        fetchPolicy: 'cache-first',
       }
     );
 
+  const prevActiveRef = useRef<boolean>(isActive);
+  useEffect(() => {
+    prevActiveRef.current = isActive;
+  }, [isActive]);
+
+  const normalizedData = useMemo(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const source = (data ?? {}) as any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const transfers = (source?.transfers ?? source?.transfer ?? []) as any[];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const edges = (source?.transfersConnection?.edges ?? transfers.map((node: any) => ({ node }))) as any[];
+    const rawTotal = Number(source?.transfersConnection?.totalCount ?? source?.transfersAggregate?.aggregate?.count);
+    const totalCount = Number.isFinite(rawTotal) ? rawTotal : edges.length;
+    const hasNextPage = Boolean(source?.transfersConnection?.pageInfo?.hasNextPage) || edges.length < totalCount;
+    const endCursor = source?.transfersConnection?.pageInfo?.endCursor ?? null;
+
+    return {
+      transfers,
+      transfersConnection: {
+        edges,
+        pageInfo: { hasNextPage, endCursor },
+        totalCount,
+      },
+    };
+  }, [data]);
+
   // Extract partner legs logic
-  const { partnersByHash, setPartnersByHash } = useSwapPartnerLegs({ data, swapOnly, enabled: !!(resolvedAddress || resolvedEvmAddress) });
+  const { partnersByHash, setPartnersByHash } = useSwapPartnerLegs({ data: normalizedData, swapOnly, enabled: !!(resolvedAddress || resolvedEvmAddress) });
   
   // Extract token metadata resolving logic (called for side effects - cache warming)
-  useTokenMetadataResolver({ data });
+  useTokenMetadataResolver({ data: normalizedData });
 
   // Reset partners when address changes
   useEffect(() => {
@@ -126,18 +172,38 @@ export function useTransactionDataWithBlocks(
   }, [resolvedAddress, resolvedEvmAddress, direction, minReefRaw, maxReefRaw, reefOnly, tokenIds, tokenMinRaw, tokenMaxRaw, setPartnersByHash]);
 
   const uiTransfers = useMemo(() => {
-    const edges = data?.transfersConnection.edges || [];
+    const edges = normalizedData.transfersConnection.edges || [];
     if (edges.length === 0) {
       return [];
     }
+
+    // Normalize Hasura response to match Subsquid structure expected by mapper
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const normalizeHasuraNode = (node: any) => {
+      if (!isHasuraExplorerMode) return node;
+      
+      // Ensure all required fields exist with fallbacks
+      const fromId = node.fromId || node.from_id || node.from?.id || '';
+      const toId = node.toId || node.to_id || node.to?.id || '';
+      const tokenData = node.verified_contract || node.token;
+      const token = tokenData || { id: node.token_id || '', name: 'Unknown', contractData: null };
+      
+      return {
+        ...node,
+        // Always create from/to objects with resolved IDs (don't trust existing empty objects)
+        from: { id: fromId },
+        to: { id: toId },
+        token,
+      };
+    };
 
     // Merge partner legs (if any) before mapping/aggregation in Swap mode only
     const partnerList = Object.values(partnersByHash).flat();
     const combinedEdges = swapOnly && partnerList.length > 0
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ? [...(edges as unknown as Array<{ node: any }>), ...partnerList.map((n) => ({ node: n }))]
+      ? [...(edges as unknown as Array<{ node: any }>).map((e) => ({ node: normalizeHasuraNode(e.node) })), ...partnerList.map((n) => ({ node: normalizeHasuraNode(n) }))]
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      : (edges as unknown as Array<{ node: any }>);
+      : (edges as unknown as Array<{ node: any }>).map((e) => ({ node: normalizeHasuraNode(e.node) }));
 
     const mapped = mapTransfersToUiTransfers(
       combinedEdges,
@@ -158,16 +224,56 @@ export function useTransactionDataWithBlocks(
     }
 
     return aggregateSwaps(unique);
-  }, [data, resolvedAddress, resolvedEvmAddress, minReefRaw, maxReefRaw, partnersByHash, accountAddress, swapOnly]);
+  }, [normalizedData, resolvedAddress, resolvedEvmAddress, minReefRaw, maxReefRaw, partnersByHash, accountAddress, swapOnly]);
 
   const fetchMore = useCallback(async () => {
-    if (!apolloFetchMore || !data?.transfersConnection.pageInfo.hasNextPage) return;
+    if (!apolloFetchMore) return;
+
+    if (isHasuraExplorerMode) {
+      const loaded = normalizedData.transfersConnection.edges.length;
+      const total = normalizedData.transfersConnection.totalCount || 0;
+      if (loaded >= total) return;
+
+      await apolloFetchMore({
+        variables: {
+          limit,
+          offset: loaded,
+          where,
+          orderBy,
+        },
+        updateQuery: (prev, { fetchMoreResult }) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const prevList = (((prev as any)?.transfers ?? []) as any[]);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const nextList = (((fetchMoreResult as any)?.transfers ?? []) as any[]);
+          const seen = new Set<string>();
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const merged: any[] = [];
+          for (const item of [...prevList, ...nextList]) {
+            const id = String(item?.id ?? '');
+            if (!id || seen.has(id)) continue;
+            seen.add(id);
+            merged.push(item);
+          }
+          return {
+            ...prev,
+            transfers: merged,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            transfersAggregate: (fetchMoreResult as any)?.transfersAggregate ?? (prev as any)?.transfersAggregate,
+          };
+        },
+      });
+      return;
+    }
+
+    const hasNext = normalizedData.transfersConnection.pageInfo.hasNextPage;
+    if (!hasNext) return;
     await apolloFetchMore({
       variables: {
-        after: data.transfersConnection.pageInfo.endCursor,
+        after: normalizedData.transfersConnection.pageInfo.endCursor,
       },
     });
-  }, [apolloFetchMore, data]);
+  }, [apolloFetchMore, normalizedData, limit, where, orderBy]);
 
   // Fast windowed fetch by offset/limit with same where/orderBy
   const fetchWindow = useCallback(async (offset: number, limit: number): Promise<UiTransfer[]> => {
@@ -179,8 +285,8 @@ export function useTransactionDataWithBlocks(
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           query: TRANSFERS_POLLING_QUERY as unknown as TypedDocumentNode<any, any>,
           variables: {
-            where: buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress, direction, minReefRaw, maxReefRaw, reefOnly, tokenIds, tokenMinRaw, tokenMaxRaw, erc20Only, excludeSwapLegs: !swapOnly }),
-            orderBy: ((minReefRaw || maxReefRaw || tokenMinRaw || tokenMaxRaw) ? ['amount_ASC', 'id_ASC'] : ['timestamp_DESC', 'id_DESC']) as TransferOrderByInput[],
+            where,
+            orderBy,
             offset: Math.max(0, Math.floor(offset) || 0),
             limit: Math.max(1, Math.floor(limit) || 1),
           },
@@ -195,14 +301,14 @@ export function useTransactionDataWithBlocks(
         try {
           const missing = identifyMissingPartnerHashes(list, new Set(), { strict: true });
           if (missing.length > 0) {
-            // Important: do NOT restrict by address here; partner legs may not involve the user
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const where: any = { extrinsicHash_in: missing, reefswapAction_isNull: false };
+            const partnerWhere = isHasuraExplorerMode
+              ? { extrinsic_hash: { _in: missing }, reefswap_action: { _is_null: false } }
+              : { extrinsicHash_in: missing, reefswapAction_isNull: false };
             const { data: q2 } = await (client as ApolloClient<NormalizedCacheObject>).query(
               {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 query: TRANSFERS_POLLING_QUERY as unknown as TypedDocumentNode<any, any>,
-                variables: { where, limit: Math.min(missing.length * 20, 500) },
+                variables: { where: partnerWhere, limit: Math.min(missing.length * 20, 500), orderBy },
                 fetchPolicy: 'network-only',
               }
             );
@@ -224,10 +330,21 @@ export function useTransactionDataWithBlocks(
       }
       if (!list.length) return [];
 
+      // Normalize Hasura response to match Subsquid structure expected by mapper
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const normalizeNode = (node: any) => {
+        if (!isHasuraExplorerMode) return node;
+        const fromId = node.fromId || node.from_id || node.from?.id || '';
+        const toId = node.toId || node.to_id || node.to?.id || '';
+        const tokenData = node.verified_contract || node.token;
+        const token = tokenData || { id: node.token_id || '', name: 'Unknown', contractData: null };
+        return { ...node, from: { id: fromId }, to: { id: toId }, token };
+      };
+
       // Map to UI model
       const mapped = mapTransfersToUiTransfers(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        list.map((n: any) => ({ node: n })),
+        list.map((n: any) => ({ node: normalizeNode(n) })),
         accountAddress ?? resolvedAddress ?? resolvedEvmAddress ?? undefined
       );
       
@@ -245,7 +362,7 @@ export function useTransactionDataWithBlocks(
       console.warn('[tx][fetchWindow] failed', e);
       return [];
     }
-  }, [client, resolvedAddress, resolvedEvmAddress, direction, minReefRaw, maxReefRaw, reefOnly, tokenIds, tokenMinRaw, tokenMaxRaw, accountAddress, swapOnly]);
+  }, [client, resolvedAddress, resolvedEvmAddress, accountAddress, swapOnly, minReefRaw, maxReefRaw, where, orderBy]);
 
   const isLoading = loading || (isResolvingAddress && !data);
   const totalError = error; // Do not create a new error for the resolving state
@@ -254,8 +371,8 @@ export function useTransactionDataWithBlocks(
     transfers: uiTransfers,
     loading: isLoading,
     error: totalError,
-    hasMore: data?.transfersConnection.pageInfo.hasNextPage || false,
-    totalCount: data?.transfersConnection.totalCount,
+    hasMore: normalizedData.transfersConnection.pageInfo.hasNextPage,
+    totalCount: normalizedData.transfersConnection.totalCount,
     fetchMore,
     fetchWindow,
   };

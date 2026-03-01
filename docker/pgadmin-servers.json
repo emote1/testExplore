@@ -1,0 +1,14 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "Reef Explorer Local",
+      "Group": "Servers",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "reef_explorer",
+      "Username": "reef",
+      "SSLMode": "prefer",
+      "PassFile": "/pgadmin4/pgpass"
+    }
+  }
+}

@@ -1,6 +1,28 @@
 import { gql } from '@apollo/client';
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 
+// Count query for swap events (used for prefetch)
+export const POOL_EVENTS_COUNT_DOCUMENT = gql`
+  query PoolEventsCount($addr: String!) {
+    poolEventsConnection(
+      first: 1
+      where: {
+        AND: [
+          { type_eq: Swap }
+          { OR: [
+              { senderAddress_containsInsensitive: $addr }
+              { toAddress_containsInsensitive: $addr }
+            ]
+          }
+        ]
+      }
+      orderBy: [id_DESC]
+    ) {
+      totalCount
+    }
+  }
+` as unknown as TypedDocumentNode<{ poolEventsConnection: { totalCount: number } }, { addr: string }>;
+
 // Minimal reef-swap documents: only the connection query is kept.
 export const POOL_EVENTS_CONNECTION_DOCUMENT = gql`
   query PoolEventsConnection($first: Int!, $after: String, $addr: String!) {

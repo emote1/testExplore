@@ -33,12 +33,11 @@ const TransactionRow = React.memo(function TransactionRow({ row, newTransfers, o
         <td
           key={cell.id}
           className={
-            cell.column.id === 'actions' ? 'px-1 py-5 text-center w-8' :
-            cell.column.id === 'timestamp' ? 'px-2 py-5 whitespace-nowrap' :
-            cell.column.id === 'value' ? 'px-2 py-5 text-right whitespace-nowrap' :
-            (cell.column.id === 'from' || cell.column.id === 'to') ? 'px-3 py-5' :
-            'px-4 py-5'
+            cell.column.id === 'actions' ? 'px-1 py-4 text-center w-10' :
+            cell.column.id === 'value' ? 'px-3 py-4 text-right whitespace-nowrap' :
+            'px-3 py-4'
           }
+          style={cell.column.id !== 'actions' ? { width: '14%' } : undefined}
         >
           {cell.column.id === 'actions'
             ? flexRender(cell.column.columnDef.cell, cell.getContext())
@@ -178,12 +177,11 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, tot
                 {headerGroup.headers.map(header => (
                   <th
                     key={header.id}
-                    className={`px-4 py-3 text-[13px] font-semibold text-slate-700 font-sans
-                      ${header.column.id === 'actions' ? 'w-8 text-center px-1' : ''}
-                      ${header.column.id === 'timestamp' ? 'w-52 md:w-60 text-left' : ''}
-                      ${header.column.id === 'value' ? 'w-28 md:w-32 text-right px-2' : ''}
-                      ${!(header.column.id === 'actions' || header.column.id === 'timestamp' || header.column.id === 'value') ? 'text-left' : ''}
+                    className={`px-3 py-3 text-[13px] font-semibold text-slate-700 font-sans text-left
+                      ${header.column.id === 'actions' ? 'w-10 text-center px-1' : ''}
+                      ${header.column.id === 'value' ? 'text-right' : ''}
                     `}
+                    style={header.column.id !== 'actions' ? { width: '14%' } : undefined}
                   >
                     {header.isPlaceholder
                       ? null
@@ -201,8 +199,12 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, tot
               const hasFiniteTotal = typeof totalCount === 'number' && Number.isFinite(totalCount);
               const isConfirmedEmpty = showEmptyState;
 
+              // If totalCount is known to be 0, skip loading and show empty state immediately
+              const isKnownEmpty = hasFiniteTotal && totalCount === 0;
+
               const shouldShowLoading =
                 rows.length === 0 &&
+                !isKnownEmpty &&
                 (isLoading ||
                   isPageLoading ||
                   (!hasRequestedData && pageIndex === 0) ||
@@ -228,7 +230,7 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, tot
                 );
               }
 
-              if (isConfirmedEmpty) {
+              if (isConfirmedEmpty || isKnownEmpty) {
                 return (
               <tr>
                 <td colSpan={transactionColumns.length} className="text-center py-6 text-gray-500">

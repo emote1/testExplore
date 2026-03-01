@@ -103,27 +103,35 @@ const NUMBER_FORMAT_CONFIG = {
   },
 } as const;
 
+function normalizeRawAmount(amount: string): string {
+  if (!amount) return '';
+  if (/^\d+$/.test(amount)) return amount;
+  const parsed = Number(amount);
+  if (!Number.isFinite(parsed) || parsed < 0) return '';
+  return Math.trunc(parsed).toLocaleString('fullwide', { useGrouping: false });
+}
+
 export function formatTokenAmount(
-  amountStr: string,
+  amountStr: string | number | bigint | null | undefined,
   decimals: number,
   symbol: string,
   options?: Intl.NumberFormatOptions,
   allowCompact = true,
   locale = 'en-US'
 ): string {
-  amountStr = amountStr ? amountStr.trim() : '';
+  const normalizedAmount = normalizeRawAmount(amountStr == null ? '' : String(amountStr).trim());
 
   // Handle cases where the token is an NFT (decimals are 0)
   if (decimals === 0) {
     return symbol;
   }
 
-  if (!amountStr || !/^\d+$/.test(amountStr)) {
+  if (!normalizedAmount) {
     return `${(0).toLocaleString(locale, NUMBER_FORMAT_CONFIG.default)} ${symbol}`;
   }
 
   try {
-    const amount = safeBigInt(amountStr);
+    const amount = safeBigInt(normalizedAmount);
     // IMPORTANT: use BigInt exponentiation to avoid RangeError from BigInt(10 ** decimals)
     const divisor = 10n ** BigInt(decimals);
     const integerPart = amount / divisor;
@@ -144,12 +152,12 @@ export function formatTokenAmount(
 
     return `${numericValue.toLocaleString(locale, formattingOptions)} ${symbol}`;
   } catch (error) {
-    console.error('Error formatting token amount:', { amountStr, decimals, symbol, error });
+    console.error('Error formatting token amount:', { amountStr: normalizedAmount, decimals, symbol, error });
     return `${(0).toLocaleString(locale, NUMBER_FORMAT_CONFIG.default)} ${symbol}`;
   }
 }
 
-export function formatAmount(amount: string, decimals: number, symbol: string, locale = 'en-US'): string {
+export function formatAmount(amount: string | number | bigint | null | undefined, decimals: number, symbol: string, locale = 'en-US'): string {
   return formatTokenAmount(amount, decimals, symbol, undefined, true, locale);
 }
 

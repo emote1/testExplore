@@ -1,4 +1,4 @@
-import { useEffect, type MutableRefObject } from 'react';
+import { useEffect, useRef, type MutableRefObject } from 'react';
 import type { PaginationState } from '@tanstack/react-table';
 import { PAGINATION_CONFIG } from '../constants/pagination';
 import type { UiTransfer } from '../data/transfer-mapper';
@@ -37,6 +37,13 @@ export function useEnsureLoaded(
   }: EnsureLoadedArgs,
   { inFlightEnsureRef, ensureSeqRef, ensureMaxedRef }: EnsureLoadedRefs,
 ) {
+  const initialRef = useRef(initialTransactions);
+  initialRef.current = initialTransactions;
+  const filteredRef = useRef(filteredTransactions);
+  filteredRef.current = filteredTransactions;
+  const hasNextRef = useRef(hasNextPage);
+  hasNextRef.current = hasNextPage;
+
   useEffect(() => {
     if (fastModeActive) return; // skip sequential ensure loop in fast mode
     // Optimization: for Swap + token-filtered views that clearly fit into a single page, skip ensure loop
@@ -66,17 +73,17 @@ export function useEnsureLoaded(
         pageSize,
         requiredCount,
         newItemsCount,
-        itemsLoaded: isFilteredMode ? (filteredTransactions || []).length : (initialTransactions || []).length,
-        hasNextPage,
+        itemsLoaded: isFilteredMode ? (filteredRef.current || []).length : (initialRef.current || []).length,
+        hasNextPage: hasNextRef.current,
       });
 
       while (!cancelled) {
-        const itemsLoaded = isFilteredMode ? (filteredTransactions || []).length : (initialTransactions || []).length;
+        const itemsLoaded = isFilteredMode ? (filteredRef.current || []).length : (initialRef.current || []).length;
         if (!isFilteredMode) {
-          if (!initialTransactions || initialTransactions.length === 0) { dbg?.('ensureLoaded: base query not ready'); break; }
+          if (!initialRef.current || initialRef.current.length === 0) { dbg?.('ensureLoaded: base query not ready'); break; }
         }
         if (itemsLoaded >= requiredCount) break;
-        if (!hasNextPage) break;
+        if (!hasNextRef.current) break;
         if (attempts >= maxAttempts) break;
 
         inFlightEnsureRef.current = true;
@@ -92,7 +99,7 @@ export function useEnsureLoaded(
         if (seq !== ensureSeqRef.current) break; // deps changed, abandon
       }
 
-      ensureMaxedRef.current = (attempts >= maxAttempts) || !hasNextPage;
+      ensureMaxedRef.current = (attempts >= maxAttempts) || !hasNextRef.current;
       dbg?.('ensureLoaded: end', { attempts, maxed: ensureMaxedRef.current });
     }
 

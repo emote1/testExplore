@@ -124,6 +124,24 @@ export function TransactionsFilters({
                 {getTypeBadge('swap') ?? '—'}
               </Badge>
             </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className={`h-9 px-4 py-2 text-sm font-medium ${typeBtnClass('staking')}`}
+              onClick={() => setTxType('staking')}
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+              </svg>
+              Staking
+              <Badge
+                variant="secondary"
+                className={`${txType === 'staking' ? 'bg-white/20 text-white border-white/20' : 'bg-gray-100 text-gray-600 border-gray-200'} ml-2`}
+              >
+                {getTypeBadge('staking') ?? '—'}
+              </Badge>
+            </Button>
           </div>
         </div>
 
@@ -208,23 +226,22 @@ export function TransactionsFilters({
                   ) : null}
                 </div>
 
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {['100', '1000', '10000', '100000'].map((v) => (
-                    <button
-                      key={v}
-                      type="button"
-                      className={`px-3 py-1 text-xs rounded-full border transition-colors ${!isReefMode
-                        ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
-                        : (debouncedMinInput === v
+                {isReefMode && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {['100', '1000', '10000', '100000'].map((v) => (
+                      <button
+                        key={v}
+                        type="button"
+                        className={`px-3 py-1 text-xs rounded-full border transition-colors ${debouncedMinInput === v
                           ? 'bg-blue-600 text-white border-blue-600 shadow-sm hover:bg-blue-600'
-                          : 'bg-white text-blue-600 border-blue-300 hover:bg-blue-50')}`}
-                      onClick={() => { if (isReefMode) setMinInput(v); }}
-                      disabled={!isReefMode}
-                    >
-                      {v === '1000' ? '1k' : v === '10000' ? '10k' : v === '100000' ? '100k' : v}
-                    </button>
-                  ))}
-                </div>
+                          : 'bg-white text-blue-600 border-blue-300 hover:bg-blue-50'}`}
+                        onClick={() => setMinInput(v)}
+                      >
+                        {v === '1000' ? '1k' : v === '10000' ? '10k' : v === '100000' ? '100k' : v}
+                      </button>
+                    ))}
+                  </div>
+                )}
 
                 {isMinInvalid ? (
                   <p className="mt-1 text-xs text-red-600">

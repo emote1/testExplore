@@ -45,10 +45,22 @@ export function useTokenBalances(address: string | null | undefined, first = 50)
   );
 
   const balances = useMemo(() => {
-    const edges = data?.tokenHolders?.edges ?? [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const source = (data ?? {}) as any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const edges = source?.tokenHolders?.edges ?? (source?.tokenHolders ?? []).map((node: any) => ({ node }));
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return mapTokenHoldersToUiBalances(edges as Array<{ node?: any } | null>);
   }, [data]);
 
-  return { balances, loading, error: error as Error | undefined, totalCount: data?.tokenHolders?.totalCount };
+  const totalCount = useMemo(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const source = (data ?? {}) as any;
+    const raw = Number(source?.tokenHolders?.totalCount ?? source?.tokenHoldersAggregate?.aggregate?.count);
+    if (Number.isFinite(raw)) return raw;
+    const listLen = Array.isArray(source?.tokenHolders) ? source.tokenHolders.length : undefined;
+    return typeof listLen === 'number' ? listLen : undefined;
+  }, [data]);
+
+  return { balances, loading, error: error as Error | undefined, totalCount };
 }

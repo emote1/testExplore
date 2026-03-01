@@ -49,8 +49,10 @@ export function useNftCountByOwner(owner: string | null | undefined): UseNftCoun
   );
 
   const totalCount = useMemo(() => {
-    const v = data?.tokenHolders?.totalCount;
-    return typeof v === 'number' ? v : undefined;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const source = (data ?? {}) as any;
+    const raw = Number(source?.tokenHolders?.totalCount ?? source?.tokenHolders?.aggregate?.count);
+    return Number.isFinite(raw) ? raw : undefined;
   }, [data]);
 
   return {

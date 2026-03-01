@@ -74,7 +74,7 @@ function formatMinReef(raw?: string): string | null {
 }
 
 export function NetworkStatistics() {
-  const { perMin, tpsTrend } = useTpsLive(60, 'extrinsics');
+  const { perMin, tpsTrend } = useTpsLive(60, 'blocks');
   const perMinText = Number.isFinite(perMin) && perMin >= 0 ? perMin.toFixed(0) : '0';
   const ws = useWsStatus();
   const squid = useSquidHealth({ intervalMs: 30_000 });
@@ -303,12 +303,12 @@ Active wallets chart: ${activeIcp.sparkDated.length} days`;
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <StatCard
-              title="Tx/min (Live)"
-              value={`${perMinText} tx/min`}
+              title="Blocks/min (Live)"
+              value={`${perMinText} blocks/min`}
               valueNode={
                 <div className="flex items-baseline gap-1">
                   <span className="text-2xl font-semibold text-gray-800 tabular-nums">{perMinText}</span>
-                  <span className="text-sm text-gray-500 font-medium">tx/min</span>
+                  <span className="text-sm text-gray-500 font-medium">blocks/min</span>
                 </div>
               }
               sparkNode={<TpsSparkline series={tpsTrend} trendWin={60} trendRes={24} trendZoom={1.1} height={20} width={40} xpad={4} emaAlpha={0.08} fixedXFrac={0.5} yPadPx={6} pathAnimMs={1500} />}

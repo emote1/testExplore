@@ -1,0 +1,124 @@
+{
+  "version": 3,
+  "sources": [
+    {
+      "name": "default",
+      "kind": "postgres",
+      "tables": [
+        {
+          "table": {
+            "schema": "public",
+            "name": "account"
+          }
+        },
+        {
+          "table": {
+            "schema": "public",
+            "name": "transfer"
+          },
+          "object_relationships": [
+            {
+              "name": "verified_contract",
+              "using": {
+                "foreign_key_constraint_on": "token_id"
+              }
+            }
+          ]
+        },
+        {
+          "table": {
+            "schema": "public",
+            "name": "verified_contract"
+          }
+        },
+        {
+          "table": {
+            "schema": "public",
+            "name": "token_holder"
+          },
+          "object_relationships": [
+            {
+              "name": "verified_contract",
+              "using": {
+                "foreign_key_constraint_on": "token_id"
+              }
+            }
+          ]
+        },
+        {
+          "table": {
+            "schema": "public",
+            "name": "block"
+          }
+        },
+        {
+          "table": {
+            "schema": "public",
+            "name": "extrinsic"
+          }
+        },
+        {
+          "table": {
+            "schema": "public",
+            "name": "event"
+          }
+        },
+        {
+          "table": {
+            "schema": "public",
+            "name": "staking"
+          }
+        },
+        {
+          "table": {
+            "schema": "public",
+            "name": "era_validator_info"
+          }
+        },
+        {
+          "table": {
+            "schema": "public",
+            "name": "contract_call"
+          },
+          "object_relationships": [
+            {
+              "name": "verified_contract",
+              "using": {
+                "foreign_key_constraint_on": "to_id"
+              }
+            }
+          ]
+        },
+        {
+          "table": {
+            "schema": "public",
+            "name": "nft_metadata"
+          },
+          "object_relationships": [
+            {
+              "name": "verified_contract",
+              "using": {
+                "foreign_key_constraint_on": "contract_id"
+              }
+            }
+          ]
+        },
+        {
+          "table": {
+            "schema": "public",
+            "name": "indexer_cursor"
+          }
+        }
+      ],
+      "configuration": {
+        "connection_info": {
+          "use_prepared_statements": false,
+          "database_url": {
+            "from_env": "PG_DATABASE_URL"
+          },
+          "isolation_level": "read-committed"
+        }
+      }
+    }
+  ]
+}

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { getActiveWalletsSparklineDailyIcp, icpConfig } from '../data/icp-client';
 
+const ICP_CRON_INTERVAL_HOURS = Number(import.meta.env.VITE_ICP_CRON_INTERVAL_HOURS ?? '4');
+
 interface SparkDatedPoint {
   value: number | null;
   ts: string;
@@ -81,15 +83,19 @@ export function useActiveWallets24hIcp(): ActiveWallets24hIcp {
     const ac = new AbortController();
     let mounted = true;
 
-    async function load() {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    async function load(): Promise<string | undefined> {
+      let asOf: string | undefined;
       try {
         setState((prev) => ({ ...prev, loading: true }));
         const sparkData = await getActiveWalletsSparklineDailyIcp(ac.signal);
-        if (!mounted) return;
+        if (!mounted) return undefined;
 
         const { last24h, prev24h, growthPct } = calcGrowthFromSpark(sparkData.series ?? []);
 
         const rawSeries = sparkData.series ?? [];
+        asOf = rawSeries[rawSeries.length - 1]?.ts;
         setState({
           loading: false,
           error: undefined,
@@ -98,24 +104,45 @@ export function useActiveWallets24hIcp(): ActiveWallets24hIcp {
           growthPct,
           spark: rawSeries.map((p) => p.active),
           sparkDated: fillDateGaps(rawSeries.map((p) => ({ value: p.active, ts: p.ts }))),
-          asOf: rawSeries[rawSeries.length - 1]?.ts,
+          asOf,
         });
       } catch (e) {
-        if (!mounted) return;
+        if (!mounted) return undefined;
         setState((prev) => ({
           ...prev,
           loading: false,
           error: e instanceof Error ? e : new Error(String(e)),
         }));
       }
+      return asOf;
     }
 
-    load();
-    const interval = setInterval(load, 5 * 60 * 1000);
+    const RETRY_MS = 30 * 60 * 1000;
+
+    function scheduleNext(asOf?: string, prevAsOf?: string) {
+      if (!mounted) return;
+      const CRON_MS = ICP_CRON_INTERVAL_HOURS * 60 * 60 * 1000;
+      const BUFFER_MS = 5 * 60 * 1000;
+      const isStale = prevAsOf != null && asOf === prevAsOf;
+      let delayMs = isStale ? RETRY_MS : CRON_MS;
+      if (!isStale && asOf) {
+        const lastUpdate = new Date(asOf + (asOf.includes('T') ? '' : 'T00:00:00Z')).getTime();
+        if (Number.isFinite(lastUpdate)) {
+          const nextCron = lastUpdate + CRON_MS;
+          delayMs = Math.max(BUFFER_MS, nextCron + BUFFER_MS - Date.now());
+        }
+      }
+      timer = setTimeout(async () => {
+        const freshAsOf = await load();
+        scheduleNext(freshAsOf, asOf);
+      }, delayMs);
+    }
+
+    load().then((asOf) => scheduleNext(asOf));
 
     return function () {
       mounted = false;
-      clearInterval(interval);
+      if (timer) clearTimeout(timer);
       ac.abort();
     };
   }, []);

@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { TtlCache } from '../data/ttl-cache';
 
@@ -100,5 +101,7 @@ export function useReefPrice() {
     gcTime: 5 * 60_000, // 5 minutes
     retry: 1,
   });
-  return { price: data ?? null, loading: isPending, error: isError ? new Error('Failed to load REEF price') : undefined } as const;
+  const price = data ?? null;
+  const errorResult = useMemo(() => isError ? new Error('Failed to load REEF price') : undefined, [isError]);
+  return useMemo(() => ({ price, loading: isPending, error: errorResult } as const), [price, isPending, errorResult]);
 }

@@ -61,7 +61,7 @@ interface TransferLikeToken {
 
 interface TransferLike {
   id: string;
-  amount: string;
+  amount: string | number | bigint;
   timestamp: string;
   success: boolean;
   type: string;
@@ -76,6 +76,20 @@ interface TransferLike {
 
 type TransferEdge = { node: TransferLike };
 type Transfer = TransferLike;
+
+function toRawAmountString(value: string | number | bigint): string {
+  if (typeof value === 'bigint') return value.toString();
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return '0';
+    return Math.trunc(value).toLocaleString('fullwide', { useGrouping: false });
+  }
+  const trimmed = String(value ?? '').trim();
+  if (!trimmed) return '0';
+  if (/^\d+$/.test(trimmed)) return trimmed;
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed)) return '0';
+  return Math.trunc(parsed).toLocaleString('fullwide', { useGrouping: false });
+}
 
 
 // Cache token metadata derived from contractData to avoid repeated JSON.parse
@@ -105,18 +119,32 @@ const resolveTransferDirection = (
   userAddress: string,
 ): 'INCOMING' | 'OUTGOING' => {
   const ua = userAddress.toLowerCase();
+  // Some response paths (e.g. polling / partially-normalized Hasura payloads)
+  // may not include nested from/to objects. Derive fallbacks from flat fields.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fromId = (transfer.from?.id || getString(transfer as any, ['fromId']) || getString(transfer as any, ['from_id']) || '').toLowerCase();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const toId = (transfer.to?.id || getString(transfer as any, ['toId']) || getString(transfer as any, ['to_id']) || '').toLowerCase();
+
   if (isValidEvmAddressFormat(userAddress)) {
     const fromEvm = (transfer.fromEvmAddress || '').toString().toLowerCase();
     const toEvm = (transfer.toEvmAddress || '').toString().toLowerCase();
     if (fromEvm && fromEvm === ua) return 'OUTGOING';
     if (toEvm && toEvm === ua) return 'INCOMING';
   }
-  return (transfer.from.id.toLowerCase() === ua ? 'OUTGOING' : 'INCOMING');
+  if (fromId && fromId === ua) return 'OUTGOING';
+  if (toId && toId === ua) return 'INCOMING';
+  return 'INCOMING';
 };
 
 function parseTokenData(transfer: Transfer): { name: string; decimals: number } {
   if (transfer.type === 'ERC721' || transfer.type === 'ERC1155') {
     return { name: 'NFT', decimals: 0 };
+  }
+
+  // Safety check for null token
+  if (!transfer.token) {
+    return { name: 'Unknown', decimals: 18 };
   }
 
   // If token is REEF, short-circuit
@@ -126,10 +154,19 @@ function parseTokenData(transfer: Transfer): { name: string; decimals: number } 
   const cached = tokenMetaCache.get(transfer.token.id);
   if (cached) return cached;
 
+  // Check by token ID (contract address) for well-known tokens
+  const tokenIdLower = (transfer.token.id || '').toLowerCase();
+  if (tokenIdLower === '0x7922d8785d93e692bb584e659b607fa821e6a91a') {
+    return { name: 'USDC', decimals: 6 };
+  }
+  if (tokenIdLower === '0x95a2af50040b7256a4b4c405a4afd4dd573da115') {
+    return { name: 'MRD', decimals: 18 };
+  }
+
   // contractData may be omitted from some queries to reduce payload size
   const contractDataRaw = transfer.token.contractData;
   if (!contractDataRaw) {
-    // Fallbacks for well-known tokens when metadata is omitted
+    // Fallbacks for well-known tokens when metadata is omitted by name
     const nm = (transfer.token.name || '').toString();
     const lower = nm.toLowerCase();
     if (lower === 'usdc' || lower === 'usdc.e' || lower === 'usd coin') {
@@ -166,21 +203,22 @@ export function mapTransfersToUiTransfers(
         return null;
       }
       const transfer = edge.node;
+      const amount = toRawAmountString(transfer.amount);
       const { name: tokenName, decimals: tokenDecimals } = parseTokenData(transfer);
       const isNft = transfer.type === 'ERC721' || transfer.type === 'ERC1155';
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const swapFlag = getString(transfer as any, ['reefswapAction']) ?? null;
       return {
         id: transfer.id,
-        from: transfer.from.id,
-        to: transfer.to.id,
+        from: transfer.from?.id || '',
+        to: transfer.to?.id || '',
         type: resolveTransferDirection(transfer, userAddress),
-        amount: transfer.amount,
-        amountBI: safeBigInt(transfer.amount),
+        amount,
+        amountBI: safeBigInt(amount),
         isNft,
-        tokenId: isNft ? transfer.amount : null, // Simplification, might need adjustment based on actual NFT logic
+        tokenId: isNft ? amount : null, // Simplification, might need adjustment based on actual NFT logic
         token: {
-          id: transfer.token.id,
+          id: transfer.token?.id || '',
           name: tokenName,
           decimals: tokenDecimals,
         },

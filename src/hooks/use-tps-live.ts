@@ -1,13 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { gql, useQuery, useSubscription } from '@apollo/client';
+import { parse } from 'graphql';
+import { isHasuraExplorerMode } from '@/utils/transfer-query';
 
-const LATEST_BLOCK = gql`
+const LATEST_BLOCK_SUBSQUID = gql`
   query LatestBlockForTps {
     blocks(orderBy: height_DESC, limit: 1) { height timestamp }
   }
 `;
 
-const EXTRINSICS_STREAM = gql`
+const LATEST_BLOCK_HASURA = parse(`
+  query LatestBlockForTpsHasura {
+    blocks: block(order_by: { height: desc }, limit: 1) {
+      height
+      timestamp
+    }
+  }
+`);
+
+const LATEST_BLOCK = isHasuraExplorerMode
+  ? LATEST_BLOCK_HASURA
+  : LATEST_BLOCK_SUBSQUID;
+
+const EXTRINSICS_STREAM_SUBSQUID = gql`
   subscription ExtrinsicsFromHeight($fromHeight: Int!, $limit: Int!) {
     extrinsics(
       where: { block: { height_gt: $fromHeight } }
@@ -20,7 +35,24 @@ const EXTRINSICS_STREAM = gql`
   }
 `;
 
-const TRANSFERS_STREAM = gql`
+const EXTRINSICS_STREAM_HASURA = parse(`
+  subscription ExtrinsicsFromHeightHasura($fromHeight: Int!, $limit: Int!) {
+    extrinsics: extrinsic(
+      where: { block_height: { _gt: $fromHeight } }
+      order_by: [{ id: asc }]
+      limit: $limit
+    ) {
+      id
+      timestamp
+    }
+  }
+`);
+
+const EXTRINSICS_STREAM = isHasuraExplorerMode
+  ? EXTRINSICS_STREAM_HASURA
+  : EXTRINSICS_STREAM_SUBSQUID;
+
+const TRANSFERS_STREAM_SUBSQUID = gql`
   subscription TransfersFromHeight($fromHeight: Int!, $limit: Int!) {
     transfers(
       where: { blockHeight_gt: $fromHeight }
@@ -33,11 +65,58 @@ const TRANSFERS_STREAM = gql`
   }
 `;
 
+const TRANSFERS_STREAM_HASURA = parse(`
+  subscription TransfersFromHeightHasura($fromHeight: Int!, $limit: Int!) {
+    transfers: transfer(
+      where: { block_height: { _gt: $fromHeight } }
+      order_by: [{ id: asc }]
+      limit: $limit
+    ) {
+      id
+      timestamp
+    }
+  }
+`);
+
+const TRANSFERS_STREAM = isHasuraExplorerMode
+  ? TRANSFERS_STREAM_HASURA
+  : TRANSFERS_STREAM_SUBSQUID;
+
+const BLOCKS_STREAM_SUBSQUID = gql`
+  subscription BlocksFromHeight($fromHeight: Int!, $limit: Int!) {
+    blocks(
+      where: { height_gt: $fromHeight }
+      orderBy: [height_ASC]
+      limit: $limit
+    ) {
+      height
+      timestamp
+    }
+  }
+`;
+
+const BLOCKS_STREAM_HASURA = parse(`
+  subscription BlocksFromHeightHasura($fromHeight: Int!, $limit: Int!) {
+    blocks: block(
+      where: { height: { _gt: $fromHeight } }
+      order_by: [{ height: asc }]
+      limit: $limit
+    ) {
+      height
+      timestamp
+    }
+  }
+`);
+
+const BLOCKS_STREAM = isHasuraExplorerMode
+  ? BLOCKS_STREAM_HASURA
+  : BLOCKS_STREAM_SUBSQUID;
+
 interface Sample { t: number; c: number }
 
 const STORAGE_KEY = 'tps_live_state_v2';
 
-export function useTpsLive(windowSec = 60, source: 'extrinsics' | 'transfers' = 'extrinsics') {
+export function useTpsLive(windowSec = 60, source: 'extrinsics' | 'transfers' | 'blocks' = 'extrinsics') {
   const [fromHeight, setFromHeight] = useState<number | null>(null);
   const [tps, setTps] = useState<number>(0);
   const [perMin, setPerMin] = useState<number>(0);
@@ -100,13 +179,13 @@ export function useTpsLive(windowSec = 60, source: 'extrinsics' | 'transfers' = 
     } catch { /* ignore parse errors */ }
   }, [windowSec]);
 
-  const streamDoc = source === 'transfers' ? TRANSFERS_STREAM : EXTRINSICS_STREAM;
+  const streamDoc = source === 'blocks' ? BLOCKS_STREAM : source === 'transfers' ? TRANSFERS_STREAM : EXTRINSICS_STREAM;
   useSubscription(streamDoc, {
     skip: fromHeight == null,
     variables: { fromHeight: fromHeight ?? 0, limit: 5 },
     onData: ({ data }) => {
-      const payload = data?.data as { transfers?: unknown[]; extrinsics?: unknown[] } | undefined;
-      const xs = (source === 'transfers' ? payload?.transfers : payload?.extrinsics);
+      const payload = data?.data as { transfers?: unknown[]; extrinsics?: unknown[]; blocks?: unknown[] } | undefined;
+      const xs = source === 'blocks' ? payload?.blocks : source === 'transfers' ? payload?.transfers : payload?.extrinsics;
       if (!xs || xs.length === 0) return;
       const now = Date.now();
       const currentSecond = Math.floor(now / 1000);
@@ -152,19 +231,15 @@ export function useTpsLive(windowSec = 60, source: 'extrinsics' | 'transfers' = 
         setPerMin(nextPerMin);
       }
       
-      // Push per-second count to trend (shows spikes when transactions arrive)
+      // Push to trend - store perMin history for smooth sparkline
       if (currentSecond !== lastSecondRef.current) {
-        // Finalize previous second's count and start new
-        trendRef.current.push(currentSecondCountRef.current);
+        trendRef.current.push(nextPerMin);
         lastSecondRef.current = currentSecond;
         currentSecondCountRef.current = 0;
+      } else if (trendRef.current.length > 0) {
+        trendRef.current[trendRef.current.length - 1] = nextPerMin;
       } else {
-        // Update last value with current second's count
-        if (trendRef.current.length > 0) {
-          trendRef.current[trendRef.current.length - 1] = currentSecondCountRef.current;
-        } else {
-          trendRef.current.push(currentSecondCountRef.current);
-        }
+        trendRef.current.push(nextPerMin);
       }
       
       if (trendRef.current.length > windowSec) trendRef.current.shift();

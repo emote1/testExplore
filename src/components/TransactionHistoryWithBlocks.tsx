@@ -4,7 +4,7 @@ import { useApolloClient } from '@apollo/client';
 import { useTanstackTransactionAdapter } from '@/hooks/useTanstackTransactionAdapter';
 import type { UiTransfer } from '../data/transfer-mapper';
 import { useTransferSubscription } from '../hooks/useTransferSubscription';
-import { buildTransferWhereFilter, type TransactionDirection } from '../utils/transfer-query';
+import { buildTransferOrderBy, buildTransferWhereFilter, isHasuraExplorerMode, type TransactionDirection, type TransferWhere } from '../utils/transfer-query';
 import { isValidEvmAddressFormat, isValidSubstrateAddressFormat } from '../utils/address-helpers';
 import { useAddressResolver } from '../hooks/use-address-resolver';
 import { formatAmount } from '../utils/formatters';
@@ -12,9 +12,10 @@ import { useSquidHealth } from '@/hooks/use-squid-health';
 import { AddressDisplay } from './AddressDisplay';
 import { useTokenBalances } from '../hooks/use-token-balances';
 import { useNftCountByOwner } from '../hooks/use-nft-count-by-owner';
+import { useSwapCountPrefetch } from '../hooks/use-swap-count-prefetch';
+import { useStakingCountPrefetch } from '../hooks/use-staking-count-prefetch';
 import { Badge } from './ui/badge';
 import { TRANSFERS_BULK_COUNTS_QUERY } from '../data/transfers';
-import type { TransferOrderByInput, TransferWhereInput } from '../gql/graphql';
 import { MRD_ID_SET, MRD_SESSION_SET, USDC_ID_SET, USDC_SESSION_SET } from '../tokens/token-ids';
 import type { DocumentNode } from 'graphql';
 import { TransactionsFilters } from './TransactionsFilters';
@@ -23,7 +24,7 @@ import { useTransactionFilterStore, type TxTypeFilter } from '../stores/use-tran
 const txTypeCountsCache = new Map<
   string,
   {
-    counts: { all: number | null; incoming: number | null; outgoing: number | null; swap: number | null };
+    counts: { all: number | null; incoming: number | null; outgoing: number | null; swap: number | null; staking: number | null };
     updatedAt: number;
   }
 >();
@@ -32,12 +33,12 @@ const TransactionTableWithTanStack = React.lazy(() =>
   import('./TransactionTableWithTanStack').then(m => ({ default: m.TransactionTableWithTanStack }))
 );
 
-const NftGallery = React.lazy(() =>
-  import('./NftGallery').then(m => ({ default: m.NftGallery }))
+const StakingTable = React.lazy(() =>
+  import('./StakingTable').then(m => ({ default: m.StakingTable }))
 );
 
-const RewardsTable = React.lazy(() =>
-  import('./RewardsTable').then(m => ({ default: m.RewardsTable }))
+const NftGallery = React.lazy(() =>
+  import('./NftGallery').then(m => ({ default: m.NftGallery }))
 );
 
 const BalancesTable = React.lazy(() =>
@@ -48,6 +49,7 @@ const BalancesTable = React.lazy(() =>
 function TransactionsView({
   addr,
   onCountsChange,
+  isActive,
 }: {
   addr: string;
   onCountsChange?: (counts: {
@@ -57,6 +59,7 @@ function TransactionsView({
     outgoing: number;
     swap: number;
   }) => void;
+  isActive: boolean;
 }) {
   const apolloClient = useApolloClient();
   const { resolveBoth } = useAddressResolver();
@@ -88,6 +91,16 @@ function TransactionsView({
   const [resolvedAddress, setResolvedAddress] = React.useState<string | null>(null);
   const [resolvedEvmAddress, setResolvedEvmAddress] = React.useState<string | null>(null);
   const [isResolvingCounts, setIsResolvingCounts] = React.useState<boolean>(false);
+
+  // Prefetch swap count in background when not on Swap tab (so count is ready when user clicks Swap)
+  const prefetchedSwapCount = useSwapCountPrefetch(addr, isActive && txType !== 'swap');
+
+  // Prefetch staking count in background when not on Staking tab
+  const prefetchedStakingCount = useStakingCountPrefetch({
+    address: resolvedAddress,
+    evmAddress: resolvedEvmAddress,
+    enabled: isActive && txType !== 'staking',
+  });
 
   // Debounce the raw input to avoid excessive queries while typing
   const [debouncedMinInput, setDebouncedMinInput] = React.useState<string>(minAmountInput);
@@ -219,7 +232,8 @@ function TransactionsView({
     appliedMaxRaw,
     appliedTokenMinRaw,
     appliedTokenMaxRaw,
-    false
+    false,
+    isActive
   );
 
   React.useEffect(() => {
@@ -227,14 +241,18 @@ function TransactionsView({
     if (isLoading) return;
     const hasKnownCount = typeof totalCount === 'number' || loadedCount > 0;
     if (!hasKnownCount) return;
+    // Use prefetched swap count if available and we haven't loaded swap data yet
+    const swapCount = loadedCountsByType.swap > 0 
+      ? loadedCountsByType.swap 
+      : (typeof prefetchedSwapCount === 'number' ? prefetchedSwapCount : 0);
     onCountsChange({
       totalCount,
       loadedCount,
       incoming: loadedCountsByType.incoming,
       outgoing: loadedCountsByType.outgoing,
-      swap: loadedCountsByType.swap,
+      swap: swapCount,
     });
-  }, [onCountsChange, isLoading, totalCount, loadedCount, loadedCountsByType.incoming, loadedCountsByType.outgoing, loadedCountsByType.swap]);
+  }, [onCountsChange, isLoading, totalCount, loadedCount, loadedCountsByType.incoming, loadedCountsByType.outgoing, loadedCountsByType.swap, prefetchedSwapCount]);
 
   // After table is ready, try to detect decimals for a custom 0x token from current page rows
   const pageIndex = table.getState().pagination.pageIndex;
@@ -427,10 +445,12 @@ function TransactionsView({
     onNewTransfer,
     // Avoid race: start polling only after initial paginated query has loaded
     // so cache.updateQuery can prepend into an existing connection entry
-    isEnabled: !!addr && !isLoading,
-    direction,
-    minReefRaw: appliedMinRaw,
-    maxReefRaw: appliedMaxRaw,
+    isEnabled: isActive && !!addr && !isLoading,
+    // Keep subscription scope stable to avoid refetch on each UI filter toggle
+    // (incoming/outgoing/all). Table filtering still applies on top.
+    direction: 'any',
+    minReefRaw: null,
+    maxReefRaw: null,
   });
 
   React.useEffect(() => {
@@ -447,7 +467,8 @@ function TransactionsView({
     incoming: number | null;
     outgoing: number | null;
     swap: number | null;
-  }>({ all: null, incoming: null, outgoing: null, swap: null });
+    staking: number | null;
+  }>({ all: null, incoming: null, outgoing: null, swap: null, staking: null });
 
   const typeCountsCacheKey = React.useMemo(() => {
     const addrKey = (addr || '').trim().toLowerCase();
@@ -468,7 +489,7 @@ function TransactionsView({
       setTypeBadgeCounts(cached);
       return;
     }
-    setTypeBadgeCounts({ all: null, incoming: null, outgoing: null, swap: null });
+    setTypeBadgeCounts({ all: null, incoming: null, outgoing: null, swap: null, staking: null });
   }, [typeCountsCacheKey]);
 
   React.useEffect(() => {
@@ -495,6 +516,25 @@ function TransactionsView({
       return { ...prev, [txType]: currentTypeCount };
     });
   }, [txType, isLoading, currentTypeCount]);
+
+  // Update swap badge from prefetched count (before user clicks Swap tab)
+  React.useEffect(() => {
+    if (typeof prefetchedSwapCount !== 'number') return;
+    if (prefetchedSwapCount <= 0) return;
+    setTypeBadgeCounts((prev) => {
+      if (typeof prev.swap === 'number' && prev.swap > 0) return prev;
+      return { ...prev, swap: prefetchedSwapCount };
+    });
+  }, [prefetchedSwapCount]);
+
+  // Update staking badge from prefetched count (before user clicks Staking tab)
+  React.useEffect(() => {
+    if (typeof prefetchedStakingCount !== 'number') return;
+    setTypeBadgeCounts((prev) => {
+      if (typeof prev.staking === 'number' && prev.staking > 0) return prev;
+      return { ...prev, staking: prefetchedStakingCount };
+    });
+  }, [prefetchedStakingCount]);
 
   React.useEffect(() => {
     if (isResolvingCounts) return;
@@ -524,7 +564,7 @@ function TransactionsView({
       return { reefOnly: false, tokenIds: null, tokenMinRaw: null, tokenMaxRaw: null };
     }
 
-    function buildWhere(dir: TransactionDirection): TransferWhereInput | undefined {
+    function buildWhere(dir: TransactionDirection): TransferWhere | undefined {
       const tokenCfg = getTokenCountFilter();
       return buildTransferWhereFilter({
         resolvedAddress,
@@ -541,18 +581,18 @@ function TransactionsView({
     }
 
     interface TransfersBulkCountsData {
-      all?: { totalCount?: number | null } | null;
-      incoming?: { totalCount?: number | null } | null;
-      outgoing?: { totalCount?: number | null } | null;
+      all?: { totalCount?: number | null; aggregate?: { count?: number | null } | null } | null;
+      incoming?: { totalCount?: number | null; aggregate?: { count?: number | null } | null } | null;
+      outgoing?: { totalCount?: number | null; aggregate?: { count?: number | null } | null } | null;
     }
     interface TransfersBulkCountsVars {
-      whereAny?: TransferWhereInput | null;
-      whereIncoming?: TransferWhereInput | null;
-      whereOutgoing?: TransferWhereInput | null;
-      orderBy: TransferOrderByInput[];
+      whereAny?: TransferWhere | null;
+      whereIncoming?: TransferWhere | null;
+      whereOutgoing?: TransferWhere | null;
+      orderBy?: unknown;
     }
 
-    (async () => {
+    const tid = window.setTimeout(async () => {
       const whereAny = buildWhere('any') ?? null;
       const whereIncoming = buildWhere('incoming') ?? null;
       const whereOutgoing = buildWhere('outgoing') ?? null;
@@ -561,19 +601,21 @@ function TransactionsView({
       let incomingCount: number | null = null;
       let outgoingCount: number | null = null;
       try {
+        const variables: TransfersBulkCountsVars = {
+          whereAny,
+          whereIncoming,
+          whereOutgoing,
+        };
+        if (!isHasuraExplorerMode) variables.orderBy = buildTransferOrderBy();
+
         const { data } = await apolloClient.query<TransfersBulkCountsData, TransfersBulkCountsVars>({
           query: TRANSFERS_BULK_COUNTS_QUERY as unknown as DocumentNode,
-          variables: {
-            whereAny,
-            whereIncoming,
-            whereOutgoing,
-            orderBy: ['timestamp_DESC', 'id_DESC'] as TransferOrderByInput[],
-          },
+          variables,
           fetchPolicy: 'no-cache',
         });
-        const a = data?.all?.totalCount;
-        const i = data?.incoming?.totalCount;
-        const o = data?.outgoing?.totalCount;
+        const a = data?.all?.totalCount ?? data?.all?.aggregate?.count;
+        const i = data?.incoming?.totalCount ?? data?.incoming?.aggregate?.count;
+        const o = data?.outgoing?.totalCount ?? data?.outgoing?.aggregate?.count;
         allCount = (typeof a === 'number' && Number.isFinite(a)) ? a : null;
         incomingCount = (typeof i === 'number' && Number.isFinite(i)) ? i : null;
         outgoingCount = (typeof o === 'number' && Number.isFinite(o)) ? o : null;
@@ -587,14 +629,15 @@ function TransactionsView({
         incoming: incomingCount ?? prev.incoming,
         outgoing: outgoingCount ?? prev.outgoing,
       }));
-    })();
+    }, 400);
 
     return () => {
       cancelled = true;
+      window.clearTimeout(tid);
     };
   }, [apolloClient, isResolvingCounts, resolvedAddress, resolvedEvmAddress, tokenFilter, isContractMode, appliedMinRaw, appliedMaxRaw, appliedTokenMinRaw, appliedTokenMaxRaw]);
 
-  function getTypeBadge(intent: 'all' | 'incoming' | 'outgoing' | 'swap') {
+  function getTypeBadge(intent: TxTypeFilter) {
     if (intent === txType) {
       const cached = typeBadgeCounts[intent];
       if (isLoading && typeof cached === 'number' && Number.isFinite(cached)) return cached;
@@ -606,7 +649,7 @@ function TransactionsView({
     return typeBadgeCounts[intent];
   }
 
-  function typeBtnClass(intent: 'all' | 'incoming' | 'outgoing' | 'swap') {
+  function typeBtnClass(intent: TxTypeFilter) {
     const isActive = txType === intent;
     if (intent === 'incoming') {
       return `rounded-full transition-all duration-300 ${isActive ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-sm' : 'bg-white text-gray-700 border-gray-200 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-300'}`;
@@ -617,10 +660,13 @@ function TransactionsView({
     if (intent === 'swap') {
       return `rounded-full transition-all duration-300 ${isActive ? 'bg-[#2563EB] hover:bg-[#3B82F6] text-white border-[#2563EB] shadow-md shadow-[#2563EB]/20' : 'bg-white text-gray-700 border-gray-200 hover:bg-[#E0F2FE] hover:text-[#2563EB] hover:border-[#3B82F6]/40'}`;
     }
+    if (intent === 'staking') {
+      return `rounded-full transition-all duration-300 ${isActive ? 'bg-purple-600 hover:bg-purple-700 text-white border-purple-600 shadow-sm' : 'bg-white text-gray-700 border-gray-200 hover:bg-purple-50 hover:text-purple-700 hover:border-purple-300'}`;
+    }
     return `rounded-full transition-all duration-300 ${isActive ? 'bg-blue-600 hover:bg-blue-700 text-white border-blue-600 shadow-sm' : 'bg-white text-gray-700 border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`;
   }
 
-  const { status: healthStatus } = useSquidHealth({ intervalMs: 30_000 });
+  const { status: healthStatus } = useSquidHealth({ intervalMs: 30_000, enabled: isActive });
   
   const statusColors = {
     loading: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', dot: 'bg-blue-500' },
@@ -703,19 +749,30 @@ function TransactionsView({
         </div>
       ) : null}
       <React.Suspense fallback={<div className="flex items-center justify-center p-8"><Loader2 className="h-6 w-6 animate-spin" /></div>}>
-        <TransactionTableWithTanStack
-          table={table}
-          isLoading={isLoading}
-          totalCount={totalCount}
-          loadedCount={loadedCount}
-          newTransfers={newTransfers}
-          goToPage={goToPage}
-          isPageLoading={isPageLoading}
-          pageLoadProgress={pageLoadProgress}
-          hasExactTotal={hasExactTotal}
-          fastModeActive={fastModeActive}
-          emptyHint={emptyHint}
-        />
+        {txType === 'staking' ? (
+          <StakingTable
+            address={resolvedAddress}
+            evmAddress={resolvedEvmAddress}
+            enabled={isActive}
+            onCountChange={(count) => {
+              setTypeBadgeCounts((prev) => ({ ...prev, staking: count }));
+            }}
+          />
+        ) : (
+          <TransactionTableWithTanStack
+            table={table}
+            isLoading={isLoading}
+            totalCount={totalCount}
+            loadedCount={loadedCount}
+            newTransfers={newTransfers}
+            goToPage={goToPage}
+            isPageLoading={isPageLoading}
+            pageLoadProgress={pageLoadProgress}
+            hasExactTotal={hasExactTotal}
+            fastModeActive={fastModeActive}
+            emptyHint={emptyHint}
+          />
+        )}
       </React.Suspense>
     </div>
   );
@@ -726,9 +783,11 @@ interface TransactionHistoryWithBlocksProps {
 }
 
 export function TransactionHistoryWithBlocks({ initialAddress = '' }: TransactionHistoryWithBlocksProps) {
-  const [viewMode, setViewMode] = React.useState<'transactions' | 'nfts' | 'rewards' | 'balances'>('transactions');
+  const [viewMode, setViewMode] = React.useState<'transactions' | 'nfts' | 'balances'>('transactions');
   const [address, setAddress] = React.useState(initialAddress);
   const [submittedAddress, setSubmittedAddress] = React.useState(initialAddress);
+  const [hasMountedBalances, setHasMountedBalances] = React.useState(false);
+  const [hasMountedNfts, setHasMountedNfts] = React.useState(false);
 
   const [tabCounts, setTabCounts] = React.useState<{ transactions: number | null; holdings: number | null; nfts: number | null }>({
     transactions: null,
@@ -757,6 +816,8 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
   React.useEffect(() => {
     if (!submittedAddress) {
       setTabCounts({ transactions: null, holdings: null, nfts: null });
+      setHasMountedBalances(false);
+      setHasMountedNfts(false);
       return;
     }
 
@@ -768,6 +829,12 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
       console.error('Error importing components:', error);
     }
   }, [submittedAddress]);
+
+  React.useEffect(() => {
+    if (!submittedAddress) return;
+    if (viewMode === 'balances') setHasMountedBalances(true);
+    if (viewMode === 'nfts') setHasMountedNfts(true);
+  }, [submittedAddress, viewMode]);
 
   React.useEffect(() => {
     if (typeof holdingsTotalCount !== 'number') return;
@@ -945,43 +1012,51 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
         )}
 
         {submittedAddress ? (
-          viewMode === 'transactions' ? (
-            <TransactionsView
-              addr={submittedAddress}
-              onCountsChange={handleCountsChange}
-            />
-          ) : viewMode === 'nfts' ? (
-            <React.Suspense fallback={<div className="flex items-center justify-center p-8"><Loader2 className="h-6 w-6 animate-spin" /></div>}>
-              <NftGallery
-                address={submittedAddress}
-                enableOwnerInfinite={enableOwnerInfiniteFlag}
-                onCountsChange={(count) => {
-                  setTabCounts((prev) => {
-                    if (!Number.isFinite(count)) return prev;
-                    if (typeof prev.nfts === 'number' && prev.nfts >= count) return prev;
-                    return { ...prev, nfts: count };
-                  });
-                }}
+          <>
+            <div className={viewMode === 'transactions' ? '' : 'hidden'} aria-hidden={viewMode !== 'transactions'}>
+              <TransactionsView
+                addr={submittedAddress}
+                onCountsChange={handleCountsChange}
+                isActive={viewMode === 'transactions'}
               />
-            </React.Suspense>
-          ) : viewMode === 'balances' ? (
-            <React.Suspense fallback={<div className="flex items-center justify-center p-8"><Loader2 className="h-6 w-6 animate-spin" /></div>}>
-              <BalancesTable
-                address={submittedAddress}
-                onCountsChange={(count) => {
-                  setTabCounts((prev) => {
-                    if (!Number.isFinite(count)) return prev;
-                    if (typeof prev.holdings === 'number' && prev.holdings >= count) return prev;
-                    return { ...prev, holdings: count };
-                  });
-                }}
-              />
-            </React.Suspense>
-          ) : (
-            <React.Suspense fallback={<div className="flex items-center justify-center p-8"><Loader2 className="h-6 w-6 animate-spin" /></div>}>
-              <RewardsTable address={submittedAddress} />
-            </React.Suspense>
-          )
+            </div>
+
+            {(hasMountedNfts || viewMode === 'nfts') ? (
+              <div className={viewMode === 'nfts' ? '' : 'hidden'} aria-hidden={viewMode !== 'nfts'}>
+                <React.Suspense fallback={<div className="flex items-center justify-center p-8"><Loader2 className="h-6 w-6 animate-spin" /></div>}>
+                  <NftGallery
+                    address={submittedAddress}
+                    enableOwnerInfinite={enableOwnerInfiniteFlag}
+                    onCountsChange={(count) => {
+                      setTabCounts((prev) => {
+                        if (!Number.isFinite(count)) return prev;
+                        if (typeof prev.nfts === 'number' && prev.nfts >= count) return prev;
+                        return { ...prev, nfts: count };
+                      });
+                    }}
+                  />
+                </React.Suspense>
+              </div>
+            ) : null}
+
+            {(hasMountedBalances || viewMode === 'balances') ? (
+              <div className={viewMode === 'balances' ? '' : 'hidden'} aria-hidden={viewMode !== 'balances'}>
+                <React.Suspense fallback={<div className="flex items-center justify-center p-8"><Loader2 className="h-6 w-6 animate-spin" /></div>}>
+                  <BalancesTable
+                    address={submittedAddress}
+                    onCountsChange={(count) => {
+                      setTabCounts((prev) => {
+                        if (!Number.isFinite(count)) return prev;
+                        if (typeof prev.holdings === 'number' && prev.holdings >= count) return prev;
+                        return { ...prev, holdings: count };
+                      });
+                    }}
+                  />
+                </React.Suspense>
+              </div>
+            ) : null}
+
+          </>
         ) : (
           <div className="text-center py-12 bg-white rounded-lg shadow">
             <p className="text-gray-500">Please enter an address to begin.</p>

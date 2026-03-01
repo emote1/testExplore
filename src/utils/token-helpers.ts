@@ -21,9 +21,14 @@ export function toEpochMs(ts: string | number | Date | null | undefined): number
 /**
  * Converts a raw amount string to a float number based on decimals.
  */
-export function toFloatAmount(amountStr: string, decimals: number): number {
-  const s = (amountStr || '').trim();
-  if (!/^\d+$/.test(s)) return 0;
+export function toFloatAmount(amountStr: string | number | bigint | null | undefined, decimals: number): number {
+  const raw = amountStr == null ? '' : String(amountStr).trim();
+  const s = /^\d+$/.test(raw)
+    ? raw
+    : (Number.isFinite(Number(raw)) && Number(raw) >= 0
+      ? Math.trunc(Number(raw)).toLocaleString('fullwide', { useGrouping: false })
+      : '');
+  if (!s) return 0;
   if (decimals === 0) return Number(s);
   if (s.length <= decimals) {
     const pad = s.padStart(decimals, '0');

@@ -5,16 +5,13 @@ import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 // removed unused ApolloClient types
 import { mapTransfersToUiTransfers, type UiTransfer } from '../data/transfer-mapper';
 import {
-  TransferOrderByInput,
-  TransfersPollingQueryQuery,
-  TransfersPollingQueryQueryVariables,
   TransfersMinQueryQuery,
   TransfersMinQueryQueryVariables,
 } from '@/gql/graphql';
 import { TRANSFERS_POLLING_QUERY, PAGINATED_TRANSFERS_QUERY } from '../data/transfers';
 import { PAGINATION_CONFIG } from '../constants/pagination';
 import { useAddressResolver } from './use-address-resolver';
-import { buildTransferWhereFilter, type TransactionDirection } from '@/utils/transfer-query';
+import { buildTransferOrderBy, buildTransferWhereFilter, isHasuraExplorerMode, type TransactionDirection } from '@/utils/transfer-query';
 import { createNewItemDetector } from '@/utils/transfer-new-items';
 
 const MAX_SEEN_IDS = 200;
@@ -78,7 +75,7 @@ export function useTransferSubscription({
 
     return {
       where,
-      orderBy: ['timestamp_DESC', 'id_DESC'] as TransferOrderByInput[],
+      orderBy: buildTransferOrderBy(),
       offset: 0,
       limit: PAGINATION_CONFIG.SUBSCRIPTION_FETCH_SIZE,
     };
@@ -102,10 +99,10 @@ export function useTransferSubscription({
   }, [address, resolvedAddress, resolvedEvmAddress, direction, minReefRaw, maxReefRaw]);
 
 
-  const { data, error, startPolling, stopPolling } = useQuery<TransfersPollingQueryQuery, TransfersPollingQueryQueryVariables>(
-    TRANSFERS_POLLING_QUERY as unknown as TypedDocumentNode<TransfersPollingQueryQuery, TransfersPollingQueryQueryVariables>,
+  const { data, error, startPolling, stopPolling } = useQuery<Record<string, unknown>, Record<string, unknown>>(
+    TRANSFERS_POLLING_QUERY as unknown as TypedDocumentNode<Record<string, unknown>, Record<string, unknown>>,
     {
-      variables: queryVariables as TransfersPollingQueryQueryVariables,
+      variables: queryVariables as Record<string, unknown>,
       skip: !isEnabled || (!resolvedAddress && !resolvedEvmAddress) || !queryVariables,
       pollInterval: isEnabled ? pollIntervalMs : 0,
       notifyOnNetworkStatusChange: false,
@@ -174,18 +171,21 @@ export function useTransferSubscription({
 
     // Always reconcile the cache with the latest polled top list to ensure
     // newest transfers appear even on the first tick (when detector primes)
-    if (PAGINATION_CONFIG.SUB_PREPEND_WITHOUT_REFETCH) {
+    if (PAGINATION_CONFIG.SUB_PREPEND_WITHOUT_REFETCH && !isHasuraExplorerMode) {
       const baseWhere = buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress, direction, minReefRaw, maxReefRaw });
-      const orderBy = ['timestamp_DESC', 'id_DESC'] as TransferOrderByInput[];
+      const orderBy = buildTransferOrderBy() as unknown as TransfersMinQueryQueryVariables['orderBy'];
 
       // Use the raw polled list as prepend candidates (already newest-first)
       const candidates = rawTransfers;
       // Cover timing races between address resolution variants by updating multiple where shapes.
-      const whereVariantsRaw = [
-        baseWhere,
-        buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress: null, direction, minReefRaw, maxReefRaw }),
-        buildTransferWhereFilter({ resolvedAddress: null, resolvedEvmAddress, direction, minReefRaw, maxReefRaw }),
-      ].filter(Boolean) as Array<Record<string, unknown>>;
+      // When both addresses are resolved, baseWhere already covers both — skip redundant variants.
+      const whereVariantsRaw: Array<Record<string, unknown>> = baseWhere ? [baseWhere] : [];
+      if (!(resolvedAddress && resolvedEvmAddress)) {
+        const w1 = buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress: null, direction, minReefRaw, maxReefRaw });
+        const w2 = buildTransferWhereFilter({ resolvedAddress: null, resolvedEvmAddress, direction, minReefRaw, maxReefRaw });
+        if (w1) whereVariantsRaw.push(w1);
+        if (w2) whereVariantsRaw.push(w2);
+      }
       const seenWhere = new Set<string>();
       const whereVariants = whereVariantsRaw.filter((w) => {
         const key = JSON.stringify(w);
@@ -279,6 +279,7 @@ export function useTransferSubscription({
         onNewTransfer(t);
       }
     } else {
+      if (readyNewTransfers.length === 0) return;
       // Fallback: refetch the first page to let merge policy replace edges
       // Debug refetch log removed
       void client

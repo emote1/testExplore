@@ -203,7 +203,7 @@ async function fetchTokenPriceUsd(token: TokenInput, reefUsd: number, signal?: A
   }
 }
 
-const PRICE_TTL_MS = 60_000; // 1 minute
+const PRICE_TTL_MS = 5 * 60_000; // 5 minutes
 const priceTtl = new TtlCache<number>({
   namespace: 'reef:token-prices',
   defaultTtlMs: PRICE_TTL_MS,
@@ -298,7 +298,8 @@ export function useTokenUsdPrices(tokens: TokenInput[]): TokenPricesResult {
         still.push(t);
       }
 
-      // 4) Fallback per-token graph queries for unresolved (limit concurrency)
+      // 4) Fallback per-token graph queries for unresolved (limit to first 5 to avoid slow loads)
+      const MAX_FALLBACK = 5;
       async function pLimitMap<T>(items: T[], limit: number, worker: (item: T, index: number) => Promise<void>) {
         let index = 0;
         const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
@@ -309,7 +310,13 @@ export function useTokenUsdPrices(tokens: TokenInput[]): TokenPricesResult {
         });
         await Promise.all(workers);
       }
-      await pLimitMap(still, 4, async (t) => {
+      // Only query first MAX_FALLBACK tokens, mark rest as null
+      const fallbackTokens = still.slice(0, MAX_FALLBACK);
+      const skippedTokens = still.slice(MAX_FALLBACK);
+      for (const t of skippedTokens) {
+        next[t.id] = null;
+      }
+      await pLimitMap(fallbackTokens, 4, async (t) => {
         const val = await fetchTokenPriceUsd(t, reefPrice.usd, signal);
         if (typeof val === 'number' && Number.isFinite(val) && val > 0) {
           priceTtl.set(`${t.id}:${t.decimals}`, val);

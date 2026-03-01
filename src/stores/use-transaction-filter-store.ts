@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { TransactionDirection } from '@/utils/transfer-query';
 
-export type TxTypeFilter = 'all' | 'incoming' | 'outgoing' | 'swap';
+export type TxTypeFilter = 'all' | 'incoming' | 'outgoing' | 'swap' | 'staking';
 
 interface TransactionFilterState {
   txType: TxTypeFilter;
@@ -56,9 +56,8 @@ export const useTransactionFilterStore = create<TransactionFilterState>()(
       // Only persist specific fields
       partialize: (state) => ({
         txType: state.txType,
+        direction: state.direction,
         tokenFilter: state.tokenFilter,
-        minAmountInput: state.minAmountInput,
-        maxAmountInput: state.maxAmountInput,
       }),
     }
   )

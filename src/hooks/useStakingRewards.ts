@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@apollo/client';
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
-import { STAKINGS_CONNECTION_QUERY, STAKINGS_LIST_QUERY } from '@/data/staking';
+import { STAKINGS_CONNECTION_QUERY, STAKINGS_LIST_QUERY, buildStakingWhere } from '@/data/staking';
 import { useAddressResolver } from './use-address-resolver';
+import { isHasuraExplorerMode } from '@/utils/transfer-query';
 
 export interface UiReward {
   id: string;
@@ -27,6 +28,11 @@ export function useStakingRewards(accountAddress: string | null | undefined, pag
   const { resolveAddress } = useAddressResolver();
   const [resolved, setResolved] = useState<string | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
+
+  const stakingWhere = useMemo(
+    () => (resolved ? buildStakingWhere({ accountId: resolved }) : null),
+    [resolved]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -55,14 +61,24 @@ export function useStakingRewards(accountAddress: string | null | undefined, pag
 
   const { data: conn, loading: connLoading, error: connError } = useQuery(
     STAKINGS_CONNECTION_QUERY as unknown as TypedDocumentNode,
-    { variables: { accountId: resolved as string }, skip: !resolved }
+    {
+      variables: isHasuraExplorerMode
+        ? { where: stakingWhere }
+        : { accountId: resolved as string },
+      skip: !resolved || (isHasuraExplorerMode && !stakingWhere),
+    }
   );
-  const totalCount: number = (conn?.stakingsConnection?.totalCount ?? 0) as number;
+  const totalCount: number = (conn?.stakingsConnection?.totalCount ?? conn?.stakingsConnection?.aggregate?.count ?? 0) as number;
 
   const offset = pageIndex * pageSize;
   const { data, loading, error } = useQuery(
     STAKINGS_LIST_QUERY as unknown as TypedDocumentNode,
-    { variables: { accountId: resolved as string, first: pageSize, after: offset }, skip: !resolved }
+    {
+      variables: isHasuraExplorerMode
+        ? { where: stakingWhere, first: pageSize, after: offset }
+        : { accountId: resolved as string, first: pageSize, after: offset },
+      skip: !resolved || (isHasuraExplorerMode && !stakingWhere),
+    }
   );
 
   const rewards = useMemo<UiReward[]>(() => {

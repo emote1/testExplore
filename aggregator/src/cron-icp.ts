@@ -197,8 +197,35 @@ function ingestNewWalletsInflow(payload: string) {
   }
 }
 
+const HEALTH_CHECK_QUERY = gql`query HealthCheck { squidStatus { height } }`;
+const HEALTH_MAX_WAIT_MS = 30 * 60 * 1000;
+
+async function waitForSubsquid(): Promise<void> {
+  const startMs = Date.now();
+  let attempt = 0;
+  let delayMs = 15_000;
+  while (Date.now() - startMs < HEALTH_MAX_WAIT_MS) {
+    attempt++;
+    try {
+      await request<{ squidStatus: { height: number } }>(REEF_EXPLORER_URL, HEALTH_CHECK_QUERY);
+      if (attempt > 1) console.log(`  Subsquid is back online after ${attempt} attempts`);
+      return;
+    } catch (err) {
+      const elapsed = Math.round((Date.now() - startMs) / 1000);
+      console.warn(`  Subsquid health check failed (attempt ${attempt}, ${elapsed}s elapsed). Retrying in ${delayMs / 1000}s...`);
+      await new Promise((r) => setTimeout(r, delayMs));
+      delayMs = Math.min(delayMs * 1.5, 5 * 60 * 1000);
+    }
+  }
+  throw new Error(`Subsquid unavailable after ${HEALTH_MAX_WAIT_MS / 60000}min — aborting cron`);
+}
+
 async function run() {
   console.log('Starting off-chain aggregation at', new Date().toISOString());
+
+  console.log('Checking Subsquid availability...');
+  await waitForSubsquid();
+  console.log('Subsquid is online.');
 
   const now = new Date();
   const last24hStart = new Date(now.getTime() - 24 * 60 * 60 * 1000);

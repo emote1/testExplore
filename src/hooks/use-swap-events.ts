@@ -15,6 +15,7 @@ export interface UseSwapEventsReturn {
   error?: Error;
   hasMore: boolean;
   fetchMore: () => Promise<void>;
+  totalCount: number | undefined;
 }
 
 // Env knobs to control network load
@@ -392,5 +393,7 @@ export function useSwapEvents(address: string | null, pageSize: number, enabled:
     };
   }, [items?.length, pageSize, hasMore, fetchMore]);
 
-  return { items, loading, error, hasMore, fetchMore };
+  // totalCount: when not loading and no more pages, we know the exact count
+  const totalCount = (!loading && !hasMore) ? items.length : undefined;
+  return { items, loading, error, hasMore, fetchMore, totalCount };
 }

@@ -27,8 +27,8 @@ export const PAGINATION_CONFIG = {
   /** Enable fast mode for deep page jumps using offset/limit window fetches */
   ENABLE_FAST_OFFSET_MODE: true,
 
-  /** Start using fast offset mode when page index is >= this threshold */
-  FAST_OFFSET_MODE_THRESHOLD_PAGES: 50,
+  /** Start using fast offset mode when page index is >= this threshold (low for Hasura with fast offset) */
+  FAST_OFFSET_MODE_THRESHOLD_PAGES: 2,
   
   /** Maximum items for optimized last page fetch */
   MAX_OPTIMIZED_FETCH_COUNT: 50,
@@ -47,9 +47,11 @@ export const PAGINATION_CONFIG = {
   SUB_PREPEND_WITHOUT_REFETCH: true,
 } as const;
 
+const ENV = ((import.meta as unknown as { env?: Record<string, string | undefined> }).env) ?? {};
+
 export const API_CONFIG = {
   /** GraphQL endpoint for Subsquid API */
-  API_URL: 'https://squid.subsquid.io/reef-explorer/graphql',
+  API_URL: ENV.VITE_REEF_EXPLORER_HTTP_URL ?? 'https://squid.subsquid.io/reef-explorer/graphql',
   
   /** Whether the API supports offset-based pagination */
   API_SUPPORTS_OFFSET: false,

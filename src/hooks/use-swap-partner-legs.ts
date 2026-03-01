@@ -3,6 +3,7 @@ import { ApolloClient, NormalizedCacheObject, TypedDocumentNode, useApolloClient
 import { getString } from '@/utils/object';
 import { TRANSFERS_POLLING_QUERY } from '../data/transfers';
 import { identifyMissingPartnerHashes } from '@/utils/transfer-helpers';
+import { buildTransferOrderBy, isHasuraExplorerMode } from '@/utils/transfer-query';
 
 interface Props {
   data?: { transfersConnection?: { edges?: unknown[] } };
@@ -37,12 +38,15 @@ export function useSwapPartnerLegs({ data, swapOnly, enabled }: Props) {
 
     (async () => {
       try {
-        const where = { extrinsicHash_in: missingLimited };
+        const where = isHasuraExplorerMode
+          ? { extrinsic_hash: { _in: missingLimited } }
+          : { extrinsicHash_in: missingLimited };
         const { data: q } = await (client as ApolloClient<NormalizedCacheObject>).query(
           {
             query: TRANSFERS_POLLING_QUERY as unknown as TypedDocumentNode,
             variables: {
               where,
+              orderBy: buildTransferOrderBy(),
               limit: Math.min(missingLimited.length * 10, 400),
             },
             fetchPolicy: 'network-only',

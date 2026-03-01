@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { apolloClient } from '@/apollo-client';
 import { gql } from '@apollo/client';
+import { parse } from 'graphql';
+import { isHasuraExplorerMode } from '@/utils/transfer-query';
 import { fetchValidatorsMeta } from './validator-meta';
 
 const REEF_TOTAL_SUPPLY_FALLBACK = 20_000_000_000;
@@ -49,7 +51,7 @@ async function fetchTotalIssuance(): Promise<number> {
   }
 }
 
-const ERA_VALIDATORS_QUERY = gql`
+const ERA_VALIDATORS_SUBSQUID_QUERY = gql`
   query LatestEraValidators {
     eraValidatorInfos(orderBy: era_DESC, limit: 200) {
       era
@@ -58,6 +60,20 @@ const ERA_VALIDATORS_QUERY = gql`
     }
   }
 `;
+
+const ERA_VALIDATORS_HASURA_QUERY = parse(`
+  query LatestEraValidatorsHasura {
+    eraValidatorInfos: era_validator_info(order_by: [{ era: desc }], limit: 200) {
+      era
+      address
+      total
+    }
+  }
+`);
+
+const ERA_VALIDATORS_QUERY = isHasuraExplorerMode
+  ? ERA_VALIDATORS_HASURA_QUERY
+  : ERA_VALIDATORS_SUBSQUID_QUERY;
 
 interface ValidatorInfo {
   era: number;
@@ -68,7 +84,7 @@ interface ValidatorInfo {
 let cachedDailyReward: { value: number; ts: number } | null = null;
 const DAILY_REWARD_TTL_MS = 30 * 60 * 1000;
 
-const REWARDS_PAGE_QUERY = gql`
+const REWARDS_PAGE_SUBSQUID_QUERY = gql`
   query RewardsPage($from: DateTime!, $offset: Int!) {
     stakings(
       where: { type_eq: Reward, timestamp_gte: $from }
@@ -80,6 +96,23 @@ const REWARDS_PAGE_QUERY = gql`
     }
   }
 `;
+
+const REWARDS_PAGE_HASURA_QUERY = parse(`
+  query RewardsPageHasura($from: timestamptz!, $offset: Int!) {
+    stakings: staking(
+      where: { type: { _eq: "Reward" }, timestamp: { _gte: $from } }
+      order_by: [{ id: asc }]
+      limit: 200
+      offset: $offset
+    ) {
+      amount
+    }
+  }
+`);
+
+const REWARDS_PAGE_QUERY = isHasuraExplorerMode
+  ? REWARDS_PAGE_HASURA_QUERY
+  : REWARDS_PAGE_SUBSQUID_QUERY;
 
 async function fetchDailyNetworkReward(): Promise<number | null> {
   if (cachedDailyReward && Date.now() - cachedDailyReward.ts < DAILY_REWARD_TTL_MS) {

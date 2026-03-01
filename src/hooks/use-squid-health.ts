@@ -7,7 +7,17 @@ interface HealthQueryResult {
   squidStatus?: {
     height?: number | string;
   };
+  latestBlock?: Array<{
+    height?: number | string;
+    timestamp?: string;
+  }>;
+  freshestBlock?: Array<{
+    height?: number | string;
+    timestamp?: string;
+    processorTimestamp?: string;
+  }>;
   blocks?: Array<{
+    height?: number | string;
     timestamp?: string;
     processorTimestamp?: string;
   }>;
@@ -30,10 +40,12 @@ interface Options {
   latencyWindow?: number; // default 20
   circuitTripErrors?: number; // default 2
   circuitCooldownMs?: number; // default 2*60*1000
+  enabled?: boolean;
 }
 
 export function useSquidHealth(opts: Options = {}): SquidHealth {
   const client = useApolloClient();
+  const enabled = opts.enabled ?? true;
   const intervalMs = opts.intervalMs ?? 15_000;
   const lagWarnSec = opts.lagWarnSec ?? 60;
   const staleSec = opts.staleSec ?? 5 * 60;
@@ -81,6 +93,7 @@ export function useSquidHealth(opts: Options = {}): SquidHealth {
   }, [client]);
 
   useEffect(() => {
+    if (!enabled) return;
     let alive = true;
     let timer: number | null = null;
     let backoffMs = intervalMsRef.current;
@@ -118,14 +131,19 @@ export function useSquidHealth(opts: Options = {}): SquidHealth {
         const data = await timedQuery<HealthQueryResult>(HEALTH_COMBINED_QUERY as unknown as TypedDocumentNode);
         if (!alive) return;
 
-        const h = data?.squidStatus?.height;
+        // For Subsquid: squidStatus.height + blocks[0],
+        // For Hasura: latestBlock[0] for chain tip and freshestBlock[0] for ingest freshness.
+        const latestRow = data?.latestBlock?.[0] ?? data?.blocks?.[0];
+        const freshestRow = data?.freshestBlock?.[0] ?? data?.blocks?.[0];
+        const h = data?.squidStatus?.height ?? latestRow?.height ?? freshestRow?.height;
         if (h != null) setHeight(Number(h));
-        const row = data?.blocks?.[0];
-        if (row) {
-          const ts = Date.parse(String(row.timestamp));
-          const pts = row.processorTimestamp ? Date.parse(String(row.processorTimestamp)) : undefined;
+        if (latestRow) {
+          const ts = Date.parse(String(latestRow.timestamp));
           if (!Number.isNaN(ts)) setLastBlockTs(ts);
-          if (pts && !Number.isNaN(pts)) setProcessorTs(pts);
+        }
+        if (freshestRow?.processorTimestamp) {
+          const pts = Date.parse(String(freshestRow.processorTimestamp));
+          if (!Number.isNaN(pts)) setProcessorTs(pts);
         }
         setLastUpdated(Date.now());
 
@@ -187,9 +205,10 @@ export function useSquidHealth(opts: Options = {}): SquidHealth {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       if (timer) window.clearTimeout(timer);
     };
-  }, [client, timedQuery]);
+  }, [client, timedQuery, enabled, circuitTripErrors, circuitCooldownMs]);
 
   const { avg, p95 } = useMemo(() => {
+    if (!lastUpdated) return { avg: undefined, p95: undefined };
     const arr = latenciesRef.current;
     if (arr.length === 0) return { avg: undefined, p95: undefined };
     const sorted = [...arr].sort((a, b) => a - b);
@@ -203,12 +222,15 @@ export function useSquidHealth(opts: Options = {}): SquidHealth {
   const status: SquidHealth['status'] = useMemo(() => {
     if (outageActive) return 'down';
     if (!lastUpdated) return 'loading';
-    if (!lastBlockTs) return 'lagging';
-    const lagSec = Math.max(0, (nowMs - lastBlockTs) / 1000);
+    // During historical backfill, block timestamp can be old while indexer is healthy.
+    // Prefer processor timestamp (ingest time) when available.
+    const freshnessTs = processorTs ?? lastBlockTs;
+    if (!freshnessTs) return 'lagging';
+    const lagSec = Math.max(0, (nowMs - freshnessTs) / 1000);
     if (lagSec > staleSec) return 'stale';
     if (lagSec > lagWarnSec) return 'lagging';
     return 'live';
-  }, [outageActive, lastUpdated, lastBlockTs, lagWarnSec, staleSec, nowMs]);
+  }, [outageActive, lastUpdated, lastBlockTs, processorTs, lagWarnSec, staleSec, nowMs]);
 
   return {
     status,
