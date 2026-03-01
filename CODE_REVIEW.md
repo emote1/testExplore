@@ -370,11 +370,6 @@ npm run codegen
 ```
 - Обновить типы в `src/gql/graphql.ts`
 
-### 5. Тесты (опционально)
-```bash
-npm run test:unit
-```
-- Запустить перед коммитом
 
 ---
 
