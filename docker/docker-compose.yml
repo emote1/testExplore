@@ -63,7 +63,7 @@ services:
       CONCURRENCY: "10"
       POLL_INTERVAL_MS: "6000"
       BACKFILL: "true"
-      BACKFILL_TARGET: "7834548"
+      BACKFILL_TARGET: "5834548"
       START_BLOCK: "12834548"
     depends_on:
       postgres:
