@@ -9,6 +9,8 @@ const REEF_TOTAL_SUPPLY_FALLBACK = 20_000_000_000;
 const REEF_RPC_URL = 'https://rpc.reefscan.info';
 const TOTAL_ISSUANCE_KEY = '0xc2261276cc9d1f8598ea4b6a74b15c2f57c875e4cff74148e4628f264b974c80';
 const DAYS_PER_YEAR = 365;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const APY_REWARDS_WINDOW_SIZE = Number(import.meta.env.VITE_STAKING_APY_REWARDS_WINDOW_SIZE ?? '2000');
 
 function hexLeToReef(hex: string): number {
   const clean = hex.startsWith('0x') ? hex.slice(2) : hex;
@@ -84,65 +86,98 @@ interface ValidatorInfo {
 let cachedDailyReward: { value: number; ts: number } | null = null;
 const DAILY_REWARD_TTL_MS = 30 * 60 * 1000;
 
-const REWARDS_PAGE_SUBSQUID_QUERY = gql`
-  query RewardsPage($from: DateTime!, $offset: Int!) {
+const REWARDS_WINDOW_SUBSQUID_QUERY = gql`
+  query RewardsWindow($limit: Int!, $offset: Int!) {
     stakings(
-      where: { type_eq: Reward, timestamp_gte: $from }
-      orderBy: [id_ASC]
-      limit: 200
+      where: { type_eq: Reward }
+      orderBy: [timestamp_DESC, id_DESC]
+      limit: $limit
       offset: $offset
     ) {
       amount
+      timestamp
     }
   }
 `;
 
-const REWARDS_PAGE_HASURA_QUERY = parse(`
-  query RewardsPageHasura($from: timestamptz!, $offset: Int!) {
+const REWARDS_WINDOW_HASURA_QUERY = parse(`
+  query RewardsWindowHasura($limit: Int!, $offset: Int!) {
     stakings: staking(
-      where: { type: { _eq: "Reward" }, timestamp: { _gte: $from } }
-      order_by: [{ id: asc }]
-      limit: 200
+      where: { type: { _eq: "Reward" } }
+      order_by: [{ timestamp: desc }, { id: desc }]
+      limit: $limit
       offset: $offset
     ) {
       amount
+      timestamp
     }
   }
 `);
 
-const REWARDS_PAGE_QUERY = isHasuraExplorerMode
-  ? REWARDS_PAGE_HASURA_QUERY
-  : REWARDS_PAGE_SUBSQUID_QUERY;
+const REWARDS_WINDOW_QUERY = isHasuraExplorerMode
+  ? REWARDS_WINDOW_HASURA_QUERY
+  : REWARDS_WINDOW_SUBSQUID_QUERY;
+
+interface RewardRow {
+  amount: string;
+  timestamp: string;
+}
+
+function toWindowSize(value: number): number {
+  if (!Number.isFinite(value)) return 2000;
+  return Math.min(10_000, Math.max(1, Math.floor(value)));
+}
+
+function parseMs(ts?: string): number | null {
+  if (!ts) return null;
+  const ms = new Date(ts).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
 
 async function fetchDailyNetworkReward(): Promise<number | null> {
   if (cachedDailyReward && Date.now() - cachedDailyReward.ts < DAILY_REWARD_TTL_MS) {
     return cachedDailyReward.value;
   }
   try {
-    const from = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    let totalRaw = 0n;
+    const windowSize = toWindowSize(APY_REWARDS_WINDOW_SIZE);
+    const pageSize = 200;
+    const maxPages = Math.ceil(windowSize / pageSize) + 1;
+    const rewards: RewardRow[] = [];
     let offset = 0;
-    const maxPages = 20;
 
     for (let page = 0; page < maxPages; page++) {
       const { data } = await apolloClient.query({
-        query: REWARDS_PAGE_QUERY,
-        variables: { from, offset },
+        query: REWARDS_WINDOW_QUERY,
+        variables: { limit: pageSize, offset },
         fetchPolicy: 'network-only',
       });
-      const rewards = data?.stakings ?? [];
-      if (rewards.length === 0) break;
-      for (const r of rewards) {
-        totalRaw += BigInt(r.amount);
-      }
-      if (rewards.length < 200) break;
-      offset += 200;
+      const pageRows = (data?.stakings ?? []) as RewardRow[];
+      if (pageRows.length === 0) break;
+      rewards.push(...pageRows);
+      if (rewards.length >= windowSize || pageRows.length < pageSize) break;
+      offset += pageSize;
     }
 
-    const totalReef = bigIntToReef(totalRaw);
-    if (totalReef > 0) {
-      cachedDailyReward = { value: totalReef, ts: Date.now() };
-      return totalReef;
+    const windowRewards = rewards.slice(0, windowSize);
+    if (windowRewards.length === 0) return null;
+
+    let totalRaw = 0n;
+    for (const r of windowRewards) {
+      totalRaw += BigInt(r.amount);
+    }
+
+    const newestMs = parseMs(windowRewards[0]?.timestamp);
+    const oldestMs = parseMs(windowRewards[windowRewards.length - 1]?.timestamp);
+    let windowMs = MS_PER_DAY;
+    if (newestMs != null && oldestMs != null) {
+      windowMs = Math.max(60 * 60 * 1000, newestMs - oldestMs);
+    }
+
+    const totalWindowReef = bigIntToReef(totalRaw);
+    if (totalWindowReef > 0) {
+      const dailyEquivalentReward = totalWindowReef * (MS_PER_DAY / windowMs);
+      cachedDailyReward = { value: dailyEquivalentReward, ts: Date.now() };
+      return dailyEquivalentReward;
     }
     return null;
   } catch {

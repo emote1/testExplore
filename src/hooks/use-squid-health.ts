@@ -222,9 +222,10 @@ export function useSquidHealth(opts: Options = {}): SquidHealth {
   const status: SquidHealth['status'] = useMemo(() => {
     if (outageActive) return 'down';
     if (!lastUpdated) return 'loading';
-    // During historical backfill, block timestamp can be old while indexer is healthy.
-    // Prefer processor timestamp (ingest time) when available.
-    const freshnessTs = processorTs ?? lastBlockTs;
+    // In server/Hasura mode processor_timestamp may lag behind latest block timestamp.
+    // Use the freshest known timestamp to avoid false stale/down states.
+    const candidates = [processorTs, lastBlockTs].filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+    const freshnessTs = candidates.length > 0 ? Math.max(...candidates) : undefined;
     if (!freshnessTs) return 'lagging';
     const lagSec = Math.max(0, (nowMs - freshnessTs) / 1000);
     if (lagSec > staleSec) return 'stale';

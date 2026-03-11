@@ -1,14 +1,38 @@
 import React from 'react';
-import { Search } from 'lucide-react';
+import { Search, PlugZap, Wallet } from 'lucide-react';
 import { NetworkStatistics } from './NetworkStatistics';
+import { Button } from './ui/button';
 
 interface HomeLandingProps {
   onSearch: (value: string) => void;
+  connectedAddress?: string | null;
+  isConnecting?: boolean;
+  walletAvailable?: boolean;
+  walletError?: string | null;
+  onConnectWallet?: () => void;
+  onOpenMyWallet?: () => void;
 }
 
-export function HomeLanding({ onSearch }: HomeLandingProps) {
+function shortenAddress(address: string): string {
+  if (address.length <= 16) return address;
+  return `${address.slice(0, 8)}…${address.slice(-6)}`;
+}
+
+export function HomeLanding({
+  onSearch,
+  connectedAddress,
+  isConnecting,
+  walletAvailable = true,
+  walletError,
+  onConnectWallet,
+  onOpenMyWallet,
+}: HomeLandingProps) {
   const [value, setValue] = React.useState('');
   const statsRef = React.useRef<HTMLDivElement>(null);
+  const isMobile = React.useMemo(() => {
+    if (typeof navigator === 'undefined') return false;
+    return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  }, []);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -35,6 +59,73 @@ export function HomeLanding({ onSearch }: HomeLandingProps) {
           <p className="text-lg text-muted-foreground/80 mb-12 max-w-2xl mx-auto">
             <span className="bg-gradient-to-r from-[#2563EB] to-[#3B82F6] bg-clip-text text-transparent font-medium">SOVRA</span> — where data becomes sovereignty.
           </p>
+
+          <div className="mb-8 flex flex-wrap items-center justify-center gap-3">
+            {connectedAddress ? (
+              <>
+                <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700 shadow-sm">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                  <span>Connected: {shortenAddress(connectedAddress)}</span>
+                </div>
+                <Button
+                  type="button"
+                  onClick={onOpenMyWallet}
+                  className="h-11 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 px-5 text-white hover:from-emerald-500 hover:to-teal-400"
+                >
+                  <Wallet className="h-4 w-4" />
+                  <span>Open My Wallet</span>
+                </Button>
+              </>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onConnectWallet}
+                disabled={isConnecting || !walletAvailable}
+                className="h-11 rounded-xl border-blue-200 bg-white/80 px-5 text-blue-700 hover:bg-blue-50"
+              >
+                <PlugZap className="h-4 w-4" />
+                <span>{isConnecting ? 'Connecting...' : walletAvailable ? 'Connect Wallet Mode' : 'Wallet Extension Not Found'}</span>
+              </Button>
+            )}
+          </div>
+
+          {walletError ? (
+            <div className="mx-auto mb-6 max-w-2xl rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              {walletError}
+            </div>
+          ) : null}
+
+          {!connectedAddress && !walletAvailable ? (
+            <div className="mx-auto mb-8 max-w-2xl rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-50 to-cyan-50 p-4 text-left shadow-sm">
+              <p className="text-sm font-medium text-slate-800">
+                Browser extension is unavailable on this device.
+              </p>
+              <p className="mt-1 text-sm text-slate-600">
+                {isMobile
+                  ? 'Use Reef Chain Wallet mobile app and connect to dApps via WalletConnect/in-app browser.'
+                  : 'If you are on desktop, install/enable Reef Chain Wallet Extension in your browser.'}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <a
+                  href="https://reef.io/wearereef/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500"
+                >
+                  Reef Wallet Info
+                </a>
+                <a
+                  href="https://docs.reef.io/docs/users/reef-chain-wallet/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50"
+                >
+                  WalletConnect Guide
+                </a>
+              </div>
+            </div>
+          ) : null}
 
           {/* Search Container: max-w-768px, mb-48px */}
           <form onSubmit={handleSubmit} className="max-w-3xl mx-auto mb-12">

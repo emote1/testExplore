@@ -83,11 +83,53 @@ Recommendations:
 - Fast RPC/REST: 16/12
 - Cautious or limited providers: 8/8
 
+## Mobile WalletConnect (Reef Mobile App)
+
+For full mobile wallet connection (Reef Chain Wallet app via WalletConnect), set:
+
+- `VITE_WALLETCONNECT_PROJECT_ID` — required Reown/WalletConnect Cloud project ID
+- `VITE_REEF_WALLETCONNECT_CHAIN_ID` — optional, defaults to `13939`
+- `VITE_REEF_EVM_RPC_URL` — optional, defaults to `https://rpc.reefscan.com`
+
+Example (PowerShell):
+```powershell
+$env:VITE_WALLETCONNECT_PROJECT_ID='your_project_id'
+$env:VITE_REEF_WALLETCONNECT_CHAIN_ID='13939'
+$env:VITE_REEF_EVM_RPC_URL='https://rpc.reefscan.com'
+npm run dev
+```
+
 ## Data Sources Defaults
 
 - NFT metadata: auto (RPC → marketplace → Graph ERC1155 URI)
 - Price source: Graph (Reefswap Subsquid)
 - Notes: RPC используется только для `tokenURI/uri` (ERC721/1155). Цены считаются по пулам DEX через Subsquid Graph, чтобы не нагружать RPC. Эндпоинты и поведение можно настраивать через переменные окружения — см. `.env.example`.
+
+## Secure Hasura Access (server-only secret)
+
+This project uses a server-side proxy at `/api/reef-explorer` so the frontend never contains `x-hasura-admin-secret`.
+
+Production frontend env:
+
+```env
+VITE_REEF_EXPLORER_HTTP_URL=/api/reef-explorer
+VITE_REEF_EXPLORER_WS_URL=/api/reef-explorer
+```
+
+Local dev (optional Vite proxy):
+
+```env
+VITE_REEF_EXPLORER_HTTP_URL=/api/reef-explorer
+VITE_REEF_EXPLORER_WS_URL=ws://localhost:5173/api/reef-explorer
+REEF_EXPLORER_PROXY_TARGET=http://89.167.60.159:8080
+REEF_EXPLORER_PROXY_PATH=/v1/graphql
+REEF_EXPLORER_ADMIN_SECRET=your_server_secret
+```
+
+Notes:
+- `REEF_EXPLORER_*` are Vite server variables and are not exposed to browser code.
+- Do not use `VITE_REEF_EXPLORER_ADMIN_SECRET`.
+- Legacy local Docker Hasura/indexer stack was removed from this repository.
 
 ## Custom Hooks Documentation
 

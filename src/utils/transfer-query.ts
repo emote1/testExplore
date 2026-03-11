@@ -4,8 +4,14 @@ import { safeBigInt } from '@/utils/token-helpers';
 
 const ENV = ((import.meta as unknown as { env?: Record<string, string | undefined> }).env) ?? {};
 const EXPLORER_HTTP_URL = ENV.VITE_REEF_EXPLORER_HTTP_URL ?? '';
+const EXPLORER_BACKEND = (ENV.VITE_REEF_EXPLORER_BACKEND ?? '').toLowerCase();
 
-export const isHasuraExplorerMode = EXPLORER_HTTP_URL.includes('/v1/graphql');
+const isLikelyHasuraEndpoint = EXPLORER_HTTP_URL.includes('/v1/graphql')
+  || EXPLORER_HTTP_URL.includes('/api/reef-explorer');
+
+export const isHasuraExplorerMode = EXPLORER_BACKEND
+  ? EXPLORER_BACKEND === 'hasura'
+  : isLikelyHasuraEndpoint;
 
 interface BuildFilterParams {
   resolvedAddress?: string | null;

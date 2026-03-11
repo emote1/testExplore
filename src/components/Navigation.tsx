@@ -1,14 +1,62 @@
+import { useEffect, useRef, useState } from 'react';
 import { Button } from './ui/button';
-import { Search, Wallet, Box } from 'lucide-react';
+import { Search, Wallet, Box, PlugZap, LogOut, ChevronDown, Check } from 'lucide-react';
 
 type AppPage = 'search' | 'wallet';
+
+interface WalletAccountOption {
+  address: string;
+  name?: string;
+}
 
 interface NavigationProps {
   currentPage: AppPage;
   onPageChange: (page: AppPage) => void;
+  connectedAddress?: string | null;
+  walletAccounts?: WalletAccountOption[];
+  isConnecting?: boolean;
+  walletAvailable?: boolean;
+  onConnectWallet?: () => void;
+  onDisconnectWallet?: () => void;
+  onOpenMyWallet?: () => void;
+  onSelectWalletAddress?: (address: string) => void;
 }
 
-export function Navigation({ currentPage, onPageChange }: NavigationProps) {
+function shortenAddress(address: string): string {
+  if (address.length <= 14) return address;
+  return `${address.slice(0, 6)}…${address.slice(-6)}`;
+}
+
+export function Navigation({
+  currentPage,
+  onPageChange,
+  connectedAddress,
+  walletAccounts = [],
+  isConnecting,
+  walletAvailable = true,
+  onConnectWallet,
+  onDisconnectWallet,
+  onOpenMyWallet,
+  onSelectWalletAddress,
+}: NavigationProps) {
+  const [isPickerOpen, setIsPickerOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!isPickerOpen) return;
+    const onDocClick = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (!pickerRef.current?.contains(target)) {
+        setIsPickerOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [isPickerOpen]);
+
+  const selectedAccount = walletAccounts.find((a) => a.address === connectedAddress) ?? null;
+  const selectedLabel = selectedAccount?.name ?? 'Wallet';
+
   const navItems = [
     { id: 'search' as AppPage, label: 'Search', icon: Search },
     { id: 'wallet' as AppPage, label: 'Wallet', icon: Wallet },
@@ -49,6 +97,98 @@ export function Navigation({ currentPage, onPageChange }: NavigationProps) {
                 );
               })}
             </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {connectedAddress ? (
+              <>
+                <button
+                  type="button"
+                  onClick={onOpenMyWallet}
+                  className="flex items-center gap-2 rounded-full border border-emerald-200/80 bg-gradient-to-r from-emerald-50 to-teal-50 px-3 py-1.5 text-xs font-medium text-emerald-700 shadow-sm hover:from-emerald-100 hover:to-teal-100"
+                >
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.18)]" />
+                  <span className="hidden sm:inline">{selectedLabel}</span>
+                  <span className="text-emerald-600/80">{shortenAddress(connectedAddress)}</span>
+                </button>
+                {walletAccounts.length > 1 ? (
+                  <>
+                    <select
+                      value={connectedAddress ?? ''}
+                      onChange={(e) => onSelectWalletAddress?.(e.target.value)}
+                      className="block md:hidden h-8 max-w-[130px] rounded-lg border border-blue-200/70 bg-white px-2 text-xs text-slate-700 shadow-sm"
+                    >
+                      {walletAccounts.map((account) => (
+                        <option key={account.address} value={account.address}>
+                          {account.name ?? shortenAddress(account.address)}
+                        </option>
+                      ))}
+                    </select>
+                    <div ref={pickerRef} className="relative hidden md:block">
+                    <button
+                      type="button"
+                      onClick={() => setIsPickerOpen((v) => !v)}
+                      className="inline-flex h-8 items-center gap-2 rounded-lg border border-blue-200/70 bg-white px-3 text-xs font-medium text-slate-700 shadow-sm hover:bg-blue-50/60"
+                    >
+                      <Wallet className="h-3.5 w-3.5 text-blue-600" />
+                      <span>{walletAccounts.length} accounts</span>
+                      <ChevronDown className={`h-3.5 w-3.5 text-slate-500 transition-transform ${isPickerOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    {isPickerOpen ? (
+                      <div className="absolute right-0 z-50 mt-2 w-80 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+                        <div className="border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-500">
+                          Select active wallet
+                        </div>
+                        <div className="max-h-80 overflow-auto p-1.5">
+                          {walletAccounts.map((account) => {
+                            const isSelected = account.address === connectedAddress;
+                            return (
+                              <button
+                                key={account.address}
+                                type="button"
+                                onClick={() => {
+                                  onSelectWalletAddress?.(account.address);
+                                  setIsPickerOpen(false);
+                                }}
+                                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left transition-colors ${
+                                  isSelected ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-50'
+                                }`}
+                              >
+                                <div className="min-w-0">
+                                  <div className="truncate text-sm font-medium">{account.name ?? 'Unnamed Account'}</div>
+                                  <div className="truncate text-xs text-slate-500">{account.address}</div>
+                                </div>
+                                {isSelected ? <Check className="h-4 w-4 text-blue-600" /> : null}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
+                    </div>
+                  </>
+                ) : null}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onDisconnectWallet}
+                  className="border-slate-200 text-slate-700"
+                >
+                  <LogOut className="h-4 w-4" />
+                  <span className="hidden sm:inline">Disconnect</span>
+                </Button>
+              </>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onConnectWallet}
+                disabled={isConnecting || !walletAvailable}
+                className="border-blue-200 text-blue-700 hover:bg-blue-50"
+              >
+                <PlugZap className="h-4 w-4" />
+                <span>{isConnecting ? 'Connecting...' : walletAvailable ? 'Connect Wallet' : 'Wallet Not Found'}</span>
+              </Button>
+            )}
           </div>
         </div>
       </div>

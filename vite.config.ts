@@ -1,11 +1,16 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import type { Plugin as RollupPlugin } from 'rollup';
 import { VitePWA } from 'vite-plugin-pwa';
 
 // https://vitejs.dev/config/
-export default defineConfig(async () => {
+export default defineConfig(async ({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  const proxyTarget = env.REEF_EXPLORER_PROXY_TARGET ?? '';
+  const proxyPath = env.REEF_EXPLORER_PROXY_PATH ?? '/v1/graphql';
+  const proxyAdminSecret = env.REEF_EXPLORER_ADMIN_SECRET ?? '';
+
   const plugins = [
     react(),
     VitePWA({
@@ -61,6 +66,30 @@ export default defineConfig(async () => {
 
   return {
     plugins,
+    server: proxyTarget
+      ? {
+        proxy: {
+          '/api/reef-explorer': {
+            target: proxyTarget,
+            changeOrigin: true,
+            secure: false,
+            ws: true,
+            rewrite: () => proxyPath,
+            configure: (proxy: {
+              on: (
+                event: 'proxyReq',
+                callback: (proxyReq: { setHeader: (name: string, value: string) => void }) => void
+              ) => void;
+            }) => {
+              if (!proxyAdminSecret) return;
+              proxy.on('proxyReq', (proxyReq) => {
+                proxyReq.setHeader('x-hasura-admin-secret', proxyAdminSecret);
+              });
+            },
+          },
+        },
+      }
+      : undefined,
     resolve: {
       alias: {
         'react/jsx-runtime': path.resolve(__dirname, 'node_modules/react/jsx-runtime.js'),
