@@ -2,10 +2,9 @@
 // Use named exports; no React components here.
 
 export const DEFAULT_IPFS_GATEWAYS: readonly string[] = [
-  'https://ipfs.io/ipfs/',
-  'https://reef.infura-ipfs.io/ipfs/',
-  'https://cloudflare-ipfs.com/ipfs/',
   'https://dweb.link/ipfs/',
+  'https://ipfs.io/ipfs/',
+  'https://w3s.link/ipfs/',
 ];
 
 export interface BuildCandidatesOptions {
@@ -14,6 +13,16 @@ export interface BuildCandidatesOptions {
 
 // Read env in a Vite-friendly way without importing types.
 const ENV = ((import.meta as unknown as { env?: Record<string, string | undefined> }).env) ?? {};
+
+function isBlockedGateway(gateway: string): boolean {
+  try {
+    const u = new URL(gateway);
+    const host = u.hostname.toLowerCase();
+    return host === 'cloudflare-ipfs.com' || host === 'reef.infura-ipfs.io' || host === 'dweb.link';
+  } catch {
+    return false;
+  }
+}
 
 function ensureIpfsGatewayBase(gateway: string): string {
   let base = (gateway || '').trim();
@@ -28,18 +37,22 @@ function ensureIpfsGatewayBase(gateway: string): string {
 
 export function resolveIpfsGateways(): string[] {
   try {
-    const list = (ENV.VITE_IPFS_GATEWAYS ?? '').split(',').map((s) => ensureIpfsGatewayBase(s)).filter(Boolean);
+    const list = (ENV.VITE_IPFS_GATEWAYS ?? '')
+      .split(',')
+      .map((s) => ensureIpfsGatewayBase(s))
+      .filter(Boolean)
+      .filter((g) => !isBlockedGateway(g));
     if (list.length > 0) {
       // Dedup while preserving order
       const seen = new Set<string>();
       return list.filter((g) => (seen.has(g) ? false : (seen.add(g), true)));
     }
     const single = ensureIpfsGatewayBase(ENV.VITE_IPFS_GATEWAY ?? '');
-    if (single) return [single];
+    if (single && !isBlockedGateway(single)) return [single];
   } catch {
     // ignore
   }
-  return [...DEFAULT_IPFS_GATEWAYS];
+  return DEFAULT_IPFS_GATEWAYS.filter((g) => !isBlockedGateway(g));
 }
 
 export function isIpfsLike(url?: string | null): boolean {
@@ -61,12 +74,17 @@ function extractIpfsCidPath(url: string): string | null {
     const m = url.match(/\/(?:ipfs)\/([^?#]+)/i);
     if (m && m[1]) return m[1];
     // Subdomain gateway: https://<cid>.ipfs.<gateway>/<path>
-    // Accept base32 (lowercase) and base58 (mixed), keep it lenient.
-    const sub = url.match(/^https?:\/\/([a-z0-9]+)\.ipfs\.[^/]+\/?([^?#]*)/i);
-    if (sub && sub[1]) {
-      const cid = sub[1];
-      const rest = sub[2] ?? '';
-      return rest ? `${cid}/${rest}` : cid;
+    // Parse via URL to support broader CID character sets reliably.
+    const parsed = new URL(url);
+    const host = parsed.hostname;
+    const marker = '.ipfs.';
+    const pos = host.indexOf(marker);
+    if (pos > 0) {
+      const cid = host.slice(0, pos).trim();
+      if (cid) {
+        const rest = (parsed.pathname ?? '').replace(/^\/+/, '');
+        return rest ? `${cid}/${rest}` : cid;
+      }
     }
     return null;
   } catch {

@@ -4,10 +4,6 @@ import { useQuery, useApolloClient } from '@apollo/client';
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 // removed unused ApolloClient types
 import { mapTransfersToUiTransfers, type UiTransfer } from '../data/transfer-mapper';
-import {
-  TransfersMinQueryQuery,
-  TransfersMinQueryQueryVariables,
-} from '@/gql/graphql';
 import { TRANSFERS_POLLING_QUERY, PAGINATED_TRANSFERS_QUERY } from '../data/transfers';
 import { PAGINATION_CONFIG } from '../constants/pagination';
 import { useAddressResolver } from './use-address-resolver';
@@ -15,6 +11,23 @@ import { buildTransferOrderBy, buildTransferWhereFilter, isHasuraExplorerMode, t
 import { createNewItemDetector } from '@/utils/transfer-new-items';
 
 const MAX_SEEN_IDS = 200;
+
+interface TransfersMinQueryResult {
+  transfersConnection?: {
+    edges?: Array<{ node?: { id?: string } }>;
+    pageInfo?: {
+      hasNextPage?: boolean;
+      endCursor?: string | null;
+    };
+    totalCount?: number;
+  };
+}
+
+interface TransfersMinQueryVars {
+  first?: number;
+  where?: Record<string, unknown>;
+  orderBy?: unknown;
+}
 
 interface UseTransferSubscriptionProps {
   address: string | null;
@@ -173,7 +186,7 @@ export function useTransferSubscription({
     // newest transfers appear even on the first tick (when detector primes)
     if (PAGINATION_CONFIG.SUB_PREPEND_WITHOUT_REFETCH && !isHasuraExplorerMode) {
       const baseWhere = buildTransferWhereFilter({ resolvedAddress, resolvedEvmAddress, direction, minReefRaw, maxReefRaw });
-      const orderBy = buildTransferOrderBy() as unknown as TransfersMinQueryQueryVariables['orderBy'];
+      const orderBy = buildTransferOrderBy() as unknown;
 
       // Use the raw polled list as prepend candidates (already newest-first)
       const candidates = rawTransfers;
@@ -197,9 +210,9 @@ export function useTransferSubscription({
       for (const where of whereVariants) {
         // Debug cache.reconcile prepend log removed
         try {
-          client.cache.updateQuery<TransfersMinQueryQuery, TransfersMinQueryQueryVariables>(
+          client.cache.updateQuery<TransfersMinQueryResult, TransfersMinQueryVars>(
             {
-              query: PAGINATED_TRANSFERS_QUERY as unknown as TypedDocumentNode<TransfersMinQueryQuery, TransfersMinQueryQueryVariables>,
+              query: PAGINATED_TRANSFERS_QUERY as unknown as TypedDocumentNode<TransfersMinQueryResult, TransfersMinQueryVars>,
               variables: {
                 first: PAGINATION_CONFIG.API_FETCH_PAGE_SIZE,
                 where,
@@ -285,7 +298,7 @@ export function useTransferSubscription({
       void client
         .refetchQueries({
           include: [
-            PAGINATED_TRANSFERS_QUERY as unknown as TypedDocumentNode<TransfersMinQueryQuery, TransfersMinQueryQueryVariables>,
+            PAGINATED_TRANSFERS_QUERY as unknown as TypedDocumentNode<TransfersMinQueryResult, TransfersMinQueryVars>,
           ],
         })
         .then(() => {

@@ -12,7 +12,6 @@ import { parseDataUrlJson } from '../utils/data-url';
 import { toHex, decodeAbiString, applyErc1155Template } from '../utils/abi';
 import { isLikelyRpcEndpoint } from '../utils/url';
 import { isValidEvmAddressFormat } from '../utils/address-helpers';
-import type { NftsByOwnerPagedQuery, NftsByOwnerPagedQueryVariables, ContractType } from '@/gql/graphql';
 
 // Define the types for better type-checking
 interface NftAttribute {
@@ -54,8 +53,20 @@ interface SqwidMeta {
 }
 
 // GraphQL result typing helpers
-type TokenHolderNode = NftsByOwnerPagedQuery['tokenHolders'][number];
-type TokenType = Extract<ContractType, 'ERC721' | 'ERC1155'>;
+type TokenType = 'ERC721' | 'ERC1155';
+interface TokenHolderNode {
+  id?: string;
+  balance?: unknown;
+  type?: string | null;
+  nftId?: unknown;
+  tokenId?: string | null;
+  token?: { id?: string; type?: string | null } | null;
+}
+interface NftsByOwnerPagedQueryVariables {
+  owner: string;
+  limit: number;
+  offset: number;
+}
 
 interface UniquePair {
   contractAddress: string;
@@ -65,10 +76,10 @@ interface UniquePair {
 }
 
 function toUniquePair(t: TokenHolderNode): UniquePair | null {
-  const contractId = t?.token?.id ?? undefined;
+  const contractId = t?.tokenId ?? t?.token?.id ?? undefined;
   const nftIdRaw = t?.nftId as unknown;
   const nftId = typeof nftIdRaw === 'string' || typeof nftIdRaw === 'number' ? nftIdRaw : undefined;
-  const typeRaw = (t?.token?.type ?? undefined) as ContractType | null | undefined;
+  const typeRaw = t?.type ?? t?.token?.type ?? undefined;
   const tokenType: TokenType | undefined = typeRaw === 'ERC721' || typeRaw === 'ERC1155' ? typeRaw : undefined;
   const ownedAmount = toU64(t?.balance as unknown, 0);
   if (!contractId || (nftId === undefined || nftId === null)) return null;
@@ -699,8 +710,9 @@ async function fetchMetadataOnce(contractAddress: string, nftId: string | number
   if (inflight.has(key)) return inflight.get(key)!;
 
   const task = (async () => {
+    // Приоритет: сначала Sqwid API (быстро, стабильно), потом RPC (медленно, часто ошибки)
     const sqwidQuick = await getSqwidMeta(contractAddress, nftId);
-    if (sqwidQuick && (sqwidQuick.image || sqwidQuick.media || sqwidQuick.thumbnail || sqwidQuick.name)) {
+    if (sqwidQuick && (sqwidQuick.image || sqwidQuick.media || sqwidQuick.thumbnail)) {
       const name = sqwidQuick.name ?? `Token #${nftId}`;
       const image = sqwidQuick.image;
       const media = sqwidQuick.media;
@@ -710,17 +722,13 @@ async function fetchMetadataOnce(contractAddress: string, nftId: string | number
       return { id: key, name, image, media, thumbnail, mimetype, amount } as Nft;
     }
 
+    // Если Sqwid API не дал медиа, пробуем RPC tokenURI
     let tokenUri = await resolveTokenURI(contractAddress, nftId, tokenType);
     if (!tokenUri) {
-      const sqwid = await getSqwidMeta(contractAddress, nftId);
-      if (sqwid) {
-        const name = sqwid.name ?? `Token #${nftId}`;
-        const image = sqwid.image;
-        const media = sqwid.media;
-        const thumbnail = sqwid.thumbnail;
-        const mimetype = sqwid.mimetype;
-        const amount = sqwid.amount;
-        return { id: key, name, image, media, thumbnail, mimetype, amount } as Nft;
+      // Если RPC тоже не дал tokenURI, используем Sqwid name-only fallback
+      if (sqwidQuick) {
+        const name = sqwidQuick.name ?? `Token #${nftId}`;
+        return { id: key, name, image: sqwidQuick.image, media: sqwidQuick.media, thumbnail: sqwidQuick.thumbnail, mimetype: sqwidQuick.mimetype, amount: sqwidQuick.amount } as Nft;
       }
       return { id: key, name: `Token #${nftId}` } as Nft;
     }
@@ -828,21 +836,22 @@ export const useSqwidNfts = (address: string | null) => {
 
         const evmAddress = await resolveEvmAddress(inputAddress);
         if (!evmAddress) return { nfts: [], collections: [] };
+        const ownerForHasura = evmAddress.toLowerCase();
 
         // Page through tokenHolders to stay under Squid size limits
         const pageSize = 100; // keep each response small
-        const maxPairs = 300;  // safety cap to avoid hammering downstream metadata API
+        const maxPairs = 500;  // safety cap to avoid hammering downstream metadata API
         const seen = new Set<string>();
         const uniquePairs: UniquePair[] = [];
         let offset = 0;
-        for (let page = 0; page < 10; page++) {
-          const { data } = await client.query<NftsByOwnerPagedQuery, NftsByOwnerPagedQueryVariables>({
+        for (let page = 0; page < 15; page++) {
+          const { data } = await client.query<{ tokenHolders?: TokenHolderNode[] }, NftsByOwnerPagedQueryVariables>({
             query: NFTS_BY_OWNER_PAGED_QUERY,
-            variables: { owner: evmAddress, limit: pageSize, offset },
+            variables: { owner: ownerForHasura, limit: pageSize, offset },
             fetchPolicy: 'network-only',
             context: { fetchOptions: { signal: getAbortSignal() } },
           });
-          const batch: TokenHolderNode[] = Array.isArray(data?.tokenHolders) ? data!.tokenHolders : [];
+          const batch: TokenHolderNode[] = Array.isArray(data?.tokenHolders) ? data.tokenHolders : [];
           if (!Array.isArray(batch) || batch.length === 0) break;
 
           for (const t of batch) {

@@ -382,7 +382,7 @@ export function BalancesTable({ address, onCountsChange }: BalancesTableProps) {
               </tr>
             ) : balances.length === 0 ? (
               <tr>
-                <td colSpan={4} className="py-6 text-center text-gray-600">No ERC20 balances found for this address.</td>
+                <td colSpan={4} className="py-6 text-center text-gray-600">No balances found for this address.</td>
               </tr>
             ) : (
               displayBalances.map((b, index) => {

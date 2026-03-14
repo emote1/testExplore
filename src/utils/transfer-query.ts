@@ -207,7 +207,7 @@ function buildTransferWhereFilterHasura({
       if (hasMin) andClauses.push({ amount: { _gte: safeBigInt(minReefRaw!).toString() } });
       if (hasMax) andClauses.push({ amount: { _lte: safeBigInt(maxReefRaw!).toString() } });
     } else if (erc20Only) {
-      andClauses.push({ verified_contract: { type: { _eq: 'ERC20' } } });
+      andClauses.push({ token_id: { _is_null: false } });
     }
   }
 

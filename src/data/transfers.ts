@@ -1,21 +1,9 @@
-import { graphql } from '@/gql';
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { type ApolloClient, type NormalizedCacheObject } from '@apollo/client';
 import { parse } from 'graphql';
-import { buildTransferOrderBy, isHasuraExplorerMode } from '@/utils/transfer-query';
+import { buildTransferOrderBy } from '@/utils/transfer-query';
 
 // Identity resolution: get extrinsic id/hash by any of the identifiers (hash, id, or height+index)
-const EXTRINSIC_IDENTITY_UNIFIED_SUBSQUID_QUERY = graphql(`
-  query ExtrinsicIdentityUnified(
-    $hash: String, $id: String, $height: Int, $index: Int,
-    $useHash: Boolean!, $useId: Boolean!, $useHeightIndex: Boolean!
-  ) {
-    byHash: extrinsics(where: { hash_eq: $hash }, limit: 1) @include(if: $useHash) { id hash }
-    byId: extrinsics(where: { id_eq: $id }, limit: 1) @include(if: $useId) { id hash }
-    byHeightIndex: extrinsics(where: { index_eq: $index, block: { height_eq: $height } }, limit: 1) @include(if: $useHeightIndex) { id hash }
-  }
-`);
-
 const EXTRINSIC_IDENTITY_UNIFIED_HASURA_QUERY = parse(`
   query ExtrinsicIdentityUnifiedHasura(
     $hash: String,
@@ -41,9 +29,7 @@ const EXTRINSIC_IDENTITY_UNIFIED_HASURA_QUERY = parse(`
   }
 `);
 
-export const EXTRINSIC_IDENTITY_UNIFIED_QUERY = isHasuraExplorerMode
-  ? EXTRINSIC_IDENTITY_UNIFIED_HASURA_QUERY
-  : EXTRINSIC_IDENTITY_UNIFIED_SUBSQUID_QUERY;
+export const EXTRINSIC_IDENTITY_UNIFIED_QUERY = EXTRINSIC_IDENTITY_UNIFIED_HASURA_QUERY;
 
 export async function fetchExtrinsicIdentityOnce(
   client: ApolloClient<NormalizedCacheObject>,
@@ -77,28 +63,6 @@ export async function fetchExtrinsicIdentityOnce(
   }
 }
 
-// --- Reusable fragments for transfers ---
-const TRANSFER_COMMON_FIELDS_SUBSQUID = graphql(`
-  fragment TransferCommonFields on Transfer {
-    id
-    amount
-    timestamp
-    success
-    type
-    reefswapAction
-    extrinsicHash
-    extrinsicId
-    blockHeight
-    extrinsicIndex
-    eventIndex
-    fromEvmAddress
-    toEvmAddress
-    from { id }
-    to { id }
-    token { id name }
-  }
-`);
-
 const HASURA_TRANSFER_COMMON_FIELDS = `
   id
   amount
@@ -115,30 +79,8 @@ const HASURA_TRANSFER_COMMON_FIELDS = `
   toEvmAddress: to_evm_address
   fromId: from_id
   toId: to_id
-  verified_contract { id name contractData: contract_data }
+  token_id
 `;
-
-export const TRANSFER_COMMON_FIELDS = TRANSFER_COMMON_FIELDS_SUBSQUID;
-
-const PAGINATED_TRANSFERS_SUBSQUID_QUERY = graphql(`
-  query PaginatedTransfers($first: Int!, $after: String, $where: TransferWhereInput, $orderBy: [TransferOrderByInput!]!) {
-    transfersConnection(orderBy: $orderBy, first: $first, after: $after, where: $where) {
-      edges {
-        node {
-          ...TransferCommonFields
-          token {
-            contractData
-          }
-        }
-      }
-      pageInfo {
-        hasNextPage
-        endCursor
-      }
-      totalCount
-    }
-  }
-`);
 
 const PAGINATED_TRANSFERS_HASURA_QUERY = parse(`
   query PaginatedTransfersHasura($limit: Int!, $offset: Int!, $where: transfer_bool_exp, $orderBy: [transfer_order_by!]) {
@@ -154,23 +96,6 @@ const PAGINATED_TRANSFERS_HASURA_QUERY = parse(`
 `);
 
 // Minimal variant without token.contractData for lighter payload when token filter is fixed
-const PAGINATED_TRANSFERS_MIN_SUBSQUID_QUERY = graphql(`
-  query TransfersMinQuery($first: Int!, $after: String, $where: TransferWhereInput, $orderBy: [TransferOrderByInput!]!) {
-    transfersConnection(orderBy: $orderBy, first: $first, after: $after, where: $where) {
-      edges {
-        node {
-          ...TransferCommonFields
-        }
-      }
-      pageInfo {
-        hasNextPage
-        endCursor
-      }
-      totalCount
-    }
-  }
-`);
-
 const PAGINATED_TRANSFERS_MIN_HASURA_QUERY = parse(`
   query TransfersMinQueryHasura($limit: Int!, $offset: Int!, $where: transfer_bool_exp, $orderBy: [transfer_order_by!]) {
     transfers: transfer(where: $where, order_by: $orderBy, limit: $limit, offset: $offset) {
@@ -184,39 +109,12 @@ const PAGINATED_TRANSFERS_MIN_HASURA_QUERY = parse(`
   }
 `);
 
-const TRANSFERS_COUNT_SUBSQUID_QUERY = graphql(`
-  query TransfersCount($where: TransferWhereInput, $orderBy: [TransferOrderByInput!]!) {
-    transfersConnection(where: $where, orderBy: $orderBy, first: 1) {
-      totalCount
-    }
-  }
-`);
-
 const TRANSFERS_COUNT_HASURA_QUERY = parse(`
   query TransfersCountHasura($where: transfer_bool_exp) {
     transfersAggregate: transfer_aggregate(where: $where) {
       aggregate {
         count
       }
-    }
-  }
-`);
-
-const TRANSFERS_BULK_COUNTS_SUBSQUID_QUERY = graphql(`
-  query TransfersBulkCounts(
-    $whereAny: TransferWhereInput
-    $whereIncoming: TransferWhereInput
-    $whereOutgoing: TransferWhereInput
-    $orderBy: [TransferOrderByInput!]!
-  ) {
-    all: transfersConnection(where: $whereAny, orderBy: $orderBy, first: 1) {
-      totalCount
-    }
-    incoming: transfersConnection(where: $whereIncoming, orderBy: $orderBy, first: 1) {
-      totalCount
-    }
-    outgoing: transfersConnection(where: $whereOutgoing, orderBy: $orderBy, first: 1) {
-      totalCount
     }
   }
 `);
@@ -249,14 +147,6 @@ const TRANSFERS_BULK_COUNTS_HASURA_QUERY = parse(`
 
 
 // Polling query for new transfers (used by subscription hook)
-const TRANSFERS_POLLING_SUBSQUID_QUERY = graphql(`
-  query TransfersPollingQuery($where: TransferWhereInput, $orderBy: [TransferOrderByInput!], $offset: Int, $limit: Int) {
-    transfers(where: $where, orderBy: $orderBy, offset: $offset, limit: $limit) {
-      ...TransferCommonFields
-    }
-  }
-`);
-
 const TRANSFERS_POLLING_HASURA_QUERY = parse(`
   query TransfersPollingQueryHasura($where: transfer_bool_exp, $orderBy: [transfer_order_by!], $offset: Int, $limit: Int) {
     transfers: transfer(where: $where, order_by: $orderBy, offset: $offset, limit: $limit) {
@@ -265,25 +155,15 @@ const TRANSFERS_POLLING_HASURA_QUERY = parse(`
   }
 `);
 
-export const PAGINATED_TRANSFERS_QUERY = isHasuraExplorerMode
-  ? PAGINATED_TRANSFERS_HASURA_QUERY
-  : PAGINATED_TRANSFERS_SUBSQUID_QUERY;
+export const PAGINATED_TRANSFERS_QUERY = PAGINATED_TRANSFERS_HASURA_QUERY;
 
-export const PAGINATED_TRANSFERS_MIN_QUERY = isHasuraExplorerMode
-  ? PAGINATED_TRANSFERS_MIN_HASURA_QUERY
-  : PAGINATED_TRANSFERS_MIN_SUBSQUID_QUERY;
+export const PAGINATED_TRANSFERS_MIN_QUERY = PAGINATED_TRANSFERS_MIN_HASURA_QUERY;
 
-export const TRANSFERS_COUNT_QUERY = isHasuraExplorerMode
-  ? TRANSFERS_COUNT_HASURA_QUERY
-  : TRANSFERS_COUNT_SUBSQUID_QUERY;
+export const TRANSFERS_COUNT_QUERY = TRANSFERS_COUNT_HASURA_QUERY;
 
-export const TRANSFERS_BULK_COUNTS_QUERY = isHasuraExplorerMode
-  ? TRANSFERS_BULK_COUNTS_HASURA_QUERY
-  : TRANSFERS_BULK_COUNTS_SUBSQUID_QUERY;
+export const TRANSFERS_BULK_COUNTS_QUERY = TRANSFERS_BULK_COUNTS_HASURA_QUERY;
 
-export const TRANSFERS_POLLING_QUERY = isHasuraExplorerMode
-  ? TRANSFERS_POLLING_HASURA_QUERY
-  : TRANSFERS_POLLING_SUBSQUID_QUERY;
+export const TRANSFERS_POLLING_QUERY = TRANSFERS_POLLING_HASURA_QUERY;
 
 /** Resolve transfer indices and extrinsic id/hash by any identifier. */
 export async function fetchAnyTransferIndicesOnce(
@@ -302,40 +182,16 @@ export async function fetchAnyTransferIndicesOnce(
   const i = Number(params.index);
   const where: Record<string, unknown> = {};
   if (hash) {
-    if (isHasuraExplorerMode) {
-      where.extrinsic_hash = { _eq: hash };
-    } else {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (where as any).extrinsicHash_eq = hash;
-    }
+    where.extrinsic_hash = { _eq: hash };
   } else if (Number.isFinite(h) && Number.isFinite(i)) {
-    if (isHasuraExplorerMode) {
-      where.block_height = { _eq: h };
-      where.extrinsic_index = { _eq: i };
-    } else {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (where as any).blockHeight_eq = h;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (where as any).extrinsicIndex_eq = i;
-    }
+    where.block_height = { _eq: h };
+    where.extrinsic_index = { _eq: i };
   } else if (id) {
-    if (isHasuraExplorerMode) {
-      where.extrinsic_id = { _eq: id };
-    } else {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (where as any).extrinsicId_eq = id;
-    }
+    where.extrinsic_id = { _eq: id };
     const m = /^0*(\d+)-0*(\d+)/.exec(id);
     if (m) {
-      if (isHasuraExplorerMode) {
-        where.block_height = { _eq: Number(m[1]) };
-        where.extrinsic_index = { _eq: Number(m[2]) };
-      } else {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (where as any).blockHeight_eq = Number(m[1]);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (where as any).extrinsicIndex_eq = Number(m[2]);
-      }
+      where.block_height = { _eq: Number(m[1]) };
+      where.extrinsic_index = { _eq: Number(m[2]) };
     }
   } else {
     return null;

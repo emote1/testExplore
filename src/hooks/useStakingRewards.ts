@@ -3,7 +3,6 @@ import { useQuery } from '@apollo/client';
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { STAKINGS_CONNECTION_QUERY, STAKINGS_LIST_QUERY, buildStakingWhere } from '@/data/staking';
 import { useAddressResolver } from './use-address-resolver';
-import { isHasuraExplorerMode } from '@/utils/transfer-query';
 
 export interface UiReward {
   id: string;
@@ -62,10 +61,8 @@ export function useStakingRewards(accountAddress: string | null | undefined, pag
   const { data: conn, loading: connLoading, error: connError } = useQuery(
     STAKINGS_CONNECTION_QUERY as unknown as TypedDocumentNode,
     {
-      variables: isHasuraExplorerMode
-        ? { where: stakingWhere }
-        : { accountId: resolved as string },
-      skip: !resolved || (isHasuraExplorerMode && !stakingWhere),
+      variables: { where: stakingWhere },
+      skip: !resolved || !stakingWhere,
     }
   );
   const totalCount: number = (conn?.stakingsConnection?.totalCount ?? conn?.stakingsConnection?.aggregate?.count ?? 0) as number;
@@ -74,10 +71,8 @@ export function useStakingRewards(accountAddress: string | null | undefined, pag
   const { data, loading, error } = useQuery(
     STAKINGS_LIST_QUERY as unknown as TypedDocumentNode,
     {
-      variables: isHasuraExplorerMode
-        ? { where: stakingWhere, first: pageSize, after: offset }
-        : { accountId: resolved as string, first: pageSize, after: offset },
-      skip: !resolved || (isHasuraExplorerMode && !stakingWhere),
+      variables: { where: stakingWhere, first: pageSize, after: offset },
+      skip: !resolved || !stakingWhere,
     }
   );
 

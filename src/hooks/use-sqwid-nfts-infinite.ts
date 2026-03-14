@@ -3,7 +3,6 @@ import { useInfiniteQuery } from '@tanstack/react-query';
 import { apolloClient as client } from '../apollo-client';
 import { useAddressResolver } from './use-address-resolver';
 import { NFTS_BY_OWNER_PAGED_QUERY } from '../data/nfts';
-import type { NftsByOwnerPagedQuery, NftsByOwnerPagedQueryVariables, ContractType } from '@/gql/graphql';
 import { normalizeIpfs } from '../utils/ipfs';
 import { toU64 } from '../utils/number';
 import { fetchNftMetadata, setAbortSignal, type Nft } from './use-sqwid-nfts';
@@ -14,7 +13,20 @@ export interface UseSqwidNftsInfiniteParams {
   limit?: number; // GraphQL page size
 }
 
-type TokenType = Extract<ContractType, 'ERC721' | 'ERC1155'>;
+type TokenType = 'ERC721' | 'ERC1155';
+interface TokenHolderNode {
+  id?: string;
+  balance?: unknown;
+  type?: string | null;
+  nftId?: unknown;
+  tokenId?: string | null;
+  token?: { id?: string; type?: string | null } | null;
+}
+interface NftsByOwnerPagedQueryVariables {
+  owner: string;
+  limit: number;
+  offset: number;
+}
 
 interface PageResult {
   __offset: number;
@@ -28,9 +40,9 @@ const FETCH_CONCURRENCY: number = (() => {
   try {
     const raw = ENV.VITE_FETCH_CONCURRENCY;
     const n = Number(raw);
-    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 12;
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 4;
   } catch {
-    return 12;
+    return 4;
   }
 })();
 
@@ -61,14 +73,15 @@ export function useSqwidNftsInfinite(params: UseSqwidNftsInfiniteParams) {
 
         const evmAddress = await resolveEvmAddress(inputAddress);
         if (!evmAddress) return { __offset: 0, __pairs: [], __nfts: [] };
+        const ownerForHasura = evmAddress.toLowerCase();
 
         const offset = typeof pageParam === 'number' ? pageParam : 0;
         // 1) Fetch a page of token holders
-        let response: NftsByOwnerPagedQuery | null = null;
+        let response: { tokenHolders?: TokenHolderNode[] } | null = null;
         try {
-          const { data } = await client.query<NftsByOwnerPagedQuery, NftsByOwnerPagedQueryVariables>({
+          const { data } = await client.query<{ tokenHolders?: TokenHolderNode[] }, NftsByOwnerPagedQueryVariables>({
             query: NFTS_BY_OWNER_PAGED_QUERY,
-            variables: { owner: evmAddress, limit, offset },
+            variables: { owner: ownerForHasura, limit, offset },
             fetchPolicy: 'network-only',
             context: { fetchOptions: { signal } },
           });
@@ -78,9 +91,9 @@ export function useSqwidNftsInfinite(params: UseSqwidNftsInfiniteParams) {
           const isTransient = status === 502 || status === 503 || status === 429 || status === 500;
           if (isTransient) {
             await sleep(300);
-            const { data } = await client.query<NftsByOwnerPagedQuery, NftsByOwnerPagedQueryVariables>({
+            const { data } = await client.query<{ tokenHolders?: TokenHolderNode[] }, NftsByOwnerPagedQueryVariables>({
               query: NFTS_BY_OWNER_PAGED_QUERY,
-              variables: { owner: evmAddress, limit, offset },
+              variables: { owner: ownerForHasura, limit, offset },
               fetchPolicy: 'network-only',
               context: { fetchOptions: { signal } },
             });
@@ -97,10 +110,10 @@ export function useSqwidNftsInfinite(params: UseSqwidNftsInfiniteParams) {
         const seen = new Set<string>();
         const pairs: { contractAddress: string; nftId: string | number; tokenType?: TokenType; amount?: number }[] = [];
         for (const t of holders) {
-          const contractId = t?.token?.id ?? undefined;
+          const contractId = t?.tokenId ?? t?.token?.id ?? undefined;
           const nftIdRaw = t?.nftId as unknown;
           const nftId = typeof nftIdRaw === 'string' || typeof nftIdRaw === 'number' ? nftIdRaw : undefined;
-          const typeRaw = (t?.token?.type ?? undefined) as ContractType | null | undefined;
+          const typeRaw = t?.type ?? t?.token?.type ?? undefined;
           const tokenType: TokenType | undefined = typeRaw === 'ERC721' || typeRaw === 'ERC1155' ? typeRaw : undefined;
           const ownedAmount = toU64(t?.balance as unknown, 0);
           if (!contractId || (nftId === undefined || nftId === null)) continue;

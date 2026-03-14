@@ -21,7 +21,6 @@ interface TransactionsFiltersProps {
   isMinInvalid: boolean;
   isMaxInvalid: boolean;
   isRangeInvalid: boolean;
-  debouncedMinInput: string;
 }
 
 export function TransactionsFilters({
@@ -35,7 +34,6 @@ export function TransactionsFilters({
   isMinInvalid,
   isMaxInvalid,
   isRangeInvalid,
-  debouncedMinInput,
 }: TransactionsFiltersProps) {
   const txType = useTransactionFilterStore(state => state.txType);
   const setTxType = useTransactionFilterStore(state => state.setTxType);
@@ -57,10 +55,10 @@ export function TransactionsFilters({
 
   return (
     <div className="mb-4 flex flex-col gap-3">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm text-gray-500">Type:</span>
-          <div className="inline-flex items-center gap-2" role="group">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
+          <span className="text-sm text-gray-500 shrink-0">Type:</span>
+          <div className="flex flex-wrap items-center gap-2 min-w-0" role="group">
             <Button
               type="button"
               size="sm"
@@ -162,6 +160,7 @@ export function TransactionsFilters({
             </Badge>
           ) : null}
         </Button>
+
         {hasActiveFilters && (
           <Button
             type="button"
@@ -197,97 +196,117 @@ export function TransactionsFilters({
               </select>
             </div>
 
-            <div className="flex flex-wrap items-start gap-6">
-              <div className="flex flex-col">
-                <label className="mb-1 text-sm text-gray-600" htmlFor="min-reef-input">
-                  Min {selectedTokenLabel}:
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    id="min-reef-input"
-                    type="text"
-                    inputMode="decimal"
-                    placeholder="e.g. 10, 10000"
-                    value={minInput}
-                    onChange={(e) => setMinInput(e.target.value)}
-                    disabled={isAllMode}
-                    title={isAllMode ? 'Select a token to enable amount filter' : undefined}
-                    className={`h-9 w-40 px-3 border rounded-md focus:outline-none focus:ring-2 ${isAllMode ? 'bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200' : (isMinInvalid ? 'border-red-400 focus:ring-red-500' : 'border-gray-300 focus:ring-blue-500')}`}
-                    aria-invalid={isMinInvalid}
-                  />
-                  {minInput ? (
-                    <button
-                      type="button"
-                      className="h-9 px-3 text-xs bg-white border border-gray-200 rounded-md hover:bg-gray-50"
-                      onClick={() => setMinInput('')}
-                    >
-                      Reset
-                    </button>
-                  ) : null}
-                </div>
-
-                {isReefMode && (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {['100', '1000', '10000', '100000'].map((v) => (
+            <div className="flex flex-col md:flex-row gap-6 w-full">
+              <div className="flex flex-wrap items-start gap-6">
+                <div className="flex flex-col">
+                  <label className="mb-1 text-sm text-gray-600" htmlFor="min-reef-input">
+                    Min {selectedTokenLabel}:
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="min-reef-input"
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="e.g. 10, 10000"
+                      value={minInput}
+                      onChange={(e) => setMinInput(e.target.value)}
+                      disabled={isAllMode}
+                      title={isAllMode ? 'Select a token to enable amount filter' : undefined}
+                      className={`h-9 w-40 px-3 border rounded-md focus:outline-none focus:ring-2 ${isAllMode ? 'bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200' : (isMinInvalid ? 'border-red-400 focus:ring-red-500' : 'border-gray-300 focus:ring-blue-500')}`}
+                      aria-invalid={isMinInvalid}
+                    />
+                    {minInput ? (
                       <button
-                        key={v}
                         type="button"
-                        className={`px-3 py-1 text-xs rounded-full border transition-colors ${debouncedMinInput === v
-                          ? 'bg-blue-600 text-white border-blue-600 shadow-sm hover:bg-blue-600'
-                          : 'bg-white text-blue-600 border-blue-300 hover:bg-blue-50'}`}
-                        onClick={() => setMinInput(v)}
+                        className="h-9 px-3 text-xs bg-white border border-gray-200 rounded-md hover:bg-gray-50"
+                        onClick={() => setMinInput('')}
                       >
-                        {v === '1000' ? '1k' : v === '10000' ? '10k' : v === '100000' ? '100k' : v}
+                        Reset
                       </button>
-                    ))}
+                    ) : null}
                   </div>
-                )}
 
-                {isMinInvalid ? (
-                  <p className="mt-1 text-xs text-red-600">
-                    Введите число с разделителем . или , (до {selectedTokenDecimals} знаков после запятой)
-                  </p>
-                ) : null}
-              </div>
-
-              <div className="flex flex-col">
-                <label className="mb-1 text-sm text-gray-600" htmlFor="max-reef-input">
-                  Max {selectedTokenLabel}:
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    id="max-reef-input"
-                    type="text"
-                    inputMode="decimal"
-                    placeholder="e.g. 1000, 50000"
-                    value={maxInput}
-                    onChange={(e) => setMaxInput(e.target.value)}
-                    disabled={isAllMode}
-                    title={isAllMode ? 'Select a token to enable amount filter' : undefined}
-                    className={`h-9 w-40 px-3 border rounded-md focus:outline-none focus:ring-2 ${isAllMode ? 'bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200' : (isMaxInvalid ? 'border-red-400 focus:ring-red-500' : 'border-gray-300 focus:ring-blue-500')}`}
-                    aria-invalid={isMaxInvalid}
-                  />
-                  {maxInput ? (
-                    <button
-                      type="button"
-                      className="h-9 px-3 text-xs bg-white border border-gray-200 rounded-md hover:bg-gray-50"
-                      onClick={() => setMaxInput('')}
-                    >
-                      Reset
-                    </button>
+                  {isMinInvalid ? (
+                    <p className="mt-1 text-xs text-red-600">
+                      Enter a number with . or , separator (up to {selectedTokenDecimals} decimal places)
+                    </p>
                   ) : null}
                 </div>
 
-                {isMaxInvalid ? (
-                  <p className="mt-1 text-xs text-red-600">
-                    Введите число с разделителем . или , (до {selectedTokenDecimals} знаков после запятой)
-                  </p>
-                ) : null}
+                <div className="flex flex-col">
+                  <label className="mb-1 text-sm text-gray-600" htmlFor="max-reef-input">
+                    Max {selectedTokenLabel}:
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="max-reef-input"
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="e.g. 1000, 50000"
+                      value={maxInput}
+                      onChange={(e) => setMaxInput(e.target.value)}
+                      disabled={isAllMode}
+                      title={isAllMode ? 'Select a token to enable amount filter' : undefined}
+                      className={`h-9 w-40 px-3 border rounded-md focus:outline-none focus:ring-2 ${isAllMode ? 'bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200' : (isMaxInvalid ? 'border-red-400 focus:ring-red-500' : 'border-gray-300 focus:ring-blue-500')}`}
+                      aria-invalid={isMaxInvalid}
+                    />
+                    {maxInput ? (
+                      <button
+                        type="button"
+                        className="h-9 px-3 text-xs bg-white border border-gray-200 rounded-md hover:bg-gray-50"
+                        onClick={() => setMaxInput('')}
+                      >
+                        Reset
+                      </button>
+                    ) : null}
+                  </div>
+
+                  {isMaxInvalid ? (
+                    <p className="mt-1 text-xs text-red-600">
+                      Enter a number with . or , separator (up to {selectedTokenDecimals} decimal places)
+                    </p>
+                  ) : null}
+                </div>
               </div>
+
+              {isReefMode && (
+                <div className="flex flex-col gap-2 ml-auto">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-gray-600 min-w-[35px]">Min:</span>
+                    <div className="flex gap-1.5">
+                      {['100', '1000', '10000', '100000'].map((v) => (
+                        <button
+                          key={`min-${v}`}
+                          type="button"
+                          className="px-2.5 py-1 text-xs font-medium rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 hover:border-blue-300 transition-colors"
+                          onClick={() => setMinInput(v)}
+                        >
+                          {v === '1000' ? '1k' : v === '10000' ? '10k' : v === '100000' ? '100k' : v}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-gray-600 min-w-[35px]">Max:</span>
+                    <div className="flex gap-1.5">
+                      {['100', '1000', '10000', '100000'].map((v) => (
+                        <button
+                          key={`max-${v}`}
+                          type="button"
+                          className="px-2.5 py-1 text-xs font-medium rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 hover:border-blue-300 transition-colors"
+                          onClick={() => setMaxInput(v)}
+                        >
+                          {v === '1000' ? '1k' : v === '10000' ? '10k' : v === '100000' ? '100k' : v}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {isRangeInvalid ? (
-                <div className="mt-1 text-xs text-red-600">
-                  Min {selectedTokenLabel} должен быть меньше или равен Max {selectedTokenLabel}
+                <div className="text-xs text-red-600">
+                  Min {selectedTokenLabel} must be less than or equal to Max {selectedTokenLabel}
                 </div>
               ) : null}
             </div>

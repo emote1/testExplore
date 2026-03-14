@@ -5,7 +5,7 @@ import type { ApolloClient, NormalizedCacheObject } from '@apollo/client';
 import { PAGINATED_TRANSFERS_QUERY, PAGINATED_TRANSFERS_MIN_QUERY, TRANSFERS_POLLING_QUERY } from '../data/transfers';
 import { mapTransfersToUiTransfers, type UiTransfer } from '../data/transfer-mapper';
 import { useAddressResolver } from './use-address-resolver';
-import { buildTransferOrderBy, buildTransferWhereFilter, isHasuraExplorerMode, type TransactionDirection } from '@/utils/transfer-query';
+import { buildTransferOrderBy, buildTransferWhereFilter, type TransactionDirection } from '@/utils/transfer-query';
 import { isValidEvmAddressFormat, isValidSubstrateAddressFormat } from '@/utils/address-helpers';
 import {
   ensureUniqueTransfers,
@@ -69,7 +69,7 @@ export function useTransactionDataWithBlocks(
     // (0x uses *_EvmAddress fields; SS58 uses from/to.id)
     if (isValidEvmAddressFormat(input)) {
       setResolvedAddress(null);
-      setResolvedEvmAddress(input);
+      setResolvedEvmAddress(input.toLowerCase());
     } else if (isValidSubstrateAddressFormat(input)) {
       setResolvedAddress(input);
       setResolvedEvmAddress(null);
@@ -106,21 +106,16 @@ export function useTransactionDataWithBlocks(
 
   const orderBy = useMemo(() => buildTransferOrderBy(), []);
 
-  const queryVariables = useMemo(() => {
-    if (isHasuraExplorerMode) {
-      return {
-        limit,
-        offset: 0,
-        where,
-        orderBy,
-      };
-    }
-    return {
+  const queryVariables = useMemo(
+    () => ({
       first: limit,
+      limit,
+      offset: 0,
       where,
       orderBy,
-    };
-  }, [limit, where, orderBy]);
+    }),
+    [limit, where, orderBy]
+  );
 
   const { data, loading, error, fetchMore: apolloFetchMore } =
     useQuery<Record<string, unknown>, Record<string, unknown>>(
@@ -180,13 +175,10 @@ export function useTransactionDataWithBlocks(
     // Normalize Hasura response to match Subsquid structure expected by mapper
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const normalizeHasuraNode = (node: any) => {
-      if (!isHasuraExplorerMode) return node;
-      
       // Ensure all required fields exist with fallbacks
       const fromId = node.fromId || node.from_id || node.from?.id || '';
       const toId = node.toId || node.to_id || node.to?.id || '';
-      const tokenData = node.verified_contract || node.token;
-      const token = tokenData || { id: node.token_id || '', name: 'Unknown', contractData: null };
+      const token = node.token || { id: node.token_id || '', name: 'Unknown', contractData: null };
       
       return {
         ...node,
@@ -228,49 +220,36 @@ export function useTransactionDataWithBlocks(
 
   const fetchMore = useCallback(async () => {
     if (!apolloFetchMore) return;
-
-    if (isHasuraExplorerMode) {
-      const loaded = normalizedData.transfersConnection.edges.length;
-      const total = normalizedData.transfersConnection.totalCount || 0;
-      if (loaded >= total) return;
-
-      await apolloFetchMore({
-        variables: {
-          limit,
-          offset: loaded,
-          where,
-          orderBy,
-        },
-        updateQuery: (prev, { fetchMoreResult }) => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const prevList = (((prev as any)?.transfers ?? []) as any[]);
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const nextList = (((fetchMoreResult as any)?.transfers ?? []) as any[]);
-          const seen = new Set<string>();
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const merged: any[] = [];
-          for (const item of [...prevList, ...nextList]) {
-            const id = String(item?.id ?? '');
-            if (!id || seen.has(id)) continue;
-            seen.add(id);
-            merged.push(item);
-          }
-          return {
-            ...prev,
-            transfers: merged,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            transfersAggregate: (fetchMoreResult as any)?.transfersAggregate ?? (prev as any)?.transfersAggregate,
-          };
-        },
-      });
-      return;
-    }
-
-    const hasNext = normalizedData.transfersConnection.pageInfo.hasNextPage;
-    if (!hasNext) return;
+    const loaded = normalizedData.transfersConnection.edges.length;
+    const total = normalizedData.transfersConnection.totalCount || 0;
+    if (loaded >= total) return;
     await apolloFetchMore({
       variables: {
-        after: normalizedData.transfersConnection.pageInfo.endCursor,
+        limit,
+        offset: loaded,
+        where,
+        orderBy,
+      },
+      updateQuery: (prev, { fetchMoreResult }) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const prevList = (((prev as any)?.transfers ?? []) as any[]);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const nextList = (((fetchMoreResult as any)?.transfers ?? []) as any[]);
+        const seen = new Set<string>();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const merged: any[] = [];
+        for (const item of [...prevList, ...nextList]) {
+          const id = String(item?.id ?? '');
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          merged.push(item);
+        }
+        return {
+          ...prev,
+          transfers: merged,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          transfersAggregate: (fetchMoreResult as any)?.transfersAggregate ?? (prev as any)?.transfersAggregate,
+        };
       },
     });
   }, [apolloFetchMore, normalizedData, limit, where, orderBy]);
@@ -301,9 +280,7 @@ export function useTransactionDataWithBlocks(
         try {
           const missing = identifyMissingPartnerHashes(list, new Set(), { strict: true });
           if (missing.length > 0) {
-            const partnerWhere = isHasuraExplorerMode
-              ? { extrinsic_hash: { _in: missing }, reefswap_action: { _is_null: false } }
-              : { extrinsicHash_in: missing, reefswapAction_isNull: false };
+            const partnerWhere = { extrinsic_hash: { _in: missing }, reefswap_action: { _is_null: false } };
             const { data: q2 } = await (client as ApolloClient<NormalizedCacheObject>).query(
               {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -333,11 +310,9 @@ export function useTransactionDataWithBlocks(
       // Normalize Hasura response to match Subsquid structure expected by mapper
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const normalizeNode = (node: any) => {
-        if (!isHasuraExplorerMode) return node;
         const fromId = node.fromId || node.from_id || node.from?.id || '';
         const toId = node.toId || node.to_id || node.to?.id || '';
-        const tokenData = node.verified_contract || node.token;
-        const token = tokenData || { id: node.token_id || '', name: 'Unknown', contractData: null };
+        const token = node.token || { id: node.token_id || '', name: 'Unknown', contractData: null };
         return { ...node, from: { id: fromId }, to: { id: toId }, token };
       };
 

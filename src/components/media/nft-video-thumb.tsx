@@ -3,6 +3,8 @@ import { buildCandidates } from '../../utils/ipfs';
 import { useInView } from '../../hooks/use-in-view';
 import { usePreviewPlayback } from '../../hooks/use-preview-playback';
 
+const FAILED_VIDEO_SOURCES = new Set<string>();
+
 interface NftVideoThumbProps {
   src: string;
   poster?: string;
@@ -27,7 +29,7 @@ export function NftVideoThumb({ src, poster, name, className, onClick, priority,
   const lastTapRef = React.useRef<number>(0);
   const { register, unregister, ensureExclusive } = usePreviewPlayback();
   const seekRef = React.useRef<number>(0.25);
-  const [videoFailed, setVideoFailed] = React.useState(false);
+  const [videoFailed, setVideoFailed] = React.useState(() => !!src && FAILED_VIDEO_SOURCES.has(src));
   const readySentRef = React.useRef(false);
   const fireReady = React.useCallback(() => {
     if (readySentRef.current) return;
@@ -42,6 +44,11 @@ export function NftVideoThumb({ src, poster, name, className, onClick, priority,
   const shouldLoad = !suspended && (!!priority || inView || forceLoad);
   const [posterFailed, setPosterFailed] = React.useState(false);
   const [showPoster, setShowPoster] = React.useState<boolean>(!!posterUrl);
+
+  React.useEffect(() => {
+    setIdx(0);
+    setVideoFailed(!!src && FAILED_VIDEO_SOURCES.has(src));
+  }, [src]);
 
   const startHover = React.useCallback(() => {
     if (suspended) return;
@@ -158,7 +165,6 @@ export function NftVideoThumb({ src, poster, name, className, onClick, priority,
         className={cn + ' object-cover rounded-none relative z-0'}
         data-testid="nft-thumb-video"
         preload={shouldLoad ? 'auto' : (hasValidPoster ? 'metadata' : 'none')}
-        crossOrigin="anonymous"
         muted
         playsInline
         loop={isHovering && !suspended}
@@ -233,6 +239,7 @@ export function NftVideoThumb({ src, poster, name, className, onClick, priority,
           setIdx((i) => {
             const next = i + 1;
             if (next < srcCandidates.length) return next;
+            if (src) FAILED_VIDEO_SOURCES.add(src);
             setVideoFailed(true);
             fireReady();
             return i;

@@ -8,6 +8,9 @@ import { WsStatusToast } from './components/WsStatusToast';
 import { useReefExtension } from './hooks/use-reef-extension';
 import { useMobileWalletConnect } from './hooks/use-mobile-walletconnect';
 
+const EXPLORER_BACKEND = String(import.meta.env.VITE_REEF_EXPLORER_BACKEND ?? '').toLowerCase();
+const WS_HEALTH_ENABLED = EXPLORER_BACKEND !== 'hasura';
+
 
 const TransactionHistoryWithBlocks = React.lazy(() =>
   import('./components/TransactionHistoryWithBlocks').then(m => ({ default: m.TransactionHistoryWithBlocks }))
@@ -100,7 +103,7 @@ function App() {
           onOpenMyWallet={handleOpenMyWallet}
           onSelectWalletAddress={handleSelectWalletAddress}
         />
-        <WsStatusToast wsEnabled={currentPage !== 'wallet'} />
+        <WsStatusToast wsEnabled={WS_HEALTH_ENABLED && currentPage !== 'wallet'} />
         <main className="pt-16">
           <React.Suspense fallback={<div className="flex items-center justify-center p-8"><Loader2 className="h-6 w-6 animate-spin" /></div>}>
             {currentPage === 'wallet' && searchAddr

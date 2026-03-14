@@ -195,10 +195,11 @@ async function fetchSqwidCollectionsByOwner(evmAddress: string | null, signal?: 
   const base: Collection[] = baseSource
     .map((c) => {
       const data = c?.data ?? {};
+      const preferredImage = data?.image ?? data?.thumbnail;
       return {
         id: c?.id ?? '',
         name: data?.name ?? 'Unnamed Collection',
-        image: normalizeIpfs(data?.thumbnail ?? data?.image) ?? '',
+        image: normalizeIpfs(preferredImage) ?? '',
       };
     })
     .filter((c) => !!c.id);

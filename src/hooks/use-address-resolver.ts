@@ -36,36 +36,41 @@ export function useAddressResolver() {
       return { nativeId: null, evmAddress: null };
     }
 
+    const addressType = getAddressType(address);
+    const normalizedEvm = addressType === 'evm' ? address.toLowerCase() : null;
+    const cacheKey = normalizedEvm ?? address;
+
     // Check unified cache first
-    const cached = accountCache.get(address);
+    const cached = accountCache.get(cacheKey) ?? accountCache.get(address);
     if (cached !== undefined) return cached;
 
     // Check if there's already a pending request for this address
-    const pending = pendingRequests.get(address);
+    const pending = pendingRequests.get(cacheKey);
     if (pending) return pending;
-
-    const addressType = getAddressType(address);
     
     // Create the promise and store it to prevent duplicate requests
     const fetchPromise = (async (): Promise<ResolvedAccount> => {
       try {
         if (addressType === 'evm') {
-          const { data } = await getAccountByEvm({ variables: { evmAddress: address } });
+          const evmAddress = normalizedEvm ?? address;
+          const { data } = await getAccountByEvm({ variables: { evmAddress } });
           const account = data?.accounts?.[0];
           const result: ResolvedAccount = {
             nativeId: account?.id || null,
-            evmAddress: address, // EVM input is already the EVM address
+            evmAddress, // Normalize for Hasura equality filters
           };
-          accountCache.set(address, result);
+          accountCache.set(cacheKey, result);
+          if (cacheKey !== address) accountCache.set(address, result);
           // Also cache by nativeId for reverse lookups
           if (result.nativeId) accountCache.set(result.nativeId, result);
           return result;
         } else if (addressType === 'substrate') {
           const { data } = await getAccountByNative({ variables: { nativeAddress: address } });
           const account = data?.accounts?.[0];
+          const evmAddress = account?.evmAddress ? String(account.evmAddress).toLowerCase() : null;
           const result: ResolvedAccount = {
             nativeId: account?.id || null,
-            evmAddress: account?.evmAddress ?? null,
+            evmAddress,
           };
           accountCache.set(address, result);
           // Also cache by evmAddress for reverse lookups
@@ -79,11 +84,11 @@ export function useAddressResolver() {
     })();
 
     // Store pending request
-    pendingRequests.set(address, fetchPromise);
+    pendingRequests.set(cacheKey, fetchPromise);
 
     // Clean up after completion
     fetchPromise.finally(() => {
-      pendingRequests.delete(address);
+      pendingRequests.delete(cacheKey);
     });
 
     return fetchPromise;

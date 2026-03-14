@@ -1,19 +1,5 @@
-import { graphql } from '@/gql';
 import { parse } from 'graphql';
 import { getString } from '@/utils/object';
-import { isHasuraExplorerMode } from '@/utils/transfer-query';
-
-const VERIFIED_CONTRACTS_BY_IDS_SUBSQUID_QUERY = graphql(`
-  query VerifiedContractsByIds($ids: [String!], $first: Int!) {
-    verifiedContracts(
-      where: { id_in: $ids }
-      limit: $first
-    ) {
-      id
-      contractData
-    }
-  }
-`);
 
 const VERIFIED_CONTRACTS_BY_IDS_HASURA_QUERY = parse(`
   query VerifiedContractsByIdsHasura($ids: [String!], $first: Int!) {
@@ -24,9 +10,7 @@ const VERIFIED_CONTRACTS_BY_IDS_HASURA_QUERY = parse(`
   }
 `);
 
-export const VERIFIED_CONTRACTS_BY_IDS_QUERY = isHasuraExplorerMode
-  ? VERIFIED_CONTRACTS_BY_IDS_HASURA_QUERY
-  : VERIFIED_CONTRACTS_BY_IDS_SUBSQUID_QUERY;
+export const VERIFIED_CONTRACTS_BY_IDS_QUERY = VERIFIED_CONTRACTS_BY_IDS_HASURA_QUERY;
 
 export interface TokenIconMap { [id: string]: string | undefined }
 

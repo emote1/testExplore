@@ -138,6 +138,10 @@ const resolveTransferDirection = (
 };
 
 function parseTokenData(transfer: Transfer): { name: string; decimals: number } {
+  if (transfer.type === 'Native') {
+    return { name: 'REEF', decimals: 18 };
+  }
+
   if (transfer.type === 'ERC721' || transfer.type === 'ERC1155') {
     return { name: 'NFT', decimals: 0 };
   }

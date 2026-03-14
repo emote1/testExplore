@@ -11,6 +11,8 @@ import { AddressDisplay } from './AddressDisplay';
 import { useSquidHealth } from '../hooks/use-squid-health';
 
 const ICP_CRON_INTERVAL_HOURS = Number(import.meta.env.VITE_ICP_CRON_INTERVAL_HOURS ?? '4');
+const EXPLORER_BACKEND = String(import.meta.env.VITE_REEF_EXPLORER_BACKEND ?? '').toLowerCase();
+const WS_HEALTH_ENABLED = EXPLORER_BACKEND !== 'hasura';
 
 const TRUSTED_VALIDATORS: { address: string; name: string }[] = [
   { address: '5DqZcoLR729bLBr8hLjEsg944JiFq5kAjjcBEF3XKUNpTHdr', name: 'REEFAQ.IO' },
@@ -78,14 +80,15 @@ export function NetworkStatistics() {
   const perMinText = Number.isFinite(perMin) && perMin >= 0 ? perMin.toFixed(0) : '0';
   const ws = useWsStatus();
   const squid = useSquidHealth({ intervalMs: 30_000 });
-  const wsOk = ws.tone === 'live';
+  const wsOk = !WS_HEALTH_ENABLED || ws.tone === 'live';
   const squidOk = squid.status === 'live';
   const squidLoading = squid.status === 'loading';
+  const squidDownLabel = WS_HEALTH_ENABLED ? 'Subsquid Down' : 'Data Down';
   const combinedLabel = wsOk && squidOk
     ? 'Live'
     : (!wsOk && !squidOk && !squidLoading)
       ? 'WS + Subsquid Down'
-      : (!wsOk ? 'WS Down' : (squidLoading ? 'Connecting' : 'Subsquid Down'));
+      : (!wsOk ? 'WS Down' : (squidLoading ? 'Connecting' : squidDownLabel));
   const combinedTone = wsOk && squidOk
     ? 'live'
     : (ws.tone === 'error' || squid.status === 'down')
@@ -329,9 +332,9 @@ Active wallets chart: ${activeIcp.sparkDated.length} days`;
               tooltip={staked.era != null ? `Era ${staked.era} • ${staked.validatorCount} validators\n${staked.stakedPct.toFixed(2)}% of total supply staked${staked.apy != null ? `\nAPY: ~${staked.apy.toFixed(1)}%` : ''}` : 'Total REEF staked across all validators'}
               icon={<Lock className="h-6 w-6 text-amber-600" />}
               color="orange"
-              sparkClassName={showValidators ? 'min-h-[137px]' : 'h-[137px]'}
+              sparkClassName="h-auto min-h-[137px]"
               sparkNode={
-                <div className="relative w-full rounded-lg overflow-hidden bg-gradient-to-t from-amber-100/80 via-amber-50/40 to-transparent">
+                <div className="relative w-full rounded-lg overflow-hidden bg-gradient-to-t from-amber-100/80 via-amber-50/40 to-transparent max-w-full">
                   {staked.loading ? (
                     <div className="flex flex-col gap-3 px-4 py-3 animate-pulse">
                       <div className="flex items-center justify-between">
@@ -432,20 +435,24 @@ Active wallets chart: ${activeIcp.sparkDated.length} days`;
                   </div>
                   )}
                   {/* Trusted Validators */}
-                  <div className="w-full mt-3 pt-3 border-t border-amber-200/40">
+                  <div className="hidden sm:block w-full mt-3 pt-3 border-t border-amber-200/40">
                     <div className="flex items-center gap-1.5 mb-2">
-                      <svg className="w-3.5 h-3.5 text-amber-500" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
+                      <svg className="w-3.5 h-3.5 text-amber-500 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
                       <span className="text-[10px] font-semibold text-amber-700 uppercase tracking-wider">Trusted Validators</span>
                     </div>
-                    <div className="space-y-1">
+                    <div className="space-y-1 -mx-1 px-1">
                       {TRUSTED_VALIDATORS.map((tv) => {
                         const v = staked.validators.find((s) => s.address === tv.address);
                         return (
-                          <div key={tv.address} className="flex items-center gap-1.5 text-[10px] bg-amber-50/80 rounded px-2 py-1 border border-amber-200/30" title={tv.address}>
-                            <svg className="w-2.5 h-2.5 text-amber-500 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-                            <span className="font-semibold text-gray-700 flex-1 truncate">{tv.name}</span>
-                            <span className="text-gray-400 shrink-0 w-12 text-right">{v?.commissionPct != null ? `${v.commissionPct.toFixed(0)}%` : '—'}</span>
-                            <span className="font-semibold text-amber-600 shrink-0 w-10 text-right">{v?.apy != null ? `${v.apy.toFixed(0)}%` : '—'}</span>
+                          <div
+                            key={tv.address}
+                            className="grid grid-cols-[10px_minmax(0,1fr)_40px_40px] items-center gap-1.5 text-[10px] bg-amber-50/80 rounded px-2 py-1 border border-amber-200/30 w-full"
+                            title={`${tv.name} - ${tv.address}`}
+                          >
+                            <svg className="w-2.5 h-2.5 text-amber-500" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                            <span className="font-semibold text-gray-700 truncate">{tv.name}</span>
+                            <span className="text-gray-400 text-right whitespace-nowrap">{v?.commissionPct != null ? `${v.commissionPct.toFixed(0)}%` : '—'}</span>
+                            <span className="font-semibold text-amber-600 text-right whitespace-nowrap">{v?.apy != null ? `${v.apy.toFixed(0)}%` : '—'}</span>
                           </div>
                         );
                       })}

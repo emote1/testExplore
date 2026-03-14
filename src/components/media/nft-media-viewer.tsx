@@ -110,7 +110,6 @@ export function NftMediaViewer({ src, poster, mime, name, className }: NftMediaV
           ref={vidRef}
           className={'w-full h-full rounded-md bg-black'}
           data-testid="viewer-video"
-          crossOrigin="anonymous"
           controls={!showPoster}
           autoPlay
           preload="metadata"

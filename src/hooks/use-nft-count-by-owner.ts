@@ -26,7 +26,7 @@ export function useNftCountByOwner(owner: string | null | undefined): UseNftCoun
       try {
         const resolved = await resolveEvmAddress(owner);
         if (!active) return;
-        setEvmAddress(resolved);
+        setEvmAddress(resolved ? resolved.toLowerCase() : null);
       } catch {
         if (!active) return;
         setEvmAddress(null);

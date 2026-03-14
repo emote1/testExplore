@@ -35,19 +35,22 @@ const TOKEN_HOLDERS_PAGED_HASURA_QUERY = parse(`
     tokenHolders: token_holder(
       where: {
         signer_id: { _eq: $accountId }
-        verified_contract: { type: { _eq: "ERC20" } }
+        nft_id: { _is_null: true }
+        type: { _in: ["ERC20", "Account"] }
       }
       order_by: [{ balance: desc }, { id: asc }]
       limit: $first
     ) {
       signer_id
       balance
-      verified_contract { id contractData: contract_data }
+      token_id
+      type
     }
     tokenHoldersAggregate: token_holder_aggregate(
       where: {
         signer_id: { _eq: $accountId }
-        verified_contract: { type: { _eq: "ERC20" } }
+        nft_id: { _is_null: true }
+        type: { _in: ["ERC20", "Account"] }
       }
     ) {
       aggregate {
@@ -61,14 +64,26 @@ export const TOKEN_HOLDERS_PAGED_QUERY = isHasuraExplorerMode
   ? TOKEN_HOLDERS_PAGED_HASURA_QUERY
   : TOKEN_HOLDERS_PAGED_SUBSQUID_QUERY;
 
+const ACCOUNT_NATIVE_BALANCE_SUBSQUID_QUERY = graphql(`
+  query AccountNativeBalance($accountId: String!) {
+    accounts(where: { OR: [{ id_eq: $accountId }, { evmAddress_eq: $accountId }] }, limit: 1) {
+      id
+      freeBalance
+      availableBalance
+    }
+  }
+`);
+
+export const ACCOUNT_NATIVE_BALANCE_QUERY = ACCOUNT_NATIVE_BALANCE_SUBSQUID_QUERY;
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function mapTokenHoldersToUiBalances(edges: Array<{ node?: any } | null> | null | undefined): UiTokenBalance[] {
   if (!edges) return [];
   const res: UiTokenBalance[] = [];
   for (const e of edges) {
     const n = e?.node;
-    // Support both Subsquid (token) and Hasura (verified_contract) field names
-    const tokenData = n?.verified_contract || n?.token;
+    // Support both Subsquid (token) and Hasura (token_id) field shapes
+    const tokenData = n?.token || (n?.token_id ? { id: n.token_id, contractData: null } : null);
     if (!tokenData?.id) continue;
     const tokenId = String(tokenData.id);
     const tokenIdLower = tokenId.toLowerCase();
@@ -76,7 +91,9 @@ export function mapTokenHoldersToUiBalances(edges: Array<{ node?: any } | null> 
     // Check by token ID (contract address) for well-known tokens when contractData is null
     let meta;
     if (!tokenData.contractData) {
-      if (tokenIdLower === '0x7922d8785d93e692bb584e659b607fa821e6a91a') {
+      if (tokenIdLower === '0x0000000000000000000000000000000001000000') {
+        meta = { name: 'REEF', decimals: 18 };
+      } else if (tokenIdLower === '0x7922d8785d93e692bb584e659b607fa821e6a91a') {
         meta = { name: 'USDC', decimals: 6 };
       } else if (tokenIdLower === '0x95a2af50040b7256a4b4c405a4afd4dd573da115') {
         meta = { name: 'MRD', decimals: 18 };

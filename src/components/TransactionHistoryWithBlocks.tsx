@@ -486,7 +486,8 @@ function TransactionsView({
   React.useEffect(() => {
     const cached = txTypeCountsCache.get(typeCountsCacheKey)?.counts;
     if (cached) {
-      setTypeBadgeCounts(cached);
+      // Не восстанавливаем staking из кэша - он загружается через prefetchedStakingCount/StakingTable
+      setTypeBadgeCounts({ ...cached, staking: null });
       return;
     }
     setTypeBadgeCounts({ all: null, incoming: null, outgoing: null, swap: null, staking: null });
@@ -510,6 +511,8 @@ function TransactionsView({
   React.useEffect(() => {
     if (isLoading) return;
     if (!Number.isFinite(currentTypeCount)) return;
+    // Не обновляем staking count здесь - для него есть отдельный механизм через StakingTable.onCountChange
+    if (txType === 'staking') return;
     setTypeBadgeCounts((prev) => {
       const prevValue = prev[txType];
       if (typeof prevValue === 'number' && prevValue > 0 && currentTypeCount === 0) return prev;
@@ -535,6 +538,21 @@ function TransactionsView({
       return { ...prev, staking: prefetchedStakingCount };
     });
   }, [prefetchedStakingCount]);
+
+  React.useEffect(() => {
+    if (!onCountsChange) return;
+    if (typeof typeBadgeCounts.all !== 'number' || !Number.isFinite(typeBadgeCounts.all)) return;
+    const swapCount = loadedCountsByType.swap > 0
+      ? loadedCountsByType.swap
+      : (typeof prefetchedSwapCount === 'number' ? prefetchedSwapCount : 0);
+    onCountsChange({
+      totalCount: typeBadgeCounts.all,
+      loadedCount: loadedCount > 0 ? loadedCount : typeBadgeCounts.all,
+      incoming: loadedCountsByType.incoming,
+      outgoing: loadedCountsByType.outgoing,
+      swap: swapCount,
+    });
+  }, [onCountsChange, typeBadgeCounts.all, loadedCount, loadedCountsByType.incoming, loadedCountsByType.outgoing, loadedCountsByType.swap, prefetchedSwapCount]);
 
   React.useEffect(() => {
     if (isResolvingCounts) return;
@@ -638,6 +656,10 @@ function TransactionsView({
   }, [apolloClient, isResolvingCounts, resolvedAddress, resolvedEvmAddress, tokenFilter, isContractMode, appliedMinRaw, appliedMaxRaw, appliedTokenMinRaw, appliedTokenMaxRaw]);
 
   function getTypeBadge(intent: TxTypeFilter) {
+    // Для staking всегда используем typeBadgeCounts, т.к. данные загружаются через StakingTable
+    if (intent === 'staking') {
+      return typeBadgeCounts.staking;
+    }
     if (intent === txType) {
       const cached = typeBadgeCounts[intent];
       if (isLoading && typeof cached === 'number' && Number.isFinite(cached)) return cached;
@@ -706,7 +728,6 @@ function TransactionsView({
         isMinInvalid={isMinInvalid}
         isMaxInvalid={isMaxInvalid}
         isRangeInvalid={isRangeInvalid}
-        debouncedMinInput={debouncedMinInput}
       />
       {errorMessage ? (
         <div className="flex items-center gap-4 p-4 mb-4 text-red-700 bg-red-100 rounded-lg shadow">
@@ -821,7 +842,7 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
       return;
     }
 
-    setTabCounts({ transactions: null, holdings: null, nfts: null });
+    setTabCounts({ transactions: 0, holdings: 0, nfts: 0 });
     try {
       void import('./BalancesTable');
       void import('./NftGallery');

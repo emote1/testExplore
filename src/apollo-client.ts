@@ -1,5 +1,4 @@
 import { ApolloClient, InMemoryCache, HttpLink, ApolloLink, split } from '@apollo/client';
-import type { TransfersMinQueryQuery } from '@/gql/graphql';
 import { getMainDefinition } from '@apollo/client/utilities';
 import { GraphQLWsLink } from '@apollo/client/link/subscriptions';
 import { createClient as createWSClient } from 'graphql-ws';
@@ -67,6 +66,15 @@ const timingLink = new ApolloLink((operation, forward) => {
 });
 const httpBaseLink = shouldLogTiming ? ApolloLink.from([timingLink, httpLink]) : httpLink;
 
+interface TransfersConnectionCache {
+  edges?: Array<{ node?: { id?: string } }>;
+  pageInfo?: {
+    hasNextPage?: boolean;
+    endCursor?: string | null;
+  };
+  totalCount?: number;
+}
+
 const link = split(
   ({ query }) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -88,8 +96,8 @@ export const cache = new InMemoryCache({
           //   preserving already-loaded older pages to keep page boundaries stable during refresh.
           // - Subsequent pages (after != null): append while de-duplicating by node.id.
           merge(
-            existing: TransfersMinQueryQuery['transfersConnection'] | undefined,
-            incoming: TransfersMinQueryQuery['transfersConnection'],
+            existing: TransfersConnectionCache | undefined,
+            incoming: TransfersConnectionCache,
             options
           ) {
             if (!incoming) return existing;

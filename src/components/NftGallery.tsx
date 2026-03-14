@@ -244,7 +244,7 @@ function CollectionCard({ col, onClick }: { col: Collection; onClick: (c: Collec
 export function NftGallery({ address, enableOwnerInfinite = false, onCountsChange }: NftGalleryProps) {
   const [selectedCollection, setSelectedCollection] = React.useState<Collection | null>(null);
   const [viewer, setViewer] = React.useState<{ src: string; poster?: string; mime?: string; name?: string } | null>(null);
-  const { collections: ownerCollections, isLoading: isOwnerLoading, error: ownerError } = useSqwidCollectionsByOwner(address);
+  const { collections: ownerCollections, error: ownerError } = useSqwidCollectionsByOwner(address);
   const [limit, setLimit] = React.useState<number>(12);
   const [collectionIdInput, setCollectionIdInput] = React.useState<string>("");
   const [isOpening, setIsOpening] = React.useState<boolean>(false);
@@ -269,18 +269,47 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
     fetchNextPage: fetchOwnerNextPage,
   } = useSqwidNftsInfinite({ owner: enableOwnerInfinite ? address : null, limit: ownerInfPageSize });
   const { nfts: fallbackNfts, isLoading: isFallbackLoading } = useSqwidNfts(enableOwnerInfinite ? null : address);
+  const isOwnerNftsLoading = enableOwnerInfinite ? isOwnerInfLoading : isFallbackLoading;
   const { getAddressType } = useAddressResolver();
   const pagingRef = React.useRef<boolean>(false);
+  const [showOwnerLoader, setShowOwnerLoader] = React.useState<boolean>(false);
+  const ownerLoaderShownAtRef = React.useRef<number>(0);
+
+  React.useEffect(() => {
+    const debounceMs = 120;
+    const minVisibleMs = 280;
+    let showTimer: number | null = null;
+    let hideTimer: number | null = null;
+    const now = () => (typeof performance !== 'undefined' && typeof performance.now === 'function') ? performance.now() : Date.now();
+
+    if (isOwnerNftsLoading) {
+      showTimer = window.setTimeout(() => {
+        ownerLoaderShownAtRef.current = now();
+        setShowOwnerLoader(true);
+      }, debounceMs);
+    } else {
+      const elapsed = now() - (ownerLoaderShownAtRef.current || 0);
+      if (showOwnerLoader && elapsed < minVisibleMs) {
+        hideTimer = window.setTimeout(() => setShowOwnerLoader(false), minVisibleMs - elapsed);
+      } else {
+        setShowOwnerLoader(false);
+      }
+    }
+
+    return () => {
+      if (showTimer) window.clearTimeout(showTimer);
+      if (hideTimer) window.clearTimeout(hideTimer);
+    };
+  }, [isOwnerNftsLoading, showOwnerLoader]);
 
   React.useEffect(() => {
     if (!onCountsChange) return;
-    const isCountLoading = enableOwnerInfinite ? isOwnerInfLoading : isFallbackLoading;
-    if (isCountLoading) return;
+    if (isOwnerNftsLoading) return;
     const sourceNfts = enableOwnerInfinite ? infiniteNfts : fallbackNfts;
     const value = Array.isArray(sourceNfts) ? sourceNfts.length : 0;
     if (!Number.isFinite(value)) return;
     onCountsChange(value);
-  }, [onCountsChange, enableOwnerInfinite, isOwnerInfLoading, isFallbackLoading, infiniteNfts, fallbackNfts]);
+  }, [onCountsChange, enableOwnerInfinite, isOwnerNftsLoading, infiniteNfts, fallbackNfts]);
   // Overview Tabs & row-chunked reveal
   const [overviewTab, setOverviewTab] = React.useState<'collections' | 'video' | 'other'>('video');
   const ROWS_CHUNK = 4;
@@ -605,13 +634,12 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
   // but might still pass backend validation and land in empty state UI).
   const isNonEvmInput = address ? getAddressType(address) !== 'evm' : false;
 
-  const isOwnerNftsLoading = enableOwnerInfinite ? isOwnerInfLoading : isFallbackLoading;
-  if (isOwnerLoading || isOwnerNftsLoading) {
+  if (isOwnerNftsLoading) {
     return (
       <div className="relative bg-white rounded-xl border border-gray-200 shadow-sm p-6 overflow-hidden" role="status" aria-live="polite" aria-busy="true">
         <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-blue-500/40 to-transparent opacity-60" />
         <div className="flex items-center justify-center p-8">
-          <Loader2 className="h-6 w-6 animate-spin" />
+          {showOwnerLoader ? <Loader2 className="h-6 w-6 animate-spin" /> : null}
         </div>
       </div>
     );

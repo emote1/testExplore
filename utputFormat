@@ -1,0 +1,31 @@
+HTTP/1.1 400 Bad Request
+Date: Fri, 13 Mar 2026 18:16:51 GMT
+Content-Type: text/html; charset=utf-8
+Transfer-Encoding: chunked
+Connection: keep-alive
+x-powered-by: Express
+access-control-allow-origin: *
+content-security-policy: default-src 'none'
+x-content-type-options: nosniff
+access-control-allow-credentials: true
+access-control-allow-methods: GET, PUT, POST, DELETE, PATCH, OPTIONS
+access-control-allow-headers: DNT,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization
+access-control-max-age: 1728000
+via: 1.1 google
+alt-svc: h3=":443"; ma=86400
+cf-cache-status: DYNAMIC
+Nel: {"report_to":"cf-nel","success_fraction":0.0,"max_age":604800}
+Report-To: {"group":"cf-nel","max_age":604800,"endpoints":[{"url":"https://a.nel.cloudflare.com/report/v4?s=I33EsNhgDwdWH6e216YQVUTdV1JAkQz7Dr%2FbiI3tkUBonkor6Rc7lc1dMhb6Zxy63Nv3UGrdlX8JSPGvCxolFxUK1M14c2rMoEFPB0N4ieCq"}]}
+Server: cloudflare
+CF-RAY: 9dbd083b89edbdf3-AMS
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Error</title>
+</head>
+<body>
+<pre>SyntaxError: Expected property name or &#39;}&#39; in JSON at position 1<br> &nbsp; &nbsp;at JSON.parse (&lt;anonymous&gt;)<br> &nbsp; &nbsp;at parse (/squid/node_modules/body-parser/lib/types/json.js:92:19)<br> &nbsp; &nbsp;at /squid/node_modules/body-parser/lib/read.js:128:18<br> &nbsp; &nbsp;at AsyncResource.runInAsyncScope (node:async_hooks:206:9)<br> &nbsp; &nbsp;at invokeCallback (/squid/node_modules/raw-body/index.js:238:16)<br> &nbsp; &nbsp;at done (/squid/node_modules/raw-body/index.js:227:7)<br> &nbsp; &nbsp;at IncomingMessage.onEnd (/squid/node_modules/raw-body/index.js:287:7)<br> &nbsp; &nbsp;at IncomingMessage.emit (node:events:524:28)<br> &nbsp; &nbsp;at endReadableNT (node:internal/streams/readable:1698:12)<br> &nbsp; &nbsp;at process.processTicksAndRejections (node:internal/process/task_queues:82:21)</pre>
+</body>
+</html>

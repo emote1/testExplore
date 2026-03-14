@@ -568,22 +568,43 @@ export function TransactionDetailsModal({ open, transfer, onClose, pricesById, r
                       </tr>
                     </>
                   ) : (
-                    <tr>
-                      <td className="py-1.5 text-gray-500">Amount</td>
-                      <td className="py-1.5 text-gray-900">
-                        {formatTokenAmount(transfer.amount, transfer.token.decimals, transfer.token.name)}
-                        {(() => {
-                          const currStr = formatUsd(nowUsdTransfer);
-                          const blockStr = formatUsd(blockUsdTransfer);
-                          const dStr = (deltaTransfer != null) ? `${deltaTransfer >= 0 ? '+' : ''}${deltaTransfer.toFixed(2)}%` : null;
-                          return (currStr || blockStr) ? (
-                            <span className="ml-2 text-gray-600">
-                              {blockStr ? `≈ ${blockStr} then` : ''}{blockStr && currStr ? ' • ' : ''}{currStr ? `${blockStr ? '' : '≈ '}${currStr} now` : ''}{dStr ? ` • Δ ${dStr}` : ''}
-                            </span>
-                          ) : null;
-                        })()}
-                      </td>
-                    </tr>
+                    <>
+                      <tr>
+                        <td className="py-1.5 text-gray-500">Amount</td>
+                        <td className="py-1.5 text-gray-900 font-medium">
+                          {formatTokenAmount(transfer.amount, transfer.token.decimals, transfer.token.name)}
+                        </td>
+                      </tr>
+                      {(() => {
+                        const currStr = formatUsd(nowUsdTransfer);
+                        const blockStr = formatUsd(blockUsdTransfer);
+                        const dStr = (deltaTransfer != null) ? `${deltaTransfer >= 0 ? '+' : ''}${deltaTransfer.toFixed(2)}%` : null;
+                        return (currStr || blockStr) ? (
+                          <tr>
+                            <td className="py-1.5 text-gray-500">Value</td>
+                            <td className="py-1.5 text-gray-700">
+                              <div className="flex flex-col gap-0.5">
+                                {blockStr && (
+                                  <span className="text-sm">
+                                    {blockStr} <span className="text-gray-500">then</span>
+                                  </span>
+                                )}
+                                {currStr && (
+                                  <span className="text-sm">
+                                    {currStr} <span className="text-gray-500">now</span>
+                                    {dStr && (
+                                      <span className={`ml-2 font-medium ${deltaTransfer! >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                        {dStr}
+                                      </span>
+                                    )}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ) : null;
+                      })()}
+                    </>
                   )}
                 </tbody>
               </table>
@@ -630,51 +651,26 @@ export function TransactionDetailsModal({ open, transfer, onClose, pricesById, r
                         </button>
                       </td>
                     </tr>
-                    {expandTech && (
-                      <>
-                        <tr>
-                          <td className="py-2 text-gray-500">Extrinsic hash</td>
-                          <td className="py-2 text-gray-900">
-                            {exHashShow ? (
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="truncate font-mono text-[13px]">
-                                  {shortenHash(exHashShow, 8, 8)}
-                                </span>
-                                <div className="flex items-center gap-1">
-                                  <button
-                                    className="no-row-open p-1 rounded hover:bg-gray-100"
-                                    title="Copy full hash"
-                                    onClick={() => copyToClipboard(exHashShow!, 'hash')}
-                                  >
-                                    {copied.hash ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4 text-gray-600" />}
-                                  </button>
-                                </div>
-                              </div>
-                            ) : '—'}
-                          </td>
-                        </tr>
-                        <tr>
-                          <td className="py-2 text-gray-500">Extrinsic id</td>
-                          <td className="py-2 text-gray-900">
-                            {exIdShow ? (
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="truncate font-mono text-[13px]">
-                                  {shortenHash(exIdShow, 6, 6)}
-                                </span>
-                                <div className="flex items-center gap-1">
-                                  <button
-                                    className="no-row-open p-1 rounded hover:bg-gray-100"
-                                    title="Copy extrinsic id"
-                                    onClick={() => copyToClipboard(exIdShow!, 'exid')}
-                                  >
-                                    {copied.exid ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4 text-gray-600" />}
-                                  </button>
-                                </div>
-                              </div>
-                            ) : '—'}
-                          </td>
-                        </tr>
-                      </>
+                    {expandTech && exIdShow && (
+                      <tr>
+                        <td className="py-2 text-gray-500">Extrinsic id</td>
+                        <td className="py-2 text-gray-900">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate font-mono text-[13px]">
+                              {shortenHash(exIdShow, 6, 6)}
+                            </span>
+                            <div className="flex items-center gap-1">
+                              <button
+                                className="no-row-open p-1 rounded hover:bg-gray-100"
+                                title="Copy extrinsic id"
+                                onClick={() => copyToClipboard(exIdShow!, 'exid')}
+                              >
+                                {copied.exid ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4 text-gray-600" />}
+                              </button>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
                     )}
                   </>
                 </tbody>
