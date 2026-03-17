@@ -824,10 +824,13 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
     try {
       const params = new URLSearchParams(window.location.search);
       const raw = params.get('infiniteOwner') ?? params.get('ownerInfinite');
-      return raw === '1' || raw === 'true' || raw === 'yes';
+      if (raw == null) return true;
+      const normalized = raw.trim().toLowerCase();
+      if (normalized === '0' || normalized === 'false' || normalized === 'no') return false;
+      return true;
     } catch (error) {
       console.error('Error parsing URL:', error);
-      return false;
+      return true;
     }
   }, []);
 
@@ -843,9 +846,10 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
     }
 
     setTabCounts({ transactions: 0, holdings: 0, nfts: 0 });
+    setHasMountedBalances(true);
+    setHasMountedNfts(false);
     try {
       void import('./BalancesTable');
-      void import('./NftGallery');
     } catch (error) {
       console.error('Error importing components:', error);
     }
@@ -1048,10 +1052,11 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
                   <NftGallery
                     address={submittedAddress}
                     enableOwnerInfinite={enableOwnerInfiniteFlag}
+                    totalCount={typeof nftsTotalCount === 'number' && Number.isFinite(nftsTotalCount) ? nftsTotalCount : null}
                     onCountsChange={(count) => {
                       setTabCounts((prev) => {
+                        if (typeof nftsTotalCount === 'number' && Number.isFinite(nftsTotalCount)) return prev;
                         if (!Number.isFinite(count)) return prev;
-                        if (typeof prev.nfts === 'number' && prev.nfts >= count) return prev;
                         return { ...prev, nfts: count };
                       });
                     }}

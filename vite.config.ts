@@ -10,6 +10,7 @@ export default defineConfig(async ({ mode }) => {
   const proxyTarget = env.REEF_EXPLORER_PROXY_TARGET ?? '';
   const proxyPath = env.REEF_EXPLORER_PROXY_PATH ?? '/v1/graphql';
   const proxyAdminSecret = env.REEF_EXPLORER_ADMIN_SECRET ?? '';
+  const evmRpcTarget = env.VITE_REEF_EVM_RPC_URL ?? 'https://rpc.reefscan.com';
 
   const plugins = [
     react(),
@@ -64,32 +65,42 @@ export default defineConfig(async ({ mode }) => {
     }
   }
 
+  const proxy: Record<string, unknown> = {
+    '/api/reef-evm-rpc': {
+      target: evmRpcTarget,
+      changeOrigin: true,
+      secure: false,
+      ws: false,
+      rewrite: () => '/',
+    },
+  };
+
+  if (proxyTarget) {
+    proxy['/api/reef-explorer'] = {
+      target: proxyTarget,
+      changeOrigin: true,
+      secure: false,
+      ws: true,
+      rewrite: () => proxyPath,
+      configure: (proxyInstance: {
+        on: (
+          event: 'proxyReq',
+          callback: (proxyReq: { setHeader: (name: string, value: string) => void }) => void
+        ) => void;
+      }) => {
+        if (!proxyAdminSecret) return;
+        proxyInstance.on('proxyReq', (proxyReq) => {
+          proxyReq.setHeader('x-hasura-admin-secret', proxyAdminSecret);
+        });
+      },
+    };
+  }
+
   return {
     plugins,
-    server: proxyTarget
-      ? {
-        proxy: {
-          '/api/reef-explorer': {
-            target: proxyTarget,
-            changeOrigin: true,
-            secure: false,
-            ws: true,
-            rewrite: () => proxyPath,
-            configure: (proxy: {
-              on: (
-                event: 'proxyReq',
-                callback: (proxyReq: { setHeader: (name: string, value: string) => void }) => void
-              ) => void;
-            }) => {
-              if (!proxyAdminSecret) return;
-              proxy.on('proxyReq', (proxyReq) => {
-                proxyReq.setHeader('x-hasura-admin-secret', proxyAdminSecret);
-              });
-            },
-          },
-        },
-      }
-      : undefined,
+    server: {
+      proxy,
+    },
     resolve: {
       alias: {
         'react/jsx-runtime': path.resolve(__dirname, 'node_modules/react/jsx-runtime.js'),

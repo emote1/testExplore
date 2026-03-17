@@ -11,6 +11,7 @@ const NFTS_BY_OWNER_HASURA_QUERY = parse(`
           { nft_id: { _is_null: false } }
         ]
       }
+      order_by: { id: asc }
       limit: 300
     ) {
       id
@@ -36,6 +37,7 @@ const NFTS_BY_OWNER_PAGED_HASURA_QUERY = parse(`
           { nft_id: { _is_null: false } }
         ]
       }
+      order_by: { id: asc }
       limit: $limit
       offset: $offset
     ) {

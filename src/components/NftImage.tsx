@@ -14,6 +14,7 @@ export function NftImage({ imageUrl, name, className, onClick, priority, sizes, 
   const [idx, setIdx] = React.useState(0);
   const [failed, setFailed] = React.useState(false);
   const readySentRef = React.useRef(false);
+  const loggedFailureRef = React.useRef(false);
   const fireReady = React.useCallback(() => {
     if (readySentRef.current) return;
     readySentRef.current = true;
@@ -40,6 +41,14 @@ export function NftImage({ imageUrl, name, className, onClick, priority, sizes, 
     setIdx((i) => {
       const next = i + 1;
       if (next < candidates.length) return next;
+      if (!loggedFailureRef.current) {
+        loggedFailureRef.current = true;
+        console.warn('[NFT][Image failed]', {
+          name,
+          imageUrl,
+          attemptedCandidates: candidates,
+        });
+      }
       setFailed(true);
       return i;
     });

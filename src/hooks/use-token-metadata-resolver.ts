@@ -19,7 +19,7 @@ export function useTokenMetadataResolver({ data }: Props) {
 
     const ids: string[] = [];
     for (const n of nodes) {
-      const id = getString(n, ['token', 'id']);
+      const id = getString(n, ['token', 'id']) || getString(n, ['token_id']);
       if (!id) continue;
       const transferType = getString(n, ['type']) || '';
       if (transferType === 'Native' || transferType === 'ERC721' || transferType === 'ERC1155') continue;

@@ -11,7 +11,7 @@ import { NftMediaViewer } from './media/nft-media-viewer';
 import { Skeleton } from './ui/skeleton';
 import { PreviewPlaybackProvider } from './preview-playback';
 import { NftVideoThumb } from './media/nft-video-thumb';
-import { normalizeIpfs } from '../utils/ipfs';
+import { normalizeIpfs, toCidPath } from '../utils/ipfs';
 import { VirtualizedGrid } from './VirtualizedGrid';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -20,6 +20,7 @@ interface NftGalleryProps {
   address: string | null;
   enableOwnerInfinite?: boolean;
   onCountsChange?: (count: number) => void;
+  totalCount?: number | null;
 }
 
 // Minimal NFT shape used for grouping/aggregation within this component
@@ -27,50 +28,6 @@ type NftLite = Pick<Nft, 'id' | 'name' | 'image' | 'media' | 'thumbnail' | 'mime
 
 // IPFS helpers are imported from '../utils/ipfs'
 // Video thumbnail component moved to './media/nft-video-thumb'
-
-function PreloadTopVideos({ nfts, count = 4 }: { nfts: Nft[]; count?: number }) {
-  React.useEffect(() => {
-    const head = document.head;
-    if (!head) return;
-    const toPreload = nfts
-      .filter(n => {
-        const byMime = typeof n.mimetype === 'string' && n.mimetype.startsWith('video/');
-        const u = (n.media ?? n.image) as string | undefined;
-        const byExt = typeof u === 'string' && /(\.mp4|\.webm|\.ogv|\.ogg|\.mov|\.mkv|\.m4v)(\?|#|$)/i.test(u);
-        return byMime || byExt;
-      })
-      .slice(0, Math.max(0, count))
-      .map(n => normalizeIpfs(n.media ?? n.image) ?? (n.media ?? n.image))
-      .filter((href): href is string => typeof href === 'string' && href.length > 0);
-    const created: HTMLLinkElement[] = [];
-    const seen = new Set<string>();
-    for (const href of toPreload) {
-      if (seen.has(href)) continue;
-      seen.add(href);
-      const link = document.createElement('link');
-      link.rel = 'preload';
-      link.as = 'video';
-      link.href = href;
-      try {
-        const u = new URL(href, window.location.href);
-        if (u.origin !== window.location.origin) {
-          // Align with <video crossOrigin="anonymous"> to enable reuse
-          link.crossOrigin = 'anonymous';
-        }
-      } catch { /* ignore invalid URL */ }
-      // Avoid leaking referrer to gateways
-      link.setAttribute('referrerpolicy', 'no-referrer');
-      head.appendChild(link);
-      created.push(link);
-    }
-    return () => {
-      for (const el of created) {
-        try { el.remove(); } catch (e) { void e; }
-      }
-    };
-  }, [nfts, count]);
-  return null;
-}
 
 function looksVideoUrl(u?: string): boolean {
   try {
@@ -80,10 +37,21 @@ function looksVideoUrl(u?: string): boolean {
   }
 }
 
+function looksImageUrl(u?: string): boolean {
+  try {
+    return typeof u === 'string' && /\.(png|jpe?g|gif|webp|avif|bmp|svg)(\?|#|$)/i.test(u);
+  } catch {
+    return false;
+  }
+}
+
 function isVideoNft(nft: Nft): boolean {
   const mediaUrl = nft.media as string | undefined;
   const imageUrl = nft.image as string | undefined;
-  if (typeof nft.mimetype === 'string' && nft.mimetype.startsWith('video/') && !!mediaUrl) return true;
+  if (typeof nft.mimetype === 'string' && nft.mimetype.startsWith('video/') && !!mediaUrl) {
+    if (looksImageUrl(mediaUrl)) return false;
+    return true;
+  }
   return looksVideoUrl(mediaUrl) || looksVideoUrl(imageUrl);
 }
 
@@ -103,8 +71,17 @@ function NftCard({ nft, onPreview, priority, onThumbReady, suspended }: { nft: N
   // - Trust mimetype only when an explicit media URL is present
   // - Otherwise rely on URL extension for media or image
   const isVideo = isVideoNft(nft);
+  const mediaSrc = (nft.media ?? nft.image) as string | undefined;
+  const posterCandidate = (nft.thumbnail ?? nft.image) as string | undefined;
+  const previewImageSrc = (nft.thumbnail ?? nft.image ?? (!isVideo ? nft.media : undefined)) as string | undefined;
+  const mediaCid = toCidPath(mediaSrc);
+  const posterCid = toCidPath(posterCandidate);
+  const posterMatchesMedia = !!posterCandidate && (
+    (mediaCid && posterCid ? mediaCid === posterCid : posterCandidate === mediaSrc)
+  );
+  const videoPoster = posterMatchesMedia ? undefined : posterCandidate;
 
-  if (!nft.image && !nft.thumbnail) {
+  if (!nft.image && !nft.thumbnail && !nft.media) {
     return (
       <div className="border rounded-lg p-4 flex flex-col items-center justify-center bg-gray-50 aspect-square" data-testid="nft-card" data-nft-id={nft.id}>
         <div className="w-16 h-16 rounded bg-gray-200 mb-2" />
@@ -120,8 +97,8 @@ function NftCard({ nft, onPreview, priority, onThumbReady, suspended }: { nft: N
       <div className="relative">
         {isVideo ? (
           <NftVideoThumb
-            src={(nft.media ?? nft.image) as string}
-            poster={nft.thumbnail ?? nft.image}
+            src={mediaSrc as string}
+            poster={videoPoster}
             name={nft.name || nft.id}
             className="w-full h-44 sm:h-52 md:h-56 bg-black"
             priority={priority}
@@ -131,7 +108,7 @@ function NftCard({ nft, onPreview, priority, onThumbReady, suspended }: { nft: N
           />
         ) : (
           <NftImage
-            imageUrl={nft.thumbnail ?? nft.image ?? null}
+            imageUrl={previewImageSrc ?? null}
             onClick={(nft.media || nft.image) ? (() => onPreview(nft)) : undefined}
             name={nft.name || nft.id}
             className="w-full h-44 sm:h-52 md:h-56 object-cover"
@@ -241,7 +218,7 @@ function CollectionCard({ col, onClick }: { col: Collection; onClick: (c: Collec
   );
 }
 
-export function NftGallery({ address, enableOwnerInfinite = false, onCountsChange }: NftGalleryProps) {
+export function NftGallery({ address, enableOwnerInfinite = false, onCountsChange, totalCount = null }: NftGalleryProps) {
   const [selectedCollection, setSelectedCollection] = React.useState<Collection | null>(null);
   const [viewer, setViewer] = React.useState<{ src: string; poster?: string; mime?: string; name?: string } | null>(null);
   const { collections: ownerCollections, error: ownerError } = useSqwidCollectionsByOwner(address);
@@ -255,8 +232,14 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
       const params = new URLSearchParams(window.location.search);
       const raw = params.get('ownerLimit') ?? params.get('infiniteLimit');
       const n = raw ? Number(raw) : NaN;
-      if (!Number.isFinite(n)) return 48;
-      return Math.min(96, Math.max(8, Math.floor(n)));
+      if (Number.isFinite(n)) return Math.min(120, Math.max(8, Math.floor(n)));
+
+      const w = typeof window !== 'undefined' ? window.innerWidth : 1024;
+      if (w >= 1536) return 96;
+      if (w >= 1280) return 80;
+      if (w >= 1024) return 72;
+      if (w >= 768) return 56;
+      return 40;
     } catch {
       return 48;
     }
@@ -267,13 +250,73 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
     isFetchingNextPage: isOwnerInfFetchingNext,
     hasNextPage: ownerHasNextPage,
     fetchNextPage: fetchOwnerNextPage,
+    error: ownerInfError,
   } = useSqwidNftsInfinite({ owner: enableOwnerInfinite ? address : null, limit: ownerInfPageSize });
-  const { nfts: fallbackNfts, isLoading: isFallbackLoading } = useSqwidNfts(enableOwnerInfinite ? null : address);
-  const isOwnerNftsLoading = enableOwnerInfinite ? isOwnerInfLoading : isFallbackLoading;
+  const { nfts: fallbackNfts, isLoading: isFallbackLoading, error: fallbackError } = useSqwidNfts(address);
+  const ownerSourceNfts = enableOwnerInfinite ? ((Array.isArray(infiniteNfts) && infiniteNfts.length > 0) ? infiniteNfts : fallbackNfts) : fallbackNfts;
+  const isOwnerNftsLoading = enableOwnerInfinite
+    ? (isOwnerInfLoading && (!Array.isArray(fallbackNfts) || fallbackNfts.length === 0))
+    : isFallbackLoading;
+  const loadedInfiniteCount = Array.isArray(infiniteNfts) ? infiniteNfts.length : 0;
+  const loadedOwnerCount = Array.isArray(ownerSourceNfts) ? ownerSourceNfts.length : 0;
+  const ownerTotalCount = typeof totalCount === 'number' && Number.isFinite(totalCount) ? totalCount : null;
+  const ownerPrefetchTargetCount = React.useMemo(() => {
+    const baseTarget = Math.max(120, ownerInfPageSize * 3);
+    return ownerTotalCount !== null ? Math.min(ownerTotalCount, baseTarget) : baseTarget;
+  }, [ownerInfPageSize, ownerTotalCount]);
   const { getAddressType } = useAddressResolver();
   const pagingRef = React.useRef<boolean>(false);
+  const ownerPrefetchKeyRef = React.useRef<string | null>(null);
   const [showOwnerLoader, setShowOwnerLoader] = React.useState<boolean>(false);
   const ownerLoaderShownAtRef = React.useRef<number>(0);
+
+  React.useEffect(() => {
+    ownerPrefetchKeyRef.current = null;
+  }, [address, enableOwnerInfinite, ownerInfPageSize]);
+
+  React.useEffect(() => {
+    if (!enableOwnerInfinite) return;
+    if (!address) return;
+    if (isOwnerInfLoading || isOwnerInfFetchingNext) return;
+    if (!ownerHasNextPage) return;
+    if (loadedInfiniteCount === 0) return;
+    if (loadedInfiniteCount >= ownerPrefetchTargetCount) return;
+
+    const key = `${address.toLowerCase()}::${ownerInfPageSize}::${loadedInfiniteCount}`;
+    if (ownerPrefetchKeyRef.current === key) return;
+    ownerPrefetchKeyRef.current = key;
+
+    const prefetch = () => {
+      void fetchOwnerNextPage().catch(() => {
+        ownerPrefetchKeyRef.current = null;
+      });
+    };
+
+    if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+      const id = (window as Window & { requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => number })
+        .requestIdleCallback(prefetch, { timeout: 600 });
+      return () => {
+        try {
+          (window as Window & { cancelIdleCallback: (idleId: number) => void }).cancelIdleCallback(id);
+        } catch {
+          // ignore
+        }
+      };
+    }
+
+    const t = setTimeout(prefetch, 120);
+    return () => clearTimeout(t);
+  }, [
+    address,
+    enableOwnerInfinite,
+    isOwnerInfLoading,
+    isOwnerInfFetchingNext,
+    ownerHasNextPage,
+    loadedInfiniteCount,
+    ownerInfPageSize,
+    ownerPrefetchTargetCount,
+    fetchOwnerNextPage,
+  ]);
 
   React.useEffect(() => {
     const debounceMs = 120;
@@ -302,14 +345,6 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
     };
   }, [isOwnerNftsLoading, showOwnerLoader]);
 
-  React.useEffect(() => {
-    if (!onCountsChange) return;
-    if (isOwnerNftsLoading) return;
-    const sourceNfts = enableOwnerInfinite ? infiniteNfts : fallbackNfts;
-    const value = Array.isArray(sourceNfts) ? sourceNfts.length : 0;
-    if (!Number.isFinite(value)) return;
-    onCountsChange(value);
-  }, [onCountsChange, enableOwnerInfinite, isOwnerNftsLoading, infiniteNfts, fallbackNfts]);
   // Overview Tabs & row-chunked reveal
   const [overviewTab, setOverviewTab] = React.useState<'collections' | 'video' | 'other'>('video');
   const ROWS_CHUNK = 4;
@@ -425,7 +460,7 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
     const ownerColIdSet = new Set(ownerCols.map(c => (c.id || '').toLowerCase()));
 
     // Build "Other NFTs" from owner NFTs source (infinite or fallback)
-    const sourceNfts = enableOwnerInfinite ? infiniteNfts : fallbackNfts;
+    const sourceNfts = ownerSourceNfts;
     const nftsWithoutCollectionRaw = (Array.isArray(sourceNfts) ? sourceNfts : []).filter((it: Nft) => {
       const explicit = it?.collection?.id as string | undefined;
       const derived = (!explicit && typeof it?.id === 'string' && it.id.includes('-')) ? it.id.split('-')[0] : undefined;
@@ -459,7 +494,7 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
     });
 
     return { nftsWithoutCollection, collectionsWithCount: collectionsWithItemCount };
-  }, [fallbackNfts, ownerCollections, enableOwnerInfinite, infiniteNfts]);
+  }, [ownerSourceNfts, ownerCollections]);
 
   const videoNfts = React.useMemo(() => nftsWithoutCollection.filter(isVideoNft), [nftsWithoutCollection]);
   const otherNonVideoNfts = React.useMemo(() => nftsWithoutCollection.filter(n => !isVideoNft(n)), [nftsWithoutCollection]);
@@ -619,6 +654,15 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
     } catch { /* ignore */ }
   }
 
+  const overviewTotalItems = collectionsWithCount.reduce((sum, c) => sum + (typeof c.itemCount === 'number' ? c.itemCount : 0), 0) + nftsWithoutCollection.length;
+
+  React.useEffect(() => {
+    if (!onCountsChange) return;
+    if (isOwnerNftsLoading) return;
+    if (!Number.isFinite(overviewTotalItems)) return;
+    onCountsChange(overviewTotalItems);
+  }, [onCountsChange, overviewTotalItems, isOwnerNftsLoading]);
+
   if (!address) {
     return (
       <div className="relative bg-white rounded-xl border border-gray-200 shadow-sm p-6 overflow-hidden">
@@ -664,7 +708,23 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
 
   const totalItems = selectedCollection
     ? displayedNfts.length
-    : (collectionsWithCount.reduce((sum, c) => sum + (typeof c.itemCount === 'number' ? c.itemCount : 0), 0) + nftsWithoutCollection.length);
+    : overviewTotalItems;
+
+  const sourceError = ownerInfError ?? fallbackError;
+  if (!selectedCollection && sourceError && totalItems === 0) {
+    return (
+      <div className="relative bg-white rounded-xl border border-gray-200 shadow-sm p-6 overflow-hidden">
+        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-blue-500/40 to-transparent opacity-60" />
+        <div className="flex items-center gap-3 p-4 text-red-700 bg-red-100 rounded-lg">
+          <AlertTriangle className="h-5 w-5" />
+          <div>
+            <h3 className="font-semibold">Error Fetching NFTs</h3>
+            <p className="text-sm">{sourceError.message}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!selectedCollection && totalItems === 0) {
     return (
@@ -793,6 +853,12 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
           )}
         </div>
 
+        {!selectedCollection && ownerTotalCount !== null && ownerTotalCount > 0 ? (
+          <div className="mt-2 text-xs text-gray-500" data-testid="owner-nfts-progress">
+            Loaded {Math.min(loadedOwnerCount, ownerTotalCount)} of {ownerTotalCount} owner NFTs
+          </div>
+        ) : null}
+
         {collectionError && selectedCollection ? (
           <div className="flex items-center gap-3 p-4 text-red-700 bg-red-100 rounded-lg">
             <AlertTriangle className="h-5 w-5" />
@@ -800,7 +866,6 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
           </div>
         ) : selectedCollection ? (
           <>
-            {!viewer ? <PreloadTopVideos nfts={displayedFiltered} count={4} /> : null}
             {displayedFiltered.length === 0 && isCollectionLoading ? (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
                 {Array.from({ length: limit }).map((_, i) => <NftCardSkeleton key={`sk-${i}`} />)}
@@ -901,7 +966,7 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
                   minColumnWidth={200}
                   gap={16}
                   overscan={8}
-                  maxRows={videoRows}
+                  maxRows={enableOwnerInfinite ? undefined : videoRows}
                   isFetching={enableOwnerInfinite ? isOwnerInfFetchingNext : revealVideo}
                   onEndReached={() => {
                     if (enableOwnerInfinite) {
@@ -963,7 +1028,7 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
                   minColumnWidth={200}
                   gap={16}
                   overscan={8}
-                  maxRows={otherRows}
+                  maxRows={enableOwnerInfinite ? undefined : otherRows}
                   isFetching={enableOwnerInfinite ? isOwnerInfFetchingNext : revealOther}
                   onEndReached={() => {
                     if (enableOwnerInfinite) {

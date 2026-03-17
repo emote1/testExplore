@@ -263,6 +263,29 @@ export function VirtualizedGrid<T>(props: VirtualizedGridProps<T>) {
     return () => io.disconnect();
   }, [onEndReached, isFetching, visibleRowCount, rowCount, maxRows, fireEndReached]);
 
+  // Auto-reveal more rows when the current limited window still does not make the page scrollable.
+  // Without this, progressive grids can get stuck at the initial chunk (e.g. 12 items) on tall viewports,
+  // because the user has no chance to produce a scroll gesture that would trigger the next reveal.
+  React.useEffect(() => {
+    if (!onEndReached || isFetching) return;
+    const limited = typeof maxRows === 'number' && Number.isFinite(maxRows);
+    if (!limited) return;
+    if (!(visibleRowCount < rowCount)) return;
+    const el = containerRef.current;
+    if (!el) return;
+    try {
+      const rect = el.getBoundingClientRect();
+      const viewportHeight = window.innerHeight || 0;
+      const notScrollableYet = document.documentElement.scrollHeight <= viewportHeight + 24;
+      const gridBottomInsideViewport = rect.bottom <= viewportHeight + 24;
+      if (notScrollableYet || gridBottomInsideViewport) {
+        fireEndReached();
+      }
+    } catch {
+      // ignore measurement errors
+    }
+  }, [onEndReached, isFetching, visibleRowCount, rowCount, maxRows, fireEndReached]);
+
   // Debounced loader show (120ms) + keep visible minimum 300ms to reduce flicker
   React.useEffect(() => {
     const limited = typeof maxRows === 'number' && Number.isFinite(maxRows);

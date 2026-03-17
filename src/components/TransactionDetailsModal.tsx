@@ -256,6 +256,14 @@ export function TransactionDetailsModal({ open, transfer, onClose, pricesById, r
   if (!open || !transfer) return null;
 
   const isSwap = transfer.method === 'swap' && transfer.swapInfo;
+  const displayTokenName = (token: { id?: string; name?: string } | null | undefined): string => {
+    const rawName = String(token?.name || '').trim();
+    const lower = rawName.toLowerCase();
+    if (rawName && lower !== 'token' && lower !== 'unknown') return rawName;
+    const id = String(token?.id || '').trim();
+    if (!id) return rawName || 'TOKEN';
+    return `${id.slice(0, 6)}...${id.slice(-4)}`;
+  };
   const ts = formatTimestampFull(transfer.timestamp, 'en-US');
   const exHashShow = transfer.extrinsicHash || exHashLocal || '';
   const exIdShow = transfer.extrinsicId || exIdLocal || '';
@@ -572,7 +580,7 @@ export function TransactionDetailsModal({ open, transfer, onClose, pricesById, r
                       <tr>
                         <td className="py-1.5 text-gray-500">Amount</td>
                         <td className="py-1.5 text-gray-900 font-medium">
-                          {formatTokenAmount(transfer.amount, transfer.token.decimals, transfer.token.name)}
+                          {formatTokenAmount(transfer.amount, transfer.token.decimals, displayTokenName(transfer.token))}
                         </td>
                       </tr>
                       {(() => {

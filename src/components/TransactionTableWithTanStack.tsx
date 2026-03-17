@@ -71,6 +71,8 @@ interface TransactionTableWithTanStackProps {
 }
 
 export function TransactionTableWithTanStack({ table, isLoading, isFetching, totalCount, loadedCount, newTransfers = [], goToPage, isPageLoading, pageLoadProgress, hasExactTotal = false, fastModeActive = false, emptyHint }: TransactionTableWithTanStackProps) {
+  const DEEP_LOADER_MIN_PAGE_INDEX = 9; // show loader starting from page 10
+  const DEEP_LOADER_SHOW_DELAY_MS = 450;
   const rows = table.getRowModel().rows;
   const enableVirtual = rows.length > 30;
   const parentRef = useRef<HTMLDivElement | null>(null);
@@ -121,7 +123,54 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, tot
   // Quick jump helpers
   const pageIndex = table.getState().pagination.pageIndex;
   const pageCount = table.getPageCount();
+  const [showDeepPageLoader, setShowDeepPageLoader] = useState<boolean>(false);
+  const deepLoaderShownAtRef = useRef<number>(0);
+  const [deepLoaderProgressPct, setDeepLoaderProgressPct] = useState<number>(0);
+  const deepLoaderPctUpdatedAtRef = useRef<number>(0);
+  const progressPageRef = useRef<number>(pageIndex);
   const [jumpInput, setJumpInput] = useState<string>('');
+  useEffect(() => {
+    if (progressPageRef.current !== pageIndex) {
+      progressPageRef.current = pageIndex;
+      setDeepLoaderProgressPct(0);
+      deepLoaderPctUpdatedAtRef.current = 0;
+    }
+  }, [pageIndex]);
+  useEffect(() => {
+    const nextPct = Math.max(0, Math.min(100, Math.round((pageLoadProgress || 0) * 100)));
+    const raw = !!isPageLoading && pageIndex >= DEEP_LOADER_MIN_PAGE_INDEX;
+    if (!raw && !showDeepPageLoader) return;
+    setDeepLoaderProgressPct((prev) => {
+      const stepped = nextPct >= 100 ? 100 : Math.floor(nextPct / 2) * 2;
+      if (stepped <= prev) return prev;
+      const now = Date.now();
+      if (stepped < 100 && deepLoaderPctUpdatedAtRef.current > 0 && (now - deepLoaderPctUpdatedAtRef.current) < 180) {
+        return prev;
+      }
+      if (stepped < 100 && (stepped - prev) < 2) return prev;
+      deepLoaderPctUpdatedAtRef.current = now;
+      return stepped;
+    });
+  }, [isPageLoading, pageIndex, pageLoadProgress, showDeepPageLoader]);
+  useEffect(() => {
+    const raw = !!isPageLoading && pageIndex >= DEEP_LOADER_MIN_PAGE_INDEX;
+    if (raw) {
+      if (showDeepPageLoader) return;
+      const showTimer = window.setTimeout(() => {
+        deepLoaderShownAtRef.current = Date.now();
+        setShowDeepPageLoader(true);
+      }, DEEP_LOADER_SHOW_DELAY_MS);
+      return () => window.clearTimeout(showTimer);
+    }
+
+    if (!showDeepPageLoader) return;
+    const elapsed = Date.now() - (deepLoaderShownAtRef.current || 0);
+    const minVisibleRemain = Math.max(0, 280 - elapsed);
+    // Extra hysteresis to avoid quick hide/show flicker when loading toggles briefly
+    const hideDelay = minVisibleRemain + 220;
+    const hideTimer = window.setTimeout(() => setShowDeepPageLoader(false), hideDelay);
+    return () => window.clearTimeout(hideTimer);
+  }, [isPageLoading, pageIndex, showDeepPageLoader, DEEP_LOADER_MIN_PAGE_INDEX, DEEP_LOADER_SHOW_DELAY_MS]);
   const quickPages = useMemo(() => {
     if (!pageCount || pageCount < 1) return [] as number[];
     const step = 5;
@@ -169,7 +218,7 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, tot
         </div>
       ) : null}
       <div className="overflow-x-auto md:overflow-x-visible">
-        <div ref={parentRef} className={enableVirtual ? 'max-h-[70vh] overflow-auto' : undefined}>
+        <div ref={parentRef} className={enableVirtual ? 'max-h-[70vh] min-h-[420px] overflow-auto' : 'min-h-[420px]'}>
           <table className="w-full table-fixed divide-y divide-gray-200">
           <thead className="bg-white">
             {table.getHeaderGroups().map(headerGroup => (
@@ -304,14 +353,14 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, tot
         </div>
       </div>
       {/* Centered overlay for deep-page loading */}
-      {isPageLoading && pageIndex > 0 ? (
+      {showDeepPageLoader ? (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div className="flex items-center gap-2 rounded-full border border-gray-200 bg-white/95 px-3 py-1 shadow">
             {fastModeActive ? (
               <Loader2 className="h-4 w-4 animate-spin text-gray-600" aria-label="loading" />
             ) : (
-              <span className="text-xs text-gray-700" data-testid="page-loading-progress">
-                {`Loading ${Math.round(((pageLoadProgress || 0) * 100))}%`}
+              <span className="inline-flex min-w-[108px] justify-center text-xs text-gray-700 tabular-nums" data-testid="page-loading-progress">
+                {`Loading ${deepLoaderProgressPct}%`}
               </span>
             )}
           </div>
@@ -326,9 +375,6 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, tot
             className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 focus-visible:ring-offset-white disabled:cursor-not-allowed disabled:opacity-50"
           >
             <span>Previous</span>
-            {fastModeActive && (
-              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">FAST</span>
-            )}
           </button>
 
           <div className="inline-flex items-center justify-center rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
@@ -346,9 +392,6 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, tot
             className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 focus-visible:ring-offset-white disabled:cursor-not-allowed disabled:opacity-50"
           >
             <span>Next</span>
-            {fastModeActive && (
-              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">FAST</span>
-            )}
           </button>
         </div>
 
@@ -378,7 +421,9 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, tot
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm text-gray-600">Quick:</span>
+            <span className="text-sm text-gray-600">
+              Quick{hasExactTotal ? '' : ' ~'}:
+            </span>
             {quickPages.map((p) => (
               <button
                 key={p}

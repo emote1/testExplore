@@ -158,8 +158,8 @@ export function useTransactionDataWithBlocks(
   // Extract partner legs logic
   const { partnersByHash, setPartnersByHash } = useSwapPartnerLegs({ data: normalizedData, swapOnly, enabled: !!(resolvedAddress || resolvedEvmAddress) });
   
-  // Extract token metadata resolving logic (called for side effects - cache warming)
-  useTokenMetadataResolver({ data: normalizedData });
+  // Extract token metadata resolving logic (cache warming + re-map trigger)
+  const { metaVersion } = useTokenMetadataResolver({ data: normalizedData });
 
   // Reset partners when address changes
   useEffect(() => {
@@ -178,7 +178,11 @@ export function useTransactionDataWithBlocks(
       // Ensure all required fields exist with fallbacks
       const fromId = node.fromId || node.from_id || node.from?.id || '';
       const toId = node.toId || node.to_id || node.to?.id || '';
-      const token = node.token || { id: node.token_id || '', name: 'Unknown', contractData: null };
+      const token = node.token || {
+        id: node.token_id || '',
+        name: node.tokenName || node.token_name || 'Unknown',
+        contractData: node.tokenContractData || node.token_contract_data || null,
+      };
       
       return {
         ...node,
@@ -216,7 +220,7 @@ export function useTransactionDataWithBlocks(
     }
 
     return aggregateSwaps(unique);
-  }, [normalizedData, resolvedAddress, resolvedEvmAddress, minReefRaw, maxReefRaw, partnersByHash, accountAddress, swapOnly]);
+  }, [normalizedData, resolvedAddress, resolvedEvmAddress, minReefRaw, maxReefRaw, partnersByHash, accountAddress, swapOnly, metaVersion]);
 
   const fetchMore = useCallback(async () => {
     if (!apolloFetchMore) return;
@@ -312,7 +316,11 @@ export function useTransactionDataWithBlocks(
       const normalizeNode = (node: any) => {
         const fromId = node.fromId || node.from_id || node.from?.id || '';
         const toId = node.toId || node.to_id || node.to?.id || '';
-        const token = node.token || { id: node.token_id || '', name: 'Unknown', contractData: null };
+        const token = node.token || {
+          id: node.token_id || '',
+          name: node.tokenName || node.token_name || 'Unknown',
+          contractData: node.tokenContractData || node.token_contract_data || null,
+        };
         return { ...node, from: { id: fromId }, to: { id: toId }, token };
       };
 

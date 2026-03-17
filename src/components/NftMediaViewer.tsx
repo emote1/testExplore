@@ -30,12 +30,17 @@ export function NftMediaViewer({ src, poster, mime, name, className }: NftMediaV
   const kindHint = getKindFromMime(mime) ?? getKindFromUrl(src);
   const [videoFailed, setVideoFailed] = React.useState(false);
   const [imgIdx, setImgIdx] = React.useState(0);
+  const [vidIdx, setVidIdx] = React.useState(0);
+  const [audIdx, setAudIdx] = React.useState(0);
   const vidRef = React.useRef<HTMLVideoElement | null>(null);
   const [mutedAuto, setMutedAuto] = React.useState(false);
 
   React.useEffect(() => {
     setVideoFailed(false);
     setImgIdx(0);
+    setVidIdx(0);
+    setAudIdx(0);
+    setMutedAuto(false);
   }, [src, mime]);
 
   // IPFS candidates via shared helper
@@ -45,8 +50,6 @@ export function NftMediaViewer({ src, poster, mime, name, className }: NftMediaV
   const posterSrc = posterCandidates[0] ?? undefined;
   const imgCandidates = srcCandidates.length ? srcCandidates : (src ? [src] : []);
   const imgSrc = imgCandidates[imgIdx];
-  const [vidIdx, setVidIdx] = React.useState(0);
-  const [audIdx, setAudIdx] = React.useState(0);
   const videoSrc = (srcCandidates[vidIdx] ?? src) ?? undefined;
   const audioSrc = (srcCandidates[audIdx] ?? src) ?? undefined;
 

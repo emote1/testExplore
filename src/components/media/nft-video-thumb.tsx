@@ -3,8 +3,6 @@ import { buildCandidates } from '../../utils/ipfs';
 import { useInView } from '../../hooks/use-in-view';
 import { usePreviewPlayback } from '../../hooks/use-preview-playback';
 
-const FAILED_VIDEO_SOURCES = new Set<string>();
-
 interface NftVideoThumbProps {
   src: string;
   poster?: string;
@@ -29,7 +27,7 @@ export function NftVideoThumb({ src, poster, name, className, onClick, priority,
   const lastTapRef = React.useRef<number>(0);
   const { register, unregister, ensureExclusive } = usePreviewPlayback();
   const seekRef = React.useRef<number>(0.25);
-  const [videoFailed, setVideoFailed] = React.useState(() => !!src && FAILED_VIDEO_SOURCES.has(src));
+  const [videoFailed, setVideoFailed] = React.useState(false);
   const readySentRef = React.useRef(false);
   const fireReady = React.useCallback(() => {
     if (readySentRef.current) return;
@@ -37,7 +35,7 @@ export function NftVideoThumb({ src, poster, name, className, onClick, priority,
     if (onReady) onReady();
   }, [onReady]);
   const poster0 = posterCandidates[0] ?? '';
-  const posterLooksVideo = /(.mp4|.webm|.mov|.m4v)(\?|#|$)/i.test(poster0);
+  const posterLooksVideo = /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(poster0);
   const hasValidPoster = !!poster0 && !posterLooksVideo;
   const posterUrl = hasValidPoster ? poster0 : undefined;
   const [forceLoad, setForceLoad] = React.useState(false);
@@ -47,7 +45,7 @@ export function NftVideoThumb({ src, poster, name, className, onClick, priority,
 
   React.useEffect(() => {
     setIdx(0);
-    setVideoFailed(!!src && FAILED_VIDEO_SOURCES.has(src));
+    setVideoFailed(false);
   }, [src]);
 
   const startHover = React.useCallback(() => {
@@ -125,12 +123,26 @@ export function NftVideoThumb({ src, poster, name, className, onClick, priority,
         </div>
       );
     }
-    // Fallback placeholder when both video and poster failed
+    // Safe fallback: render plain video controls before giving up.
     return (
       <div ref={(el) => { containerRef(el); visibleRef(el); if (el) fireReady(); }} className="relative">
-        <div className={cn + ' rounded-none flex items-center justify-center text-[11px] text-white/70 bg-black select-none'}>
-          Video unavailable
-        </div>
+        <video
+          className={cn + ' object-cover rounded-none'}
+          controls
+          preload="metadata"
+          playsInline
+          muted
+          src={videoSrc}
+          onLoadedData={fireReady}
+        />
+        <a
+          href={videoSrc}
+          target="_blank"
+          rel="noreferrer"
+          className="absolute bottom-1 right-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-white"
+        >
+          Open media
+        </a>
       </div>
     );
   }
@@ -239,7 +251,6 @@ export function NftVideoThumb({ src, poster, name, className, onClick, priority,
           setIdx((i) => {
             const next = i + 1;
             if (next < srcCandidates.length) return next;
-            if (src) FAILED_VIDEO_SOURCES.add(src);
             setVideoFailed(true);
             fireReady();
             return i;

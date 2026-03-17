@@ -2,9 +2,7 @@
 // Use named exports; no React components here.
 
 export const DEFAULT_IPFS_GATEWAYS: readonly string[] = [
-  'https://dweb.link/ipfs/',
   'https://ipfs.io/ipfs/',
-  'https://w3s.link/ipfs/',
 ];
 
 export interface BuildCandidatesOptions {
@@ -43,16 +41,14 @@ export function resolveIpfsGateways(): string[] {
       .filter(Boolean)
       .filter((g) => !isBlockedGateway(g));
     if (list.length > 0) {
-      // Dedup while preserving order
-      const seen = new Set<string>();
-      return list.filter((g) => (seen.has(g) ? false : (seen.add(g), true)));
+      return [list[0]];
     }
     const single = ensureIpfsGatewayBase(ENV.VITE_IPFS_GATEWAY ?? '');
     if (single && !isBlockedGateway(single)) return [single];
   } catch {
     // ignore
   }
-  return DEFAULT_IPFS_GATEWAYS.filter((g) => !isBlockedGateway(g));
+  return [DEFAULT_IPFS_GATEWAYS[0]];
 }
 
 export function isIpfsLike(url?: string | null): boolean {

@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-03-17
+
+### 🎬 NFTs: как работает загрузка медиа и что оптимизировано
+**Файлы:** `src/data/nfts.ts`, `src/hooks/use-sqwid-nfts-infinite.ts`, `src/hooks/use-sqwid-nfts.ts`, `src/utils/ipfs.ts`, `src/components/NftGallery.tsx`, `src/components/media/nft-video-thumb.tsx`, `src/components/media/nft-media-viewer.tsx`
+
+- **Поток данных NFT:** фронт получает список NFT владельца через Hasura (`token_holder` для `ERC721/ERC1155`), затем по каждой паре `(contract, nftId)` подтягивает метаданные (сначала Sqwid API, fallback на `tokenURI`), нормализует IPFS URL и передаёт их в UI-компоненты галереи/просмотра.
+- **Почему было `Video unavailable`:** видео-источник мог помечаться как «навсегда сломанный» после временной ошибки gateway/CDN; это убрано — добавлен временный cooldown и повторные попытки загрузки.
+- **IPFS стратегия:** отключён агрессивный multi-gateway fallback в UI-пути, оставлен один рабочий gateway через env (`VITE_IPFS_GATEWAY` / первый из `VITE_IPFS_GATEWAYS`) для снижения числа fail-запросов и таймаутов.
+- **Fallback UI для видео:** вместо жёсткой заглушки добавлен безопасный вариант с `<video controls>` и ссылкой `Open media`, чтобы пользователь мог открыть файл напрямую даже при проблемах preview.
+- **Оптимизация thumbnail/poster:** если `thumbnail` и `media` указывают на один и тот же CID, poster отключается, чтобы не тянуть тяжёлое видео дважды.
+- **Причина медленной первой загрузки (~31s):** cold-load большого IPFS-видео (десятки MB), latency gateway и range-запросы браузера. Повторные запросы после этого — ожидаемое поведение для буферизации/переключения источников.
+- **Рекомендация для максимального ускорения:** всегда использовать отдельный лёгкий `jpg/webp` thumbnail CID, а не тот же CID, что у видео.
+
 ## 2026-03-01
 
 ### 📊 Blocks/min (Live) вместо Tx/min

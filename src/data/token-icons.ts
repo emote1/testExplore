@@ -5,6 +5,7 @@ const VERIFIED_CONTRACTS_BY_IDS_HASURA_QUERY = parse(`
   query VerifiedContractsByIdsHasura($ids: [String!], $first: Int!) {
     verifiedContracts: verified_contract(where: { id: { _in: $ids } }, limit: $first) {
       id
+      name
       contractData: contract_data
     }
   }

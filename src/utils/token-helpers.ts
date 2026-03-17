@@ -82,6 +82,7 @@ export function parseTokenMetadata(
   try {
     const cd: unknown = typeof contractDataRaw === 'string' ? JSON.parse(contractDataRaw) : contractDataRaw;
     const symbol = getString(cd, ['symbol']);
+    const name = getString(cd, ['name']);
     const decimals = getNumber(cd, ['decimals']);
     
     // Extensive list of possible image fields in contract metadata
@@ -111,7 +112,7 @@ export function parseTokenMetadata(
       || undefined;
       
     const image = img ? normalizeIpfs(img) : undefined;
-    return { name: symbol || fallbackName, decimals: decimals ?? fallbackDecimals, image };
+    return { name: symbol || name || fallbackName, decimals: decimals ?? fallbackDecimals, image };
   } catch {
     return { name: fallbackName, decimals: fallbackDecimals };
   }

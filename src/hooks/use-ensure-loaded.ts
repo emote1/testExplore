@@ -43,6 +43,7 @@ export function useEnsureLoaded(
   filteredRef.current = filteredTransactions;
   const hasNextRef = useRef(hasNextPage);
   hasNextRef.current = hasNextPage;
+  const ensureScopeRef = useRef<string>('');
 
   useEffect(() => {
     if (fastModeActive) return; // skip sequential ensure loop in fast mode
@@ -52,9 +53,15 @@ export function useEnsureLoaded(
       const singlePage = !hasNextPage && items <= pagination.pageSize;
       if (singlePage && pagination.pageIndex === 0) return;
     }
+
+    const scopeKey = `${fastModeActive ? 1 : 0}|${swapOnly ? 1 : 0}|${tokenFilter}|${pagination.pageIndex}|${pagination.pageSize}|${newItemsCount}`;
+    if (ensureScopeRef.current !== scopeKey) {
+      ensureMaxedRef.current = false;
+      ensureScopeRef.current = scopeKey;
+    }
+
     let cancelled = false;
     const seq = (ensureSeqRef.current = (ensureSeqRef.current ?? 0) + 1);
-    ensureMaxedRef.current = false;
 
     async function run() {
       if (inFlightEnsureRef.current) return; // Avoid overlapping runs
@@ -67,6 +74,7 @@ export function useEnsureLoaded(
         : (newItemsCount + (pageIndex + ladderPages) * pageSize);
 
       let attempts = 0;
+      let stalled = false;
       const maxAttempts = (PAGINATION_CONFIG.MAX_SEQUENTIAL_FETCH_PAGES || 20);
       dbg?.('ensureLoaded: start', {
         pageIndex,
@@ -90,6 +98,12 @@ export function useEnsureLoaded(
         try {
           dbg?.('ensureLoaded: fetchMore', { attempt: attempts + 1, itemsLoaded, requiredCount });
           await fetchMore();
+          const afterLoaded = isFilteredMode ? (filteredRef.current || []).length : (initialRef.current || []).length;
+          if (afterLoaded <= itemsLoaded) {
+            stalled = true;
+            dbg?.('ensureLoaded: stalled (no growth after fetchMore)', { itemsLoaded, afterLoaded, attempt: attempts + 1 });
+            break;
+          }
         } catch {
           break; // surface errors via error state; stop loop
         } finally {
@@ -99,8 +113,8 @@ export function useEnsureLoaded(
         if (seq !== ensureSeqRef.current) break; // deps changed, abandon
       }
 
-      ensureMaxedRef.current = (attempts >= maxAttempts) || !hasNextRef.current;
-      dbg?.('ensureLoaded: end', { attempts, maxed: ensureMaxedRef.current });
+      ensureMaxedRef.current = (attempts >= maxAttempts) || !hasNextRef.current || stalled;
+      dbg?.('ensureLoaded: end', { attempts, stalled, maxed: ensureMaxedRef.current });
     }
 
     run();

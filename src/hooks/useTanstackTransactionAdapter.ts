@@ -468,6 +468,15 @@ export function useTanstackTransactionAdapter(
       return { isPageLoading: false, pageLoadProgress: p };
     }
 
+    // If sequential ensure loop is no longer in-flight and max attempts were reached,
+    // stop showing a hanging loader even when hasNextPage stayed optimistic.
+    if (!inFlightEnsureRef.current && ensureMaxedRef.current) {
+      if (itemsLoaded <= desiredStart) return { isPageLoading: false, pageLoadProgress: 0 };
+      const currentCount = dataForCurrentPage.length;
+      const p = Math.max(0, Math.min(1, currentCount / pageSize));
+      return { isPageLoading: false, pageLoadProgress: p };
+    }
+
     // When there are more pages (All mode), reflect progress toward a ladder window
     const loadedFromBaseline = Math.max(0, itemsLoaded - newItemsCount);
     const ladderPages = Math.max(1, PAGINATION_CONFIG.NON_FAST_LADDER_UI_PAGES || 1);

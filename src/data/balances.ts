@@ -31,10 +31,14 @@ const TOKEN_HOLDERS_PAGED_SUBSQUID_QUERY = graphql(`
 `);
 
 const TOKEN_HOLDERS_PAGED_HASURA_QUERY = parse(`
-  query TokenHoldersByAccountHasura($accountId: String!, $first: Int!) {
+  query TokenHoldersByAccountHasura($accountId: String!, $evmAddress: String!, $evmAddressLower: String!, $first: Int!) {
     tokenHolders: token_holder(
       where: {
-        signer_id: { _eq: $accountId }
+        _or: [
+          { signer_id: { _eq: $accountId } }
+          { evm_address: { _eq: $evmAddress } }
+          { evm_address: { _eq: $evmAddressLower } }
+        ]
         nft_id: { _is_null: true }
         type: { _in: ["ERC20", "Account"] }
       }
@@ -42,13 +46,18 @@ const TOKEN_HOLDERS_PAGED_HASURA_QUERY = parse(`
       limit: $first
     ) {
       signer_id
+      evm_address
       balance
       token_id
       type
     }
     tokenHoldersAggregate: token_holder_aggregate(
       where: {
-        signer_id: { _eq: $accountId }
+        _or: [
+          { signer_id: { _eq: $accountId } }
+          { evm_address: { _eq: $evmAddress } }
+          { evm_address: { _eq: $evmAddressLower } }
+        ]
         nft_id: { _is_null: true }
         type: { _in: ["ERC20", "Account"] }
       }

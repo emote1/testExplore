@@ -77,6 +77,11 @@ interface TransferLike {
 type TransferEdge = { node: TransferLike };
 type Transfer = TransferLike;
 
+function resolveTokenId(transfer: Transfer): string {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (transfer.token?.id || getString(transfer as any, ['token_id']) || getString(transfer as any, ['tokenId']) || '').toString();
+}
+
 function toRawAmountString(value: string | number | bigint): string {
   if (typeof value === 'bigint') return value.toString();
   if (typeof value === 'number') {
@@ -94,6 +99,11 @@ function toRawAmountString(value: string | number | bigint): string {
 
 // Cache token metadata derived from contractData to avoid repeated JSON.parse
 const tokenMetaCache = new Map<string, { name: string; decimals: number }>();
+const KNOWN_TOKEN_ALIASES: Record<string, { name: string; decimals?: number }> = {
+  '0x7922d8785d93e692bb584e659b607fa821e6a91a': { name: 'USDC', decimals: 6 },
+  '0x95a2af50040b7256a4b4c405a4afd4dd573da115': { name: 'MRD', decimals: 18 },
+  '0xbdf31526ec1758897dadc9e03a92b2bfe4e0925c': { name: 'BDF Token' },
+};
 
 /** Check if token metadata is already cached for a given token id (as-is, checksum preserved). */
 export function hasTokenMetaCached(id?: string | null): boolean {
@@ -155,20 +165,30 @@ function parseTokenData(transfer: Transfer): { name: string; decimals: number } 
   if (transfer.token.name === 'REEF') return { name: 'REEF', decimals: 18 };
 
   // Try cache first
-  const cached = tokenMetaCache.get(transfer.token.id);
-  if (cached) return cached;
-
-  // Check by token ID (contract address) for well-known tokens
-  const tokenIdLower = (transfer.token.id || '').toLowerCase();
-  if (tokenIdLower === '0x7922d8785d93e692bb584e659b607fa821e6a91a') {
-    return { name: 'USDC', decimals: 6 };
+  const resolvedTokenId = resolveTokenId(transfer);
+  const cached = tokenMetaCache.get(resolvedTokenId);
+  if (cached) {
+    const cachedName = String(cached.name || '').trim();
+    const cachedLower = cachedName.toLowerCase();
+    const isGenericContractName = /^contract-0x[a-f0-9]{6,}$/i.test(cachedName);
+    if (cachedName && cachedLower !== 'token' && cachedLower !== 'unknown' && !isGenericContractName) {
+      return cached;
+    }
   }
-  if (tokenIdLower === '0x95a2af50040b7256a4b4c405a4afd4dd573da115') {
-    return { name: 'MRD', decimals: 18 };
+
+  // Check by token ID (contract address) for known aliases
+  const tokenIdLower = resolvedTokenId.toLowerCase();
+  const knownAlias = KNOWN_TOKEN_ALIASES[tokenIdLower];
+  if (knownAlias) {
+    return { name: knownAlias.name, decimals: knownAlias.decimals ?? 18 };
   }
 
   // contractData may be omitted from some queries to reduce payload size
   const contractDataRaw = transfer.token.contractData;
+  const tokenId = resolvedTokenId;
+  const fallbackTokenLabel = tokenId
+    ? `${tokenId.slice(0, 6)}...${tokenId.slice(-4)}`
+    : 'TOKEN';
   if (!contractDataRaw) {
     // Fallbacks for well-known tokens when metadata is omitted by name
     const nm = (transfer.token.name || '').toString();
@@ -179,15 +199,22 @@ function parseTokenData(transfer: Transfer): { name: string; decimals: number } 
     if (lower === 'mrd') {
       return { name: nm, decimals: 18 };
     }
-    // Generic default
+    if (!nm || lower === 'unknown' || lower === 'token') {
+      return { name: fallbackTokenLabel, decimals: 18 };
+    }
     return { name: nm, decimals: 18 };
   }
 
   const meta = parseTokenMetadata(contractDataRaw, transfer.token.name);
-  const result = { name: meta.name, decimals: meta.decimals };
+  const metaName = String(meta.name || '').trim();
+  const metaLower = metaName.toLowerCase();
+  const result = {
+    name: (!metaName || metaLower === 'unknown' || metaLower === 'token') ? fallbackTokenLabel : metaName,
+    decimals: meta.decimals,
+  };
   
   // Cache only when we had contractData to avoid caching placeholders
-  tokenMetaCache.set(transfer.token.id, result);
+  if (resolvedTokenId) tokenMetaCache.set(resolvedTokenId, result);
   return result;
 }
 
@@ -209,6 +236,7 @@ export function mapTransfersToUiTransfers(
       const transfer = edge.node;
       const amount = toRawAmountString(transfer.amount);
       const { name: tokenName, decimals: tokenDecimals } = parseTokenData(transfer);
+      const resolvedTokenId = resolveTokenId(transfer);
       const isNft = transfer.type === 'ERC721' || transfer.type === 'ERC1155';
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const swapFlag = getString(transfer as any, ['reefswapAction']) ?? null;
@@ -222,7 +250,7 @@ export function mapTransfersToUiTransfers(
         isNft,
         tokenId: isNft ? amount : null, // Simplification, might need adjustment based on actual NFT logic
         token: {
-          id: transfer.token?.id || '',
+          id: resolvedTokenId,
           name: tokenName,
           decimals: tokenDecimals,
         },
