@@ -130,13 +130,13 @@ interface EraValidatorsQueryResult {
   eraValidatorInfos?: Array<{
     era?: number | string | null;
     address?: string | null;
-    total?: string | null;
+    total?: number | string | null;
   }>;
 }
 
 interface RewardsQueryResult {
   stakings?: Array<{
-    amount?: string | null;
+    amount?: number | string | null;
     timestamp?: string | null;
   }>;
 }
@@ -181,6 +181,12 @@ function toFiniteNumber(value: unknown): number | null {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : null;
   }
+  return null;
+}
+
+function toBigIntText(value: unknown): string | null {
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value).toString();
   return null;
 }
 
@@ -368,7 +374,7 @@ async function fetchDailyNetworkReward(): Promise<number | null> {
       const pageRows = Array.isArray(data?.stakings)
         ? data.stakings
             .map((row) => ({
-              amount: typeof row?.amount === 'string' ? row.amount : '',
+              amount: toBigIntText(row?.amount) ?? '',
               timestamp: typeof row?.timestamp === 'string' ? row.timestamp : '',
             }))
             .filter((row) => row.amount && row.timestamp)
@@ -409,7 +415,7 @@ async function fetchCurrentEraValidators(): Promise<{ latestEra: number | null; 
         .map((row) => {
           const era = toFiniteNumber(row?.era);
           const address = typeof row?.address === 'string' ? row.address : null;
-          const total = typeof row?.total === 'string' ? row.total : null;
+          const total = toBigIntText(row?.total);
           if (era == null || !address || !total) return null;
           return { era, address, total } satisfies ValidatorInfo;
         })
