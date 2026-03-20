@@ -5,7 +5,8 @@ import { runAggregation } from './cron.js';
 import { getStakingSummary } from './staking-summary.js';
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = Number(process.env.AGGREGATOR_PORT || process.env.PORT || 3001);
+const HOST = process.env.AGGREGATOR_HOST || process.env.HOST || '127.0.0.1';
 
 app.use(cors());
 app.use(express.json());
@@ -247,8 +248,8 @@ app.get('/v1/top-entities', (req: Request, res: Response) => {
 // Start server after DB init
 async function main() {
   await initDb();
-  app.listen(PORT, () => {
-    console.log(`Aggregator API running on http://localhost:${PORT}`);
+  app.listen(PORT, HOST, () => {
+    console.log(`Aggregator API running on http://${HOST}:${PORT}`);
   });
 }
 

@@ -1,5 +1,90 @@
 # Changelog
 
+## 2026-03-20
+
+### 🏦 Staking Summary: перенос расчёта Total Staked / APY на backend aggregator
+**Файлы:** `aggregator/src/staking-summary.ts`, `aggregator/src/index.ts`, `aggregator/package.json`, `src/hooks/use-total-staked.ts`
+
+- **Что изменено в архитектуре:** тяжёлый расчёт `Total Staked` и `APY` вынесен из фронтенда в `aggregator`. Вместо множества клиентских GraphQL/RPC запросов фронт теперь может получать один готовый JSON с сервера по `GET /v1/staking/summary`.
+- **Почему это лучше:** меньше запросов из браузера, быстрее рендер блока Network Statistics, меньше вероятность rate limit / timeout, логика расчёта централизована в одном backend месте.
+- **Как работает backend endpoint:**
+  - читает актуальные валидаторы из Hasura таблицы `era_validator_info`
+  - читает окно reward-событий из Hasura таблицы `staking` (`type = Reward`)
+  - читает `total issuance` из Reef RPC через `state_getStorage`
+  - батчем читает `Identity.IdentityOf` и `Staking.Validators` из RPC для имён и комиссий валидаторов
+  - собирает итоговый ответ: `era`, `totalStakedRaw`, `totalStakedReef`, `totalSupply`, `stakedPct`, `validatorCount`, `apy`, `validators[]`
+- **Кэширование на backend:**
+  - итоговый staking summary кэшируется по `era`
+  - metadata валидаторов кэшируется на 30 минут
+  - total issuance кэшируется на 5 минут
+  - пока era не изменилась, фронт получает уже готовый cached результат
+- **Как работает фронтенд после изменения:** `src/hooks/use-total-staked.ts` сначала пытается забрать серверный staking summary URL, а при ошибке может откатиться на прежнюю клиентскую логику как fallback.
+
+### 🌐 Рекомендуемый способ публикации endpoint
+- **Лучший вариант:** проксировать `aggregator` через существующий nginx на том же домене, а не открывать порт `3001` наружу напрямую.
+- **Почему это лучший вариант:**
+  - один публичный вход через nginx
+  - не нужно светить внутренний порт `3001`
+  - проще CORS / TLS / firewall
+  - у фронтенда будет стабильный путь вида `/api/staking-summary`
+- **Рекомендуемая схема:**
+```
+Browser
+  -> nginx/public domain
+  -> /api/staking-summary
+  -> http://127.0.0.1:3001/v1/staking/summary
+```
+- **Рекомендуемое значение для фронта:** `VITE_STAKING_SUMMARY_URL=/api/staking-summary`
+
+### ⚙️ Серверные env для aggregator
+```env
+REEF_EXPLORER_HTTP_URL=http://<hasura-host>:8080/v1/graphql
+REEF_EXPLORER_BACKEND=hasura
+REEF_EXPLORER_ADMIN_SECRET=<HASURA_GRAPHQL_ADMIN_SECRET>
+REEF_RPC_URL=https://rpc.reefscan.info
+```
+
+- `REEF_EXPLORER_HTTP_URL` — GraphQL endpoint Hasura
+- `REEF_EXPLORER_BACKEND=hasura` — включает Hasura-совместимые GraphQL запросы в `aggregator`
+- `REEF_EXPLORER_ADMIN_SECRET` — нужен для доступа к Hasura
+- `REEF_RPC_URL` — Reef RPC для issuance / identity / commission
+
+### 🖥️ Как это работает на сервере
+- `pm2` запускает процесс `reef-aggregator` из `aggregator/dist/index.js`
+- Hasura secret берётся из защищённого server-side `.env` файла и экспортируется в окружение процесса
+- после `export` переменные попадают в `pm2 env`
+- endpoint локально проверяется через:
+```bash
+curl http://127.0.0.1:3001/v1/staking/summary
+```
+- снаружи endpoint лучше отдавать через nginx reverse proxy, а не через прямой доступ к `:3001`
+
+### 🔧 Что пришлось исправить во время серверного запуска
+- **Причина первого зависания:** `aggregator` был запущен без нужных `REEF_*` / `HASURA_*` env, поэтому не мог корректно ходить в Hasura/RPC.
+- **Причина пустого ответа (`era: null`, `validatorCount: 0`):** парсер backend слишком строго ожидал строковые bigint-поля, а Hasura возвращала `numeric` значения не только как `string`, но и как JSON `number`.
+- **Причина ошибки `500`:** некоторые большие значения из Hasura приходили в scientific notation, например `2.5884979171338786e+26`, что ломало прямой `BigInt(...)`.
+- **Фикс:** backend нормализует такие значения в обычную целую строку перед вычислениями.
+
+### ✅ Проверено на сервере
+Фактический ответ `/v1/staking/summary` после фикса:
+
+- `era = 1763`
+- `totalStakedReef = 6512701048.6189`
+- `totalSupply = 35616006210`
+- `stakedPct = 18.285882505238085`
+- `validatorCount = 23`
+- `apy = 92.6511988094629`
+- в `validators[]` приходят имена, комиссии, stake и индивидуальный APY валидаторов
+
+### 🚀 Минимальный server update workflow
+```bash
+cd /path/to/project
+git pull origin render-deploy
+npm --prefix aggregator run build
+pm2 restart reef-aggregator --update-env
+curl -v --max-time 30 http://127.0.0.1:3001/v1/staking/summary
+```
+
 ## 2026-03-17
 
 ### 🎬 NFTs: как работает загрузка медиа и что оптимизировано
