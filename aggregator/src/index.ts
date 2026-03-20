@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import cors from 'cors';
 import { initDb, getDb } from './db.js';
 import { runAggregation } from './cron.js';
+import { getStakingSummary } from './staking-summary.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -33,6 +34,7 @@ app.get('/', (_req: Request, res: Response) => {
     endpoints: [
       'GET /health',
       'GET /v1/metrics/growth24h',
+      'GET /v1/staking/summary',
       'GET /v1/sparklines/extrinsics?hours=24',
       'GET /v1/sparklines/active-wallets?hours=24',
       'GET /v1/top-entities?limit=20',
@@ -104,6 +106,16 @@ app.get('/v1/metrics/growth24h', (_req: Request, res: Response) => {
   } catch (err) {
     console.error('Error in /v1/metrics/growth24h:', err);
     res.status(500).json({ error: 'internal', message: 'Failed to fetch metrics' });
+  }
+});
+
+app.get('/v1/staking/summary', async (_req: Request, res: Response) => {
+  try {
+    const summary = await getStakingSummary();
+    res.json(summary);
+  } catch (err) {
+    console.error('Error in /v1/staking/summary:', err);
+    res.status(500).json({ error: 'internal', message: 'Failed to fetch staking summary' });
   }
 });
 

@@ -11,6 +11,8 @@ const TOTAL_ISSUANCE_KEY = '0xc2261276cc9d1f8598ea4b6a74b15c2f57c875e4cff74148e4
 const DAYS_PER_YEAR = 365;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const APY_REWARDS_WINDOW_SIZE = Number(import.meta.env.VITE_STAKING_APY_REWARDS_WINDOW_SIZE ?? '2000');
+const STAKING_SUMMARY_URL = String(import.meta.env.VITE_STAKING_SUMMARY_URL ?? '/v1/staking/summary');
+const STAKING_SUMMARY_REFRESH_MS = Math.max(60_000, Number(import.meta.env.VITE_STAKING_SUMMARY_REFRESH_MS ?? `${30 * 60 * 1000}`));
 
 function hexLeToReef(hex: string): number {
   const clean = hex.startsWith('0x') ? hex.slice(2) : hex;
@@ -207,12 +209,31 @@ interface TotalStakedState {
   validators: ValidatorStake[];
 }
 
+interface StakingSummaryApiResponse {
+  asOf?: string;
+  era?: number | null;
+  totalStakedRaw?: string;
+  totalStakedReef?: number;
+  totalSupply?: number;
+  stakedPct?: number;
+  validatorCount?: number;
+  apy?: number | null;
+  validators?: Array<{
+    address?: string;
+    name?: string | null;
+    stakedReef?: number;
+    sharePct?: number;
+    commissionPct?: number | null;
+    apy?: number | null;
+  }>;
+}
+
 function bigIntToReef(raw: bigint): number {
   return Number(raw / 100000000000000n) / 1e4;
 }
 
-export function useTotalStaked(): TotalStakedState {
-  const [state, setState] = useState<TotalStakedState>({
+function initialState(): TotalStakedState {
+  return {
     loading: true,
     error: undefined,
     totalStakedRaw: 0n,
@@ -223,15 +244,80 @@ export function useTotalStaked(): TotalStakedState {
     era: null,
     apy: null,
     validators: [],
+  };
+}
+
+function mapServerSummaryToState(summary: StakingSummaryApiResponse): TotalStakedState | null {
+  const totalStakedRawText = typeof summary?.totalStakedRaw === 'string' && summary.totalStakedRaw.trim()
+    ? summary.totalStakedRaw
+    : '0';
+  let totalStakedRaw = 0n;
+  try {
+    totalStakedRaw = BigInt(totalStakedRawText);
+  } catch {
+    totalStakedRaw = 0n;
+  }
+
+  const validators = Array.isArray(summary?.validators)
+    ? summary.validators
+        .filter((item): item is NonNullable<StakingSummaryApiResponse['validators']>[number] => !!item && typeof item.address === 'string')
+        .map((item) => ({
+          address: item.address!,
+          name: typeof item.name === 'string' ? item.name : null,
+          stakedReef: typeof item.stakedReef === 'number' && Number.isFinite(item.stakedReef) ? item.stakedReef : 0,
+          sharePct: typeof item.sharePct === 'number' && Number.isFinite(item.sharePct) ? item.sharePct : 0,
+          commissionPct: typeof item.commissionPct === 'number' && Number.isFinite(item.commissionPct) ? item.commissionPct : null,
+          apy: typeof item.apy === 'number' && Number.isFinite(item.apy) ? item.apy : null,
+        }))
+    : [];
+
+  return {
+    loading: false,
+    error: undefined,
+    totalStakedRaw,
+    totalStakedReef: typeof summary?.totalStakedReef === 'number' && Number.isFinite(summary.totalStakedReef) ? summary.totalStakedReef : bigIntToReef(totalStakedRaw),
+    totalSupply: typeof summary?.totalSupply === 'number' && Number.isFinite(summary.totalSupply) ? summary.totalSupply : 0,
+    stakedPct: typeof summary?.stakedPct === 'number' && Number.isFinite(summary.stakedPct) ? summary.stakedPct : 0,
+    validatorCount: typeof summary?.validatorCount === 'number' && Number.isFinite(summary.validatorCount) ? summary.validatorCount : validators.length,
+    era: typeof summary?.era === 'number' && Number.isFinite(summary.era) ? summary.era : null,
+    apy: typeof summary?.apy === 'number' && Number.isFinite(summary.apy) ? summary.apy : null,
+    validators,
+  };
+}
+
+async function fetchServerStakingSummary(signal?: AbortSignal): Promise<TotalStakedState | null> {
+  const res = await fetch(STAKING_SUMMARY_URL, {
+    method: 'GET',
+    signal,
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
   });
+  if (!res.ok) {
+    throw new Error(`Staking summary API error: ${res.status} ${res.statusText}`);
+  }
+  const json = await res.json() as StakingSummaryApiResponse;
+  return mapServerSummaryToState(json);
+}
+
+export function useTotalStaked(): TotalStakedState {
+  const [state, setState] = useState<TotalStakedState>(initialState);
 
   useEffect(() => {
     let cancelled = false;
+    const ac = new AbortController();
 
     async function load() {
-      try {
-        setState((prev) => ({ ...prev, loading: true }));
+      setState((prev) => ({ ...prev, loading: true }));
 
+      try {
+        const serverState = await fetchServerStakingSummary(ac.signal);
+        if (cancelled || !serverState) return;
+        setState(serverState);
+        return;
+      } catch {
+      }
+
+      try {
         const [{ data }, totalSupply] = await Promise.all([
           apolloClient.query({ query: ERA_VALIDATORS_QUERY, fetchPolicy: 'network-only' }),
           fetchTotalIssuance(),
@@ -333,10 +419,11 @@ export function useTotalStaked(): TotalStakedState {
     }
 
     load();
-    const interval = setInterval(load, 5 * 60 * 1000);
+    const interval = setInterval(load, STAKING_SUMMARY_REFRESH_MS);
 
     return () => {
       cancelled = true;
+      ac.abort();
       clearInterval(interval);
     };
   }, []);

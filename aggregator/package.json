@@ -12,6 +12,8 @@
     "cron:icp": "tsx src/cron-icp.ts"
   },
   "dependencies": {
+    "@polkadot/util": "13.2.1",
+    "@polkadot/util-crypto": "13.2.1",
     "cors": "^2.8.5",
     "express": "^4.18.2",
     "graphql-request": "^6.1.0",
