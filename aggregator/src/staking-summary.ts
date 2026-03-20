@@ -184,9 +184,38 @@ function toFiniteNumber(value: unknown): number | null {
   return null;
 }
 
+function normalizeIntegerText(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^\d+$/.test(trimmed)) return trimmed.replace(/^0+(?=\d)/, '') || '0';
+
+  const sciMatch = trimmed.match(/^(\+?)(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/);
+  if (!sciMatch) return null;
+
+  const [, , whole, fraction = '', exponentRaw] = sciMatch;
+  const exponent = Number(exponentRaw);
+  if (!Number.isFinite(exponent)) return null;
+
+  if (exponent < 0) {
+    const integerLength = whole.length + exponent;
+    if (integerLength <= 0) return '0';
+    const digits = `${whole}${fraction}`;
+    return digits.slice(0, integerLength).replace(/^0+(?=\d)/, '') || '0';
+  }
+
+  const digits = `${whole}${fraction}`;
+  const zerosToAdd = exponent - fraction.length;
+  if (zerosToAdd >= 0) {
+    return `${digits}${'0'.repeat(zerosToAdd)}`.replace(/^0+(?=\d)/, '') || '0';
+  }
+
+  const integerLength = whole.length + exponent;
+  return digits.slice(0, integerLength).replace(/^0+(?=\d)/, '') || '0';
+}
+
 function toBigIntText(value: unknown): string | null {
-  if (typeof value === 'string' && value.trim()) return value.trim();
-  if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value).toString();
+  if (typeof value === 'string') return normalizeIntegerText(value);
+  if (typeof value === 'number' && Number.isFinite(value)) return normalizeIntegerText(Math.trunc(value).toString());
   return null;
 }
 
