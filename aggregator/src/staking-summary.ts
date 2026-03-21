@@ -225,6 +225,7 @@ function toBigIntText(value: unknown): string | null {
 function toCommissionPct(value: unknown): number | null {
   const raw = toFiniteNumber(value);
   if (raw == null || raw < 0) return null;
+  if (raw <= 100) return raw;
   return raw / 1_000_000_000 * 100;
 }
 
