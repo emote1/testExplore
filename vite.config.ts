@@ -10,6 +10,8 @@ export default defineConfig(async ({ mode }) => {
   const proxyTarget = env.REEF_EXPLORER_PROXY_TARGET ?? '';
   const proxyPath = env.REEF_EXPLORER_PROXY_PATH ?? '/v1/graphql';
   const proxyAdminSecret = env.REEF_EXPLORER_ADMIN_SECRET ?? '';
+  const stakingSummaryProxyTarget = env.STAKING_SUMMARY_PROXY_TARGET ?? '';
+  const stakingSummaryProxyPath = env.STAKING_SUMMARY_PROXY_PATH ?? '/v1/staking/summary';
   const evmRpcTarget = env.VITE_REEF_EVM_RPC_URL ?? 'https://rpc.reefscan.com';
 
   const plugins = [
@@ -93,6 +95,16 @@ export default defineConfig(async ({ mode }) => {
           proxyReq.setHeader('x-hasura-admin-secret', proxyAdminSecret);
         });
       },
+    };
+  }
+
+  if (stakingSummaryProxyTarget) {
+    proxy['/api/staking-summary'] = {
+      target: stakingSummaryProxyTarget,
+      changeOrigin: true,
+      secure: false,
+      ws: false,
+      rewrite: () => stakingSummaryProxyPath,
     };
   }
 

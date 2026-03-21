@@ -28,6 +28,7 @@ type Documents = {
     "\n  query LatestEraValidators {\n    eraValidatorInfos(orderBy: era_DESC, limit: 200) {\n      era\n      address\n      total\n    }\n  }\n": typeof types.LatestEraValidatorsDocument,
     "\n  query RewardsWindow($limit: Int!, $offset: Int!) {\n    stakings(\n      where: { type_eq: Reward }\n      orderBy: [timestamp_DESC, id_DESC]\n      limit: $limit\n      offset: $offset\n    ) {\n      amount\n      timestamp\n    }\n  }\n": typeof types.RewardsWindowDocument,
     "\n  query LatestBlockForTps {\n    blocks(orderBy: height_DESC, limit: 1) { height timestamp }\n  }\n": typeof types.LatestBlockForTpsDocument,
+    "\n  query RecentBlocksForTps($limit: Int!) {\n    blocks(orderBy: height_DESC, limit: $limit) { height timestamp }\n  }\n": typeof types.RecentBlocksForTpsDocument,
     "\n  subscription ExtrinsicsFromHeight($fromHeight: Int!, $limit: Int!) {\n    extrinsics(\n      where: { block: { height_gt: $fromHeight } }\n      orderBy: [id_ASC]\n      limit: $limit\n    ) {\n      id\n      block { timestamp }\n    }\n  }\n": typeof types.ExtrinsicsFromHeightDocument,
     "\n  subscription TransfersFromHeight($fromHeight: Int!, $limit: Int!) {\n    transfers(\n      where: { blockHeight_gt: $fromHeight }\n      orderBy: [id_ASC]\n      limit: $limit\n    ) {\n      id\n      timestamp\n    }\n  }\n": typeof types.TransfersFromHeightDocument,
     "\n  subscription BlocksFromHeight($fromHeight: Int!, $limit: Int!) {\n    blocks(\n      where: { height_gt: $fromHeight }\n      orderBy: [height_ASC]\n      limit: $limit\n    ) {\n      height\n      timestamp\n    }\n  }\n": typeof types.BlocksFromHeightDocument,
@@ -47,6 +48,7 @@ const documents: Documents = {
     "\n  query LatestEraValidators {\n    eraValidatorInfos(orderBy: era_DESC, limit: 200) {\n      era\n      address\n      total\n    }\n  }\n": types.LatestEraValidatorsDocument,
     "\n  query RewardsWindow($limit: Int!, $offset: Int!) {\n    stakings(\n      where: { type_eq: Reward }\n      orderBy: [timestamp_DESC, id_DESC]\n      limit: $limit\n      offset: $offset\n    ) {\n      amount\n      timestamp\n    }\n  }\n": types.RewardsWindowDocument,
     "\n  query LatestBlockForTps {\n    blocks(orderBy: height_DESC, limit: 1) { height timestamp }\n  }\n": types.LatestBlockForTpsDocument,
+    "\n  query RecentBlocksForTps($limit: Int!) {\n    blocks(orderBy: height_DESC, limit: $limit) { height timestamp }\n  }\n": types.RecentBlocksForTpsDocument,
     "\n  subscription ExtrinsicsFromHeight($fromHeight: Int!, $limit: Int!) {\n    extrinsics(\n      where: { block: { height_gt: $fromHeight } }\n      orderBy: [id_ASC]\n      limit: $limit\n    ) {\n      id\n      block { timestamp }\n    }\n  }\n": types.ExtrinsicsFromHeightDocument,
     "\n  subscription TransfersFromHeight($fromHeight: Int!, $limit: Int!) {\n    transfers(\n      where: { blockHeight_gt: $fromHeight }\n      orderBy: [id_ASC]\n      limit: $limit\n    ) {\n      id\n      timestamp\n    }\n  }\n": types.TransfersFromHeightDocument,
     "\n  subscription BlocksFromHeight($fromHeight: Int!, $limit: Int!) {\n    blocks(\n      where: { height_gt: $fromHeight }\n      orderBy: [height_ASC]\n      limit: $limit\n    ) {\n      height\n      timestamp\n    }\n  }\n": types.BlocksFromHeightDocument,
@@ -122,6 +124,10 @@ export function graphql(source: "\n  query RewardsWindow($limit: Int!, $offset: 
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(source: "\n  query LatestBlockForTps {\n    blocks(orderBy: height_DESC, limit: 1) { height timestamp }\n  }\n"): (typeof documents)["\n  query LatestBlockForTps {\n    blocks(orderBy: height_DESC, limit: 1) { height timestamp }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  query RecentBlocksForTps($limit: Int!) {\n    blocks(orderBy: height_DESC, limit: $limit) { height timestamp }\n  }\n"): (typeof documents)["\n  query RecentBlocksForTps($limit: Int!) {\n    blocks(orderBy: height_DESC, limit: $limit) { height timestamp }\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

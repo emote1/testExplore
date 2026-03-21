@@ -85,6 +85,18 @@ pm2 restart reef-aggregator --update-env
 curl -v --max-time 30 http://127.0.0.1:3001/v1/staking/summary
 ```
 
+### ✅ Финальный статус после настройки proxy и локального dev
+- **Что подтверждено на сервере:**
+  - `GET /v1/staking/summary` на `aggregator` отвечает `200 OK`
+  - nginx proxy `GET /api/staking-summary` отвечает `200 OK`
+  - UI получает готовый server-side summary с полями `era`, `apy`, `totalStakedReef`, `validatorCount`, `validators[]`
+- **Что исправлено в nginx:** proxy для staking summary должен жить в отдельном `location = /api/staking-summary`, а существующий `location /api/reef-explorer` должен оставаться направленным на Hasura GraphQL endpoint
+- **Как теперь устроен локальный dev:**
+  - `VITE_STAKING_SUMMARY_URL=/api/staking-summary`
+  - Vite dev server проксирует `/api/staking-summary` через новые server-only env `STAKING_SUMMARY_PROXY_TARGET` и `STAKING_SUMMARY_PROXY_PATH`
+  - это позволяет локально использовать тот же path, что и в production, вместо прямого запроса на `http://localhost:3001`
+- **Почему в Network всё ещё могут быть запросы к `/api/reef-explorer`:** это нормально для других частей UI, например для GraphQL-запросов блока `Network Statistics` (`Blocks/min`, live block data и другие Hasura-backed виджеты). Успешный `summary` больше не требует fallback-расчёта APY, если `/api/staking-summary` возвращает `200`.
+
 ## 2026-03-17
 
 ### 🎬 NFTs: как работает загрузка медиа и что оптимизировано
@@ -226,10 +238,12 @@ docker-compose down -v                  # Удалить контейнеры и
 
 ---
 
-### 📡 GraphQL запросы: Frontend → Hasura
+### 📡 GraphQL запросы: Frontend → Hasura через proxy
 
-**Endpoint:** `http://localhost:8080/v1/graphql`
-**Header:** `x-hasura-admin-secret: local_dev_secret`
+**Browser endpoint:** `/api/reef-explorer`
+**Local dev endpoint:** `http://localhost:5173/api/reef-explorer`
+**Server-side proxy target:** `http://<hasura-host>:8080/v1/graphql`
+**Header injection:** `x-hasura-admin-secret` добавляется только на server-side proxy слое (`nginx` или `Vite dev proxy`), а не из браузера
 
 **Основные запросы (Hasura синтаксис):**
 
@@ -392,8 +406,10 @@ BACKFILL_TARGET=7834548
 - Добавлены env-переменные:
   - `VITE_REEF_EXPLORER_HTTP_URL`
   - `VITE_REEF_EXPLORER_WS_URL` (опционально, авто-derive из HTTP)
-  - `VITE_REEF_EXPLORER_ADMIN_SECRET` (опционально, для Hasura)
-- HTTP и WS клиенты поддерживают заголовок `x-hasura-admin-secret`
+  - `REEF_EXPLORER_PROXY_TARGET` (server-only, для локального Vite proxy)
+  - `REEF_EXPLORER_PROXY_PATH` (server-only, путь Hasura GraphQL)
+  - `REEF_EXPLORER_ADMIN_SECRET` (server-only, для инжекта секрета в proxy)
+- HTTP и WS клиенты работают через same-origin proxy endpoint, а `x-hasura-admin-secret` остаётся только на server-side proxy слое
 - `API_CONFIG.API_URL` переведён на env-конфигурацию
 
 > Важно: текущие GraphQL документы фронтенда сгенерированы под схему Subsquid. Полное переключение всего UI на локальную Hasura схему требует поэтапной миграции query layer (different root fields/filters/types).

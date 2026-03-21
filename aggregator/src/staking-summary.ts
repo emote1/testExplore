@@ -48,6 +48,7 @@ const ERA_VALIDATORS_QUERY = isHasuraExplorerMode
         era
         address
         total
+        commission
       }
     }
   `
@@ -93,6 +94,7 @@ interface ValidatorInfo {
   era: number;
   address: string;
   total: string;
+  commissionPct: number | null;
 }
 
 interface RewardRow {
@@ -102,7 +104,7 @@ interface RewardRow {
 
 interface ValidatorMeta {
   name: string | null;
-  commissionPct: number | null;
+  commissionPct?: number | null;
 }
 
 export interface StakingSummaryValidator {
@@ -131,6 +133,7 @@ interface EraValidatorsQueryResult {
     era?: number | string | null;
     address?: string | null;
     total?: number | string | null;
+    commission?: number | string | null;
   }>;
 }
 
@@ -142,7 +145,7 @@ interface RewardsQueryResult {
 }
 
 let cachedIssuance: { value: number; ts: number } | null = null;
-let cachedMeta: { data: Map<string, ValidatorMeta>; ts: number } | null = null;
+let cachedMeta: { data: Map<string, ValidatorMeta>; ts: number; includesCommission: boolean } | null = null;
 let cachedSummary: { era: number | null; summary: StakingSummaryResponse } | null = null;
 let inflightSummary: Promise<StakingSummaryResponse> | null = null;
 let inflightEra: number | null = null;
@@ -217,6 +220,12 @@ function toBigIntText(value: unknown): string | null {
   if (typeof value === 'string') return normalizeIntegerText(value);
   if (typeof value === 'number' && Number.isFinite(value)) return normalizeIntegerText(Math.trunc(value).toString());
   return null;
+}
+
+function toCommissionPct(value: unknown): number | null {
+  const raw = toFiniteNumber(value);
+  if (raw == null || raw < 0) return null;
+  return raw / 1_000_000_000 * 100;
 }
 
 function storageKey(palletName: string, storageName: string, accountSs58: string): string {
@@ -323,10 +332,10 @@ async function rpcBatch(calls: { method: string; params: string[] }[]): Promise<
   return calls.map((_, index) => sorted[index]?.result ?? null);
 }
 
-async function fetchValidatorsMeta(addresses: string[]): Promise<Map<string, ValidatorMeta>> {
+async function fetchValidatorsMeta(addresses: string[], includeCommission = false): Promise<Map<string, ValidatorMeta>> {
   if (cachedMeta && Date.now() - cachedMeta.ts < META_TTL_MS) {
     const allCached = addresses.every((address) => cachedMeta!.data.has(address));
-    if (allCached) return cachedMeta.data;
+    if (allCached && (!includeCommission || cachedMeta.includesCommission)) return cachedMeta.data;
   }
 
   const result = new Map<string, ValidatorMeta>();
@@ -335,21 +344,21 @@ async function fetchValidatorsMeta(addresses: string[]): Promise<Map<string, Val
   try {
     const calls = [
       ...addresses.map((address) => ({ method: 'state_getStorage', params: [storageKey('Identity', 'IdentityOf', address)] })),
-      ...addresses.map((address) => ({ method: 'state_getStorage', params: [storageKey('Staking', 'Validators', address)] })),
+      ...(includeCommission ? addresses.map((address) => ({ method: 'state_getStorage', params: [storageKey('Staking', 'Validators', address)] })) : []),
     ];
     const responses = await rpcBatch(calls);
     const n = addresses.length;
 
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < addresses.length; i++) {
       const identityHex = responses[i];
-      const validatorHex = responses[n + i];
+      const validatorHex = includeCommission ? responses[n + i] : null;
       result.set(addresses[i], {
         name: typeof identityHex === 'string' ? decodeIdentityName(identityHex) : null,
-        commissionPct: typeof validatorHex === 'string' ? decodeCommission(validatorHex) : null,
+        commissionPct: includeCommission && typeof validatorHex === 'string' ? decodeCommission(validatorHex) : null,
       });
     }
 
-    cachedMeta = { data: result, ts: Date.now() };
+    cachedMeta = { data: result, ts: Date.now(), includesCommission: includeCommission };
     return result;
   } catch {
     return result;
@@ -445,8 +454,9 @@ async function fetchCurrentEraValidators(): Promise<{ latestEra: number | null; 
           const era = toFiniteNumber(row?.era);
           const address = typeof row?.address === 'string' ? row.address : null;
           const total = toBigIntText(row?.total);
+          const commissionPct = toCommissionPct(row?.commission);
           if (era == null || !address || !total) return null;
-          return { era, address, total } satisfies ValidatorInfo;
+          return { era, address, total, commissionPct } satisfies ValidatorInfo;
         })
         .filter((row): row is ValidatorInfo => row != null)
     : [];
@@ -475,10 +485,11 @@ function emptySummary(): StakingSummaryResponse {
 }
 
 async function buildSummaryForEra(latestEra: number, eraValidators: ValidatorInfo[]): Promise<StakingSummaryResponse> {
+  const needsCommissionFallback = !isHasuraExplorerMode || eraValidators.some((validator) => validator.commissionPct == null);
   const [totalSupply, dailyReward, meta] = await Promise.all([
     fetchTotalIssuance(),
     fetchDailyNetworkReward(),
-    fetchValidatorsMeta(eraValidators.map((validator) => validator.address)),
+    fetchValidatorsMeta(eraValidators.map((validator) => validator.address), needsCommissionFallback),
   ]);
 
   let totalStakedRaw = 0n;
@@ -499,7 +510,7 @@ async function buildSummaryForEra(latestEra: number, eraValidators: ValidatorInf
     .map((validator) => {
       const staked = bigIntToReef(BigInt(validator.total));
       const validatorMeta = meta.get(validator.address);
-      const commission = validatorMeta?.commissionPct ?? null;
+      const commission = validator.commissionPct ?? validatorMeta?.commissionPct ?? null;
       const validatorApy = rewardPerValidator && staked > 0
         ? (rewardPerValidator / staked) * DAYS_PER_YEAR * 100 * (1 - (commission ?? 0) / 100)
         : null;
