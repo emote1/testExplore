@@ -99,11 +99,6 @@ function toRawAmountString(value: string | number | bigint): string {
 
 // Cache token metadata derived from contractData to avoid repeated JSON.parse
 const tokenMetaCache = new Map<string, { name: string; decimals: number }>();
-const KNOWN_TOKEN_ALIASES: Record<string, { name: string; decimals?: number }> = {
-  '0x7922d8785d93e692bb584e659b607fa821e6a91a': { name: 'USDC', decimals: 6 },
-  '0x95a2af50040b7256a4b4c405a4afd4dd573da115': { name: 'MRD', decimals: 18 },
-  '0xbdf31526ec1758897dadc9e03a92b2bfe4e0925c': { name: 'BDF Token' },
-};
 
 /** Check if token metadata is already cached for a given token id (as-is, checksum preserved). */
 export function hasTokenMetaCached(id?: string | null): boolean {
@@ -170,17 +165,9 @@ function parseTokenData(transfer: Transfer): { name: string; decimals: number } 
   if (cached) {
     const cachedName = String(cached.name || '').trim();
     const cachedLower = cachedName.toLowerCase();
-    const isGenericContractName = /^contract-0x[a-f0-9]{6,}$/i.test(cachedName);
-    if (cachedName && cachedLower !== 'token' && cachedLower !== 'unknown' && !isGenericContractName) {
+    if (cachedName && cachedLower !== 'token' && cachedLower !== 'unknown') {
       return cached;
     }
-  }
-
-  // Check by token ID (contract address) for known aliases
-  const tokenIdLower = resolvedTokenId.toLowerCase();
-  const knownAlias = KNOWN_TOKEN_ALIASES[tokenIdLower];
-  if (knownAlias) {
-    return { name: knownAlias.name, decimals: knownAlias.decimals ?? 18 };
   }
 
   // contractData may be omitted from some queries to reduce payload size
@@ -190,15 +177,8 @@ function parseTokenData(transfer: Transfer): { name: string; decimals: number } 
     ? `${tokenId.slice(0, 6)}...${tokenId.slice(-4)}`
     : 'TOKEN';
   if (!contractDataRaw) {
-    // Fallbacks for well-known tokens when metadata is omitted by name
     const nm = (transfer.token.name || '').toString();
     const lower = nm.toLowerCase();
-    if (lower === 'usdc' || lower === 'usdc.e' || lower === 'usd coin') {
-      return { name: nm, decimals: 6 };
-    }
-    if (lower === 'mrd') {
-      return { name: nm, decimals: 18 };
-    }
     if (!nm || lower === 'unknown' || lower === 'token') {
       return { name: fallbackTokenLabel, decimals: 18 };
     }

@@ -7,10 +7,10 @@ const META_TTL_MS = 30 * 60 * 1000;
 
 export interface ValidatorMeta {
   name: string | null;
-  commissionPct: number | null;
+  commissionPct?: number | null;
 }
 
-let cachedMeta: { data: Map<string, ValidatorMeta>; ts: number } | null = null;
+let cachedMeta: { data: Map<string, ValidatorMeta>; ts: number; includesCommission: boolean } | null = null;
 
 function storageKey(palletName: string, storageName: string, accountSs58: string): string {
   const palletHash = xxhashAsHex(palletName, 128).slice(2);
@@ -123,33 +123,33 @@ async function rpcBatch(calls: { method: string; params: string[] }[]): Promise<
   return calls.map((_, i) => sorted[i]?.result ?? null);
 }
 
-export async function fetchValidatorsMeta(addresses: string[]): Promise<Map<string, ValidatorMeta>> {
+export async function fetchValidatorsMeta(addresses: string[], includeCommission = true): Promise<Map<string, ValidatorMeta>> {
   if (cachedMeta && Date.now() - cachedMeta.ts < META_TTL_MS) {
     const allCached = addresses.every((a) => cachedMeta!.data.has(a));
-    if (allCached) return cachedMeta.data;
+    if (allCached && (!includeCommission || cachedMeta.includesCommission)) return cachedMeta.data;
   }
 
   const result = new Map<string, ValidatorMeta>();
   if (addresses.length === 0) return result;
 
   try {
-    // Batch 1: IdentityOf + Staking.Validators for all addresses
+    // Batch 1: IdentityOf and optionally Staking.Validators for all addresses
     const calls1 = [
       ...addresses.map((a) => ({ method: 'state_getStorage', params: [storageKey('Identity', 'IdentityOf', a)] })),
-      ...addresses.map((a) => ({ method: 'state_getStorage', params: [storageKey('Staking', 'Validators', a)] })),
+      ...(includeCommission ? addresses.map((a) => ({ method: 'state_getStorage', params: [storageKey('Staking', 'Validators', a)] })) : []),
     ];
     const res1 = await rpcBatch(calls1);
     const n = addresses.length;
 
     for (let i = 0; i < n; i++) {
       const identityHex = res1[i];
-      const validatorHex = res1[n + i];
+      const validatorHex = includeCommission ? res1[n + i] : null;
       const name = typeof identityHex === 'string' ? decodeIdentityName(identityHex) : null;
-      const commissionPct = typeof validatorHex === 'string' ? decodeCommission(validatorHex) : null;
+      const commissionPct = includeCommission && typeof validatorHex === 'string' ? decodeCommission(validatorHex) : null;
       result.set(addresses[i], { name, commissionPct });
     }
 
-    cachedMeta = { data: result, ts: Date.now() };
+    cachedMeta = { data: result, ts: Date.now(), includesCommission: includeCommission };
     return result;
   } catch {
     return result;

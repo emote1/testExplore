@@ -71,6 +71,7 @@ const ERA_VALIDATORS_HASURA_QUERY = parse(`
       era
       address
       total
+      commission
     }
   }
 `);
@@ -83,6 +84,16 @@ interface ValidatorInfo {
   era: number;
   address: string;
   total: string;
+  commissionPct: number | null;
+}
+
+interface EraValidatorsQueryResult {
+  eraValidatorInfos?: Array<{
+    era?: number | string | null;
+    address?: string | null;
+    total?: number | string | null;
+    commission?: number | string | null;
+  }>;
 }
 
 let cachedDailyReward: { value: number; ts: number } | null = null;
@@ -125,6 +136,13 @@ interface RewardRow {
   timestamp: string;
 }
 
+interface RewardsQueryResult {
+  stakings?: Array<{
+    amount?: number | string | null;
+    timestamp?: string | null;
+  }>;
+}
+
 function toWindowSize(value: number): number {
   if (!Number.isFinite(value)) return 2000;
   return Math.min(10_000, Math.max(1, Math.floor(value)));
@@ -134,6 +152,53 @@ function parseMs(ts?: string): number | null {
   if (!ts) return null;
   const ms = new Date(ts).getTime();
   return Number.isFinite(ms) ? ms : null;
+}
+
+function toFiniteNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function normalizeIntegerText(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^[+-]?\d+$/.test(trimmed)) return trimmed;
+  if (!/^[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?$/i.test(trimmed)) return null;
+  const sign = trimmed.startsWith('-') ? '-' : '';
+  const unsigned = trimmed.replace(/^[+-]/, '');
+  const [mantissa, exponentRaw = '0'] = unsigned.toLowerCase().split('e');
+  const exponent = Number(exponentRaw);
+  if (!Number.isInteger(exponent)) return null;
+  const [whole = '', fraction = ''] = mantissa.split('.');
+  const digits = `${whole}${fraction}`.replace(/^0+(?=\d)/, '') || '0';
+  const fractionLength = fraction.length;
+  if (digits === '0') return '0';
+  if (exponent < 0) {
+    const shift = fractionLength + exponent;
+    if (shift < 0) return null;
+    const integerLength = whole.length + exponent;
+    if (integerLength <= 0) return '0';
+    return `${sign}${digits.slice(0, integerLength)}`.replace(/^(-?)0+(?=\d)/, '$1') || '0';
+  }
+  const integerLength = whole.length + exponent;
+  return `${sign}${digits.slice(0, integerLength).replace(/^0+(?=\d)/, '') || '0'}`;
+}
+
+function toBigIntText(value: unknown): string | null {
+  if (typeof value === 'string') return normalizeIntegerText(value);
+  if (typeof value === 'number' && Number.isFinite(value)) return normalizeIntegerText(Math.trunc(value).toString());
+  return null;
+}
+
+function toCommissionPct(value: unknown): number | null {
+  const raw = toFiniteNumber(value);
+  if (raw == null || raw < 0) return null;
+  if (raw <= 100) return raw;
+  return raw / 1_000_000_000 * 100;
 }
 
 async function fetchDailyNetworkReward(): Promise<number | null> {
@@ -153,7 +218,14 @@ async function fetchDailyNetworkReward(): Promise<number | null> {
         variables: { limit: pageSize, offset },
         fetchPolicy: 'network-only',
       });
-      const pageRows = (data?.stakings ?? []) as RewardRow[];
+      const pageRows = Array.isArray((data as RewardsQueryResult | undefined)?.stakings)
+        ? ((data as RewardsQueryResult).stakings ?? [])
+            .map((row) => ({
+              amount: toBigIntText(row?.amount) ?? '',
+              timestamp: typeof row?.timestamp === 'string' ? row.timestamp : '',
+            }))
+            .filter((row): row is RewardRow => !!row.amount && !!row.timestamp)
+        : [];
       if (pageRows.length === 0) break;
       rewards.push(...pageRows);
       if (rewards.length >= windowSize || pageRows.length < pageSize) break;
@@ -325,7 +397,18 @@ export function useTotalStaked(): TotalStakedState {
 
         if (cancelled) return;
 
-        const validators = (data?.eraValidatorInfos ?? []) as ValidatorInfo[];
+        const validators = Array.isArray((data as EraValidatorsQueryResult | undefined)?.eraValidatorInfos)
+          ? ((data as EraValidatorsQueryResult).eraValidatorInfos ?? [])
+              .map((row) => {
+                const era = toFiniteNumber(row?.era);
+                const address = typeof row?.address === 'string' ? row.address : null;
+                const total = toBigIntText(row?.total);
+                const commissionPct = toCommissionPct(row?.commission);
+                if (era == null || !address || !total) return null;
+                return { era, address, total, commissionPct } satisfies ValidatorInfo;
+              })
+              .filter((row): row is ValidatorInfo => row != null)
+          : [];
         if (validators.length === 0) {
           setState({
             loading: false,
@@ -364,14 +447,15 @@ export function useTotalStaked(): TotalStakedState {
           ? dailyReward / eraValidators.length
           : null;
 
-        const meta = await fetchValidatorsMeta(eraValidators.map((v) => v.address));
+        const needsCommissionFallback = !isHasuraExplorerMode || eraValidators.some((v) => v.commissionPct == null);
+        const meta = await fetchValidatorsMeta(eraValidators.map((v) => v.address), needsCommissionFallback);
         if (cancelled) return;
 
         const validatorsList: ValidatorStake[] = eraValidators
           .map((v) => {
             const staked = bigIntToReef(BigInt(v.total));
             const m = meta.get(v.address);
-            const commission = m?.commissionPct ?? null;
+            const commission = v.commissionPct ?? m?.commissionPct ?? null;
             const vApy = rewardPerValidator && staked > 0
               ? (rewardPerValidator / staked) * DAYS_PER_YEAR * 100 * (1 - (commission ?? 0) / 100)
               : null;

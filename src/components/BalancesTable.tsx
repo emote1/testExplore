@@ -37,6 +37,7 @@ const TokenIcon = React.memo(function TokenIcon({
     const raw = [fromQuery, ...overrideList, tokenImage, ...fallbacks].filter(Boolean) as string[];
     const dedup = new Set<string>();
     const localSources: string[] = [];
+    const remoteSources: string[] = [];
     const ipfsSources: string[] = [];
     for (const u of raw) {
       if (isLocalAsset(u)) {
@@ -45,9 +46,11 @@ const TokenIcon = React.memo(function TokenIcon({
         for (const c of buildCandidates(u)) {
           if (!dedup.has(c)) { dedup.add(c); ipfsSources.push(c); }
         }
+      } else if (u.startsWith('http')) {
+        if (!dedup.has(u)) { dedup.add(u); remoteSources.push(u); }
       }
     }
-    return [...localSources, ...ipfsSources];
+    return [...localSources, ...remoteSources, ...ipfsSources];
   }, [tokenName, tokenId, tokenImage, iconsById, TOKEN_LOGO_FALLBACKS, TOKEN_LOGO_OVERRIDES, isLocalAsset]);
 
   const [srcIdx, setSrcIdx] = React.useState(0);
@@ -60,9 +63,26 @@ const TokenIcon = React.memo(function TokenIcon({
 
   const initials = (tokenName || '?').slice(0, 2).toUpperCase();
 
+  // Generate unique gradient identicon from contract address
+  const identicon = React.useMemo(() => {
+    const hex = (tokenId || '').replace(/^0x/, '').toLowerCase();
+    if (hex.length < 6) return { bg: 'linear-gradient(135deg, #6366f1, #8b5cf6)', fg: '#fff' };
+    const h1 = parseInt(hex.slice(0, 4), 16) % 360;
+    const h2 = (h1 + 40 + (parseInt(hex.slice(4, 8), 16) % 80)) % 360;
+    const s = 55 + (parseInt(hex.slice(8, 10), 16) % 30);
+    const l = 45 + (parseInt(hex.slice(10, 12), 16) % 15);
+    return {
+      bg: `linear-gradient(135deg, hsl(${h1},${s}%,${l}%), hsl(${h2},${s}%,${l + 10}%))`,
+      fg: '#fff',
+    };
+  }, [tokenId]);
+
   if (sources.length === 0 || allFailed) {
     return (
-      <div className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-100 text-gray-600 text-[10px] font-semibold">
+      <div
+        className="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold shadow-sm border border-white/20"
+        style={{ background: identicon.bg, color: identicon.fg, textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}
+      >
         {initials}
       </div>
     );
@@ -223,6 +243,9 @@ export function BalancesTable({ address, onCountsChange }: BalancesTableProps) {
     // REEF system token — only reef.png per request
     '0x0000000000000000000000000000000001000000': [
       '/token-logos/reef.png',
+    ],
+    '0x7922d8785d93e692bb584e659b607fa821e6a91a': [
+      '/token-logos/usdc.svg',
     ],
   }), []);
 
