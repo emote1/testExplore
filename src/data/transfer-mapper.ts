@@ -208,7 +208,7 @@ export function mapTransfersToUiTransfers(
     return [];
   }
 
-  return transferEdges
+  const mapped = transferEdges
     .map((edge): UiTransfer | null => {
       if (!edge?.node) {
         return null;
@@ -251,4 +251,59 @@ export function mapTransfersToUiTransfers(
       };
     })
     .filter((transfer): transfer is UiTransfer => transfer !== null);
+
+  // Deduplicate: Reef Chain indexes the same economic event as both a Native
+  // transfer (by Substrate address) and an ERC20 transfer (by EVM address).
+  // They share the same block-extrinsic prefix in their ID (e.g. "0015236656-e7da5").
+  // Keep the ERC20 row when both exist, as it carries richer token metadata.
+  return deduplicateTransfers(mapped);
+}
+
+/**
+ * When a Native and ERC20 transfer share the same block-extrinsic key and
+ * similar amount, keep only the ERC20 variant to avoid showing the same
+ * send/receive twice.
+ */
+function deduplicateTransfers(transfers: UiTransfer[]): UiTransfer[] {
+  // Group by block-extrinsic prefix: "0015236656-e7da5" from id "0015236656-e7da5-001"
+  const byExtrinsic = new Map<string, UiTransfer[]>();
+  for (const t of transfers) {
+    // ID format: block-extrinsicHash-eventIndex  →  take first two segments
+    const parts = t.id.split('-');
+    const key = parts.length >= 2 ? `${parts[0]}-${parts[1]}` : t.id;
+    const group = byExtrinsic.get(key);
+    if (group) group.push(t);
+    else byExtrinsic.set(key, [t]);
+  }
+
+  const result: UiTransfer[] = [];
+  for (const group of byExtrinsic.values()) {
+    if (group.length <= 1) {
+      result.push(...group);
+      continue;
+    }
+
+    // Check if group has both Native and ERC20 with similar amounts
+    const natives = group.filter(t => t.token.name === 'REEF' && t.token.id === '0x0000000000000000000000000000000001000000');
+    const erc20s = group.filter(t => t.token.name !== 'REEF' || t.token.id !== '0x0000000000000000000000000000000001000000');
+
+    if (natives.length > 0 && erc20s.length > 0) {
+      // Same extrinsic has both Native and ERC20 — keep only non-native (ERC20 has richer data)
+      // But keep natives that don't have a matching ERC20 counterpart (by amount)
+      const erc20Amounts = new Set(erc20s.map(t => t.amountBI?.toString() ?? t.amount));
+      for (const n of natives) {
+        const nAmount = n.amountBI?.toString() ?? n.amount;
+        if (!erc20Amounts.has(nAmount)) {
+          result.push(n); // no matching ERC20, keep this native
+        }
+        // else: skip — the ERC20 version will be added below
+      }
+      result.push(...erc20s);
+    } else {
+      // All same type — no dedup needed
+      result.push(...group);
+    }
+  }
+
+  return result;
 }
