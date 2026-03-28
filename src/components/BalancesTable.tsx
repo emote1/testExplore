@@ -7,6 +7,7 @@ import React from 'react';
 import { shortenHash } from '@/utils/formatters';
 import { useTokenIcons } from '@/hooks/use-token-icons';
 import { isIpfsLike, buildCandidates } from '@/utils/ipfs';
+import { getTokenIdenticon } from '@/utils/token-identicon';
 import { useTokenUsdPrices } from '@/hooks/use-token-usd-prices';
 
 interface TokenIconProps {
@@ -61,30 +62,16 @@ const TokenIcon = React.memo(function TokenIcon({
     setAllFailed(false);
   }, [sources]);
 
-  const initials = (tokenName || '?').slice(0, 2).toUpperCase();
-
-  // Generate unique gradient identicon from contract address
-  const identicon = React.useMemo(() => {
-    const hex = (tokenId || '').replace(/^0x/, '').toLowerCase();
-    if (hex.length < 6) return { bg: 'linear-gradient(135deg, #6366f1, #8b5cf6)', fg: '#fff' };
-    const h1 = parseInt(hex.slice(0, 4), 16) % 360;
-    const h2 = (h1 + 40 + (parseInt(hex.slice(4, 8), 16) % 80)) % 360;
-    const s = 55 + (parseInt(hex.slice(8, 10), 16) % 30);
-    const l = 45 + (parseInt(hex.slice(10, 12), 16) % 15);
-    return {
-      bg: `linear-gradient(135deg, hsl(${h1},${s}%,${l}%), hsl(${h2},${s}%,${l + 10}%))`,
-      fg: '#fff',
-    };
-  }, [tokenId]);
+  // Deterministic SVG identicon from contract address (same approach as reef-chain/react-lib)
+  const identiconSrc = React.useMemo(() => getTokenIdenticon(tokenId), [tokenId]);
 
   if (sources.length === 0 || allFailed) {
     return (
-      <div
-        className="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold shadow-sm border border-white/20"
-        style={{ background: identicon.bg, color: identicon.fg, textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}
-      >
-        {initials}
-      </div>
+      <img
+        src={identiconSrc}
+        alt={`${tokenName} icon`}
+        className="h-6 w-6 rounded-full"
+      />
     );
   }
 
