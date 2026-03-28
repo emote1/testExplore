@@ -75,10 +75,11 @@ export async function fetchContractIcon(contractAddress: string, debug = false):
     }
 
     const text = await res.text();
-    if (debug) console.log(`🎨 DEBUG ${contractAddress}: body length=${text.length}, contractData snippet=${text.slice(text.indexOf('"contractData"'), text.indexOf('"contractData"') + 120)}`);
+    if (debug) console.log(`🎨 DEBUG ${contractAddress}: body length=${text.length}, iconUrl field check...`);
 
-    const json = JSON.parse(text) as { contractData?: { iconUrl?: string } | null };
-    const iconUrl = json?.contractData?.iconUrl ?? null;
+    const json = JSON.parse(text) as { iconUrl?: string; contractData?: { iconUrl?: string } | null };
+    // iconUrl is a top-level field in reefscan-api; contractData.iconUrl is a legacy fallback
+    const iconUrl = json?.iconUrl || json?.contractData?.iconUrl || null;
     const result = typeof iconUrl === 'string' && iconUrl.trim() ? iconUrl.trim() : null;
     iconCache.set(contractAddress, result);
     return result;
