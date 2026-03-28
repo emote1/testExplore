@@ -50,6 +50,9 @@ services:
       PG_DB: ${PG_DB}
       PG_USER: ${PG_USER}
       PG_PASS: ${PG_PASS}
+      ICON_DIR: /app/token-logos
+    volumes:
+      - token-logos:/app/token-logos
     depends_on:
       postgres:
         condition: service_healthy
@@ -61,3 +64,4 @@ services:
 
 volumes:
   pgdata:
+  token-logos:

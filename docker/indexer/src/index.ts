@@ -10,7 +10,7 @@ import {
   mergeContractIcon,
   close,
 } from './db.js';
-import { parseBlock, fetchContractIcon } from './parser.js';
+import { parseBlock, fetchContractIcon, downloadIcon } from './parser.js';
 
 // ─── Configuration ──────────────────────────────────────────
 const RPC_URL = process.env.RPC_URL ?? 'wss://rpc.reefscan.info/ws';
@@ -63,9 +63,12 @@ async function enrichContractIcons(): Promise<void> {
         console.log(`🎨 [${i}] ${id} → ${iconUrl ?? 'no icon'}`);
       }
       if (iconUrl) {
-        await mergeContractIcon(id, iconUrl);
+        // Download IPFS image locally; fall back to raw IPFS URL if download fails
+        const localPath = await downloadIcon(id, iconUrl, debug);
+        const savedUrl = localPath ?? iconUrl;
+        await mergeContractIcon(id, savedUrl);
         enriched++;
-        if (debug) console.log(`🎨 [${i}] ${id} → SAVED`);
+        if (debug) console.log(`🎨 [${i}] ${id} → SAVED (${localPath ? 'local' : 'ipfs'})`);
       } else {
         skipped++;
       }

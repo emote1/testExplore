@@ -45,6 +45,94 @@ const tokenMetaCache = new Map<string, {
   decimals: number | null;
 }>();
 
+// ─── IPFS icon downloading ───────────────────────────────────
+import { writeFile, mkdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+
+const IPFS_GATEWAYS = [
+  'https://nftstorage.link/ipfs/',
+  'https://ipfs.io/ipfs/',
+  'https://gateway.pinata.cloud/ipfs/',
+  'https://w3s.link/ipfs/',
+];
+
+const ICON_DIR = process.env.ICON_DIR ?? '/app/token-logos';
+
+function extractCid(ipfsUrl: string): string | null {
+  if (ipfsUrl.startsWith('ipfs://')) {
+    let rest = ipfsUrl.slice('ipfs://'.length);
+    rest = rest.replace(/^ipfs\/+/, '');
+    return rest || null;
+  }
+  const m = ipfsUrl.match(/\/ipfs\/([^?#]+)/i);
+  return m?.[1] ?? null;
+}
+
+/**
+ * Download an IPFS image and save it locally.
+ * Returns the local relative path (e.g. "/token-logos/0xabc.png") or null on failure.
+ */
+export async function downloadIcon(contractAddress: string, ipfsUrl: string, debug = false): Promise<string | null> {
+  const cid = extractCid(ipfsUrl);
+  if (!cid) {
+    if (debug) console.log(`🎨 DL ${contractAddress}: no CID from ${ipfsUrl}`);
+    return null;
+  }
+
+  // Ensure output directory exists
+  if (!existsSync(ICON_DIR)) {
+    await mkdir(ICON_DIR, { recursive: true });
+  }
+
+  for (const gw of IPFS_GATEWAYS) {
+    try {
+      const url = `${gw}${cid}`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeout);
+
+      if (!res.ok) {
+        if (debug) console.log(`🎨 DL ${contractAddress}: ${gw} → HTTP ${res.status}`);
+        continue;
+      }
+
+      const contentType = res.headers.get('content-type') ?? '';
+      if (!contentType.startsWith('image/')) {
+        if (debug) console.log(`🎨 DL ${contractAddress}: ${gw} → not image (${contentType})`);
+        continue;
+      }
+
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length < 100 || buf.length > 2_000_000) {
+        if (debug) console.log(`🎨 DL ${contractAddress}: ${gw} → bad size (${buf.length})`);
+        continue;
+      }
+
+      // Determine extension from content-type
+      const ext = contentType.includes('svg') ? 'svg'
+        : contentType.includes('png') ? 'png'
+        : contentType.includes('webp') ? 'webp'
+        : contentType.includes('gif') ? 'gif'
+        : 'png'; // default to png for jpeg/other
+
+      const filename = `${contractAddress.toLowerCase()}.${ext}`;
+      const filepath = join(ICON_DIR, filename);
+      await writeFile(filepath, buf);
+
+      if (debug) console.log(`🎨 DL ${contractAddress}: saved ${filename} (${buf.length} bytes)`);
+      return `/token-logos/${filename}`;
+    } catch (err) {
+      if (debug) console.log(`🎨 DL ${contractAddress}: ${gw} → ${(err as Error).message}`);
+      continue;
+    }
+  }
+
+  if (debug) console.log(`🎨 DL ${contractAddress}: all gateways failed`);
+  return null;
+}
+
 // ─── Reefscan icon fetching ──────────────────────────────────
 const iconCache = new Map<string, string | null>();
 const REEFSCAN_API = 'https://api.reefscan.com/verification/contract';
