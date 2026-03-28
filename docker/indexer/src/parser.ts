@@ -51,6 +51,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 const IPFS_GATEWAYS = [
+  'https://reef.infura-ipfs.io/ipfs/',  // Reefscan uploads here — most likely to have the file
   'https://nftstorage.link/ipfs/',
   'https://ipfs.io/ipfs/',
   'https://gateway.pinata.cloud/ipfs/',
