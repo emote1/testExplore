@@ -975,8 +975,12 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
 
         {submittedAddress && (
           <div className="mb-6 rounded-xl border border-gray-100 bg-slate-50/70 shadow-sm">
-            <div className="flex items-stretch">
+            <div className="flex items-stretch" role="tablist" aria-label="Wallet sections">
               <button
+                role="tab"
+                id="tab-transactions"
+                aria-selected={viewMode === 'transactions'}
+                aria-controls="tabpanel-transactions"
                 className={`relative flex-1 inline-flex items-center justify-center gap-2 h-14 px-6 text-sm font-medium transition-all duration-200 border-b-[3px] ${
                   viewMode === 'transactions'
                     ? 'bg-white text-blue-600 border-blue-600'
@@ -995,6 +999,10 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
                 </span>
               </button>
               <button
+                role="tab"
+                id="tab-balances"
+                aria-selected={viewMode === 'balances'}
+                aria-controls="tabpanel-balances"
                 className={`relative flex-1 inline-flex items-center justify-center gap-2 h-14 px-6 text-sm font-medium transition-all duration-200 border-b-[3px] ${
                   viewMode === 'balances'
                     ? 'bg-white text-blue-600 border-blue-600'
@@ -1014,6 +1022,10 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
                 </span>
               </button>
               <button
+                role="tab"
+                id="tab-nfts"
+                aria-selected={viewMode === 'nfts'}
+                aria-controls="tabpanel-nfts"
                 className={`relative flex-1 inline-flex items-center justify-center gap-2 h-14 px-6 text-sm font-medium transition-all duration-200 border-b-[3px] ${
                   viewMode === 'nfts'
                     ? 'bg-white text-blue-600 border-blue-600'
@@ -1038,7 +1050,7 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
 
         {submittedAddress ? (
           <>
-            <div className={viewMode === 'transactions' ? '' : 'hidden'} aria-hidden={viewMode !== 'transactions'}>
+            <div role="tabpanel" id="tabpanel-transactions" aria-labelledby="tab-transactions" className={viewMode === 'transactions' ? '' : 'hidden'} aria-hidden={viewMode !== 'transactions'}>
               <TransactionsView
                 addr={submittedAddress}
                 onCountsChange={handleCountsChange}
@@ -1047,7 +1059,7 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
             </div>
 
             {(hasMountedNfts || viewMode === 'nfts') ? (
-              <div className={viewMode === 'nfts' ? '' : 'hidden'} aria-hidden={viewMode !== 'nfts'}>
+              <div role="tabpanel" id="tabpanel-nfts" aria-labelledby="tab-nfts" className={viewMode === 'nfts' ? '' : 'hidden'} aria-hidden={viewMode !== 'nfts'}>
                 <React.Suspense fallback={<div className="flex items-center justify-center p-8"><Loader2 className="h-6 w-6 animate-spin" /></div>}>
                   <NftGallery
                     address={submittedAddress}
@@ -1066,7 +1078,7 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
             ) : null}
 
             {(hasMountedBalances || viewMode === 'balances') ? (
-              <div className={viewMode === 'balances' ? '' : 'hidden'} aria-hidden={viewMode !== 'balances'}>
+              <div role="tabpanel" id="tabpanel-balances" aria-labelledby="tab-balances" className={viewMode === 'balances' ? '' : 'hidden'} aria-hidden={viewMode !== 'balances'}>
                 <React.Suspense fallback={<div className="flex items-center justify-center p-8"><Loader2 className="h-6 w-6 animate-spin" /></div>}>
                   <BalancesTable
                     address={submittedAddress}

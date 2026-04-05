@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button } from './ui/button';
-import { Search, Wallet, Box, PlugZap, LogOut, ChevronDown, Check } from 'lucide-react';
+import { Search, Wallet, Box, PlugZap, LogOut, ChevronDown, Check, Menu, X } from 'lucide-react';
 
 type AppPage = 'search' | 'wallet';
 
@@ -40,7 +40,10 @@ export function Navigation({
   onSelectWalletAddress,
 }: NavigationProps) {
   const [isPickerOpen, setIsPickerOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement | null>(null);
+  const mobileMenuRef = useRef<HTMLDivElement | null>(null);
+  const burgerRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     if (!isPickerOpen) return;
@@ -53,6 +56,21 @@ export function Navigation({
     document.addEventListener('mousedown', onDocClick);
     return () => document.removeEventListener('mousedown', onDocClick);
   }, [isPickerOpen]);
+
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const onDocClick = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (
+        !mobileMenuRef.current?.contains(target) &&
+        !burgerRef.current?.contains(target)
+      ) {
+        setMobileMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [mobileMenuOpen]);
 
   const selectedAccount = walletAccounts.find((a) => a.address === connectedAddress) ?? null;
   const selectedLabel = selectedAccount?.name ?? 'Wallet';
@@ -68,8 +86,8 @@ export function Navigation({
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center space-x-8">
             <div className="flex items-center space-x-2">
-              <div className="w-8 h-8 bg-gradient-to-r from-[#2563EB] to-[#3B82F6] rounded-lg flex items-center justify-center animate-pulse shadow-lg shadow-[#2563EB]/20">
-                <Box className="w-5 h-5 text-white animate-spin" style={{ animationDuration: '3s' }} />
+              <div className="w-8 h-8 bg-gradient-to-r from-[#2563EB] to-[#3B82F6] rounded-lg flex items-center justify-center shadow-lg shadow-[#2563EB]/20">
+                <Box className="w-5 h-5 text-white" />
               </div>
               <span className="text-xl font-bold bg-gradient-to-r from-[#2563EB] to-[#3B82F6] bg-clip-text text-transparent">
                 BlockExplorer
@@ -98,6 +116,16 @@ export function Navigation({
               })}
             </div>
           </div>
+          <button
+              ref={burgerRef}
+              className="md:hidden inline-flex items-center justify-center h-10 w-10 rounded-lg hover:bg-slate-100 transition-colors"
+              onClick={() => setMobileMenuOpen(v => !v)}
+              aria-label="Toggle menu"
+              aria-expanded={mobileMenuOpen}
+            >
+              {mobileMenuOpen ? <X className="h-5 w-5 text-slate-700" /> : <Menu className="h-5 w-5 text-slate-700" />}
+            </button>
+
           <div className="flex items-center gap-2">
             {connectedAddress ? (
               <>
@@ -192,6 +220,34 @@ export function Navigation({
           </div>
         </div>
       </div>
+      {mobileMenuOpen && (
+        <div
+          ref={mobileMenuRef}
+          className="md:hidden absolute top-16 left-0 right-0 bg-white/95 backdrop-blur-md border-b border-border shadow-lg z-40 animate-slide-down"
+        >
+          <div className="max-w-7xl mx-auto px-4 py-3 flex flex-col gap-1">
+            {navItems.map((item) => {
+              const IconComponent = item.icon;
+              const isActive = currentPage === item.id;
+              return (
+                <Button
+                  key={item.id}
+                  variant={isActive ? "default" : "ghost"}
+                  onClick={() => { onPageChange(item.id); setMobileMenuOpen(false); }}
+                  className={`w-full justify-start gap-2 ${
+                    isActive
+                      ? 'bg-gradient-to-r from-[#2563EB] to-[#3B82F6] !text-white shadow-md'
+                      : '!text-slate-600 hover:!text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <IconComponent className="w-4 h-4" />
+                  <span>{item.label}</span>
+                </Button>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </nav>
   );
 }

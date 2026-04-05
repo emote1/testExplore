@@ -192,6 +192,77 @@ const BalanceRow = React.memo(function BalanceRow({
   );
 });
 
+interface BalanceCardProps {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  balance: any;
+  price: number | null;
+  valueUsd: number | null;
+  amount: string;
+  copied: string | null;
+  handleCopy: (id: string) => void;
+  iconsById: Record<string, string | undefined>;
+  TOKEN_LOGO_FALLBACKS: Record<string, string[]>;
+  TOKEN_LOGO_OVERRIDES: Record<string, string[]>;
+  isLocalAsset: (url: string) => boolean;
+  usdFmt: Intl.NumberFormat;
+}
+
+const BalanceCard = React.memo(function BalanceCard({
+  balance: b,
+  price,
+  valueUsd,
+  amount,
+  copied,
+  handleCopy,
+  iconsById,
+  TOKEN_LOGO_FALLBACKS,
+  TOKEN_LOGO_OVERRIDES,
+  isLocalAsset,
+  usdFmt,
+}: BalanceCardProps) {
+  return (
+    <div
+      className="flex items-center gap-3 p-4 border-b border-gray-100 hover:bg-gray-50 transition-colors"
+    >
+      <button
+        type="button"
+        onClick={() => handleCopy(b.token.id)}
+        className="flex-shrink-0 focus:outline-none"
+        title={b.token.id}
+        aria-label="Copy token contract address"
+      >
+        <TokenIcon
+          tokenName={b.token.name}
+          tokenId={b.token.id}
+          tokenImage={b.token.image}
+          iconsById={iconsById}
+          TOKEN_LOGO_FALLBACKS={TOKEN_LOGO_FALLBACKS}
+          TOKEN_LOGO_OVERRIDES={TOKEN_LOGO_OVERRIDES}
+          isLocalAsset={isLocalAsset}
+        />
+      </button>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-gray-800 text-sm">{b.token.name}</span>
+          <span className="text-xs text-gray-400 font-mono">{shortenHash(b.token.id, 4, 4)}</span>
+          {copied === b.token.id ? (
+            <Check className="h-3 w-3 text-green-600 flex-shrink-0" />
+          ) : null}
+        </div>
+        <div className="text-sm tabular-nums text-gray-900 font-medium">{amount}</div>
+      </div>
+      <div className="text-right flex-shrink-0">
+        {typeof valueUsd === 'number' && Number.isFinite(valueUsd) && valueUsd > 0 ? (
+          <div className="text-sm font-semibold tabular-nums text-gray-900">{usdFmt.format(valueUsd)}</div>
+        ) : null}
+        {typeof price === 'number' && Number.isFinite(price) && price > 0 ? (
+          <div className="text-xs text-gray-500 tabular-nums">{usdFmt.format(price)}/unit</div>
+        ) : null}
+      </div>
+    </div>
+  );
+});
+
 interface BalancesTableProps {
   address: string;
   onCountsChange?: (count: number) => void;
@@ -359,69 +430,105 @@ export function BalancesTable({ address, onCountsChange }: BalancesTableProps) {
         </div>
       )}
 
-      {!loading && <div className="overflow-x-auto md:overflow-x-visible">
-        <table className="w-full table-fixed divide-y divide-gray-200">
-          <thead className="bg-slate-50">
-            <tr className="border-b-2 border-slate-200">
-              <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-400 uppercase tracking-[0.14em] font-sans">TOKEN</th>
-              <th
-                className="px-4 py-3 text-left text-[11px] font-semibold text-slate-400 uppercase tracking-[0.14em] font-sans cursor-pointer select-none"
-                onClick={() => toggleSort('balance')}
-                aria-sort={sort?.key === 'balance' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
-                title="Sort by balance"
-              >
-                BALANCE <span className="ml-1 opacity-70">{sortIndicator('balance')}</span>
-              </th>
-              <th className="px-2 py-3 text-right text-[11px] font-semibold text-slate-400 uppercase tracking-[0.14em] font-sans">PRICE (USD)</th>
-              <th
-                className="px-2 py-3 text-right text-[11px] font-semibold text-slate-400 uppercase tracking-[0.14em] font-sans cursor-pointer select-none"
-                onClick={() => toggleSort('value')}
-                aria-sort={sort?.key === 'value' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
-                title="Sort by value (USD)"
-              >
-                VALUE (USD) <span className="ml-1 opacity-70">{sortIndicator('value')}</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {loading && balances.length === 0 ? (
-              <tr>
-                <td colSpan={4} className="py-6 text-center text-gray-600">
-                  <div className="inline-flex items-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /><span>Loading…</span></div>
-                </td>
+      {/* Desktop: table layout */}
+      {!loading && <div className="hidden sm:block">
+        <div className="overflow-x-auto md:overflow-x-visible">
+          <table className="w-full table-fixed divide-y divide-gray-200">
+            <thead className="bg-slate-50">
+              <tr className="border-b-2 border-slate-200">
+                <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-400 uppercase tracking-[0.14em] font-sans">TOKEN</th>
+                <th
+                  className="px-4 py-3 text-left text-[11px] font-semibold text-slate-400 uppercase tracking-[0.14em] font-sans cursor-pointer select-none"
+                  onClick={() => toggleSort('balance')}
+                  aria-sort={sort?.key === 'balance' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+                  title="Sort by balance"
+                >
+                  BALANCE <span className="ml-1 opacity-70">{sortIndicator('balance')}</span>
+                </th>
+                <th className="px-2 py-3 text-right text-[11px] font-semibold text-slate-400 uppercase tracking-[0.14em] font-sans">PRICE (USD)</th>
+                <th
+                  className="px-2 py-3 text-right text-[11px] font-semibold text-slate-400 uppercase tracking-[0.14em] font-sans cursor-pointer select-none"
+                  onClick={() => toggleSort('value')}
+                  aria-sort={sort?.key === 'value' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+                  title="Sort by value (USD)"
+                >
+                  VALUE (USD) <span className="ml-1 opacity-70">{sortIndicator('value')}</span>
+                </th>
               </tr>
-            ) : balances.length === 0 ? (
-              <tr>
-                <td colSpan={4} className="py-6 text-center text-gray-600">No balances found for this address.</td>
-              </tr>
-            ) : (
-              displayBalances.map((b, index) => {
-                const amount = formatTokenAmount(b.balance, b.token.decimals, b.token.name);
-                const lowerId = (b.token.id || '').toLowerCase();
-                const price = pricesById[lowerId] ?? null;
-                const amt = toFloatAmount(b.balance, b.token.decimals);
-                const valueUsd = typeof price === 'number' && Number.isFinite(price) && price > 0 ? amt * price : null;
-                return (
-                  <BalanceRow
-                    key={b.token.id}
-                    balance={b}
-                    index={index}
-                    price={price}
-                    valueUsd={valueUsd}
-                    amount={amount}
-                    copied={copied}
-                    handleCopy={handleCopy}
-                    iconsById={iconsById}
-                    TOKEN_LOGO_FALLBACKS={TOKEN_LOGO_FALLBACKS}
-                    TOKEN_LOGO_OVERRIDES={TOKEN_LOGO_OVERRIDES}
-                    isLocalAsset={isLocalAsset}
-                    usdFmt={usdFmt}
-                  />
-                );
-              })
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {loading && balances.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="py-6 text-center text-gray-600">
+                    <div className="inline-flex items-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /><span>Loading…</span></div>
+                  </td>
+                </tr>
+              ) : balances.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="py-6 text-center text-gray-600">No balances found for this address.</td>
+                </tr>
+              ) : (
+                displayBalances.map((b, index) => {
+                  const amount = formatTokenAmount(b.balance, b.token.decimals, b.token.name);
+                  const lowerId = (b.token.id || '').toLowerCase();
+                  const price = pricesById[lowerId] ?? null;
+                  const amt = toFloatAmount(b.balance, b.token.decimals);
+                  const valueUsd = typeof price === 'number' && Number.isFinite(price) && price > 0 ? amt * price : null;
+                  return (
+                    <BalanceRow
+                      key={b.token.id}
+                      balance={b}
+                      index={index}
+                      price={price}
+                      valueUsd={valueUsd}
+                      amount={amount}
+                      copied={copied}
+                      handleCopy={handleCopy}
+                      iconsById={iconsById}
+                      TOKEN_LOGO_FALLBACKS={TOKEN_LOGO_FALLBACKS}
+                      TOKEN_LOGO_OVERRIDES={TOKEN_LOGO_OVERRIDES}
+                      isLocalAsset={isLocalAsset}
+                      usdFmt={usdFmt}
+                    />
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>}
+
+      {/* Mobile: card layout */}
+      {!loading && <div className="sm:hidden">
+        {balances.length === 0 ? (
+          <div className="py-8 text-center text-gray-600">No balances found for this address.</div>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {displayBalances.map((b) => {
+              const amount = formatTokenAmount(b.balance, b.token.decimals, b.token.name);
+              const lowerId = (b.token.id || '').toLowerCase();
+              const price = pricesById[lowerId] ?? null;
+              const amt = toFloatAmount(b.balance, b.token.decimals);
+              const valueUsd = typeof price === 'number' && Number.isFinite(price) && price > 0 ? amt * price : null;
+              return (
+                <BalanceCard
+                  key={b.token.id}
+                  balance={b}
+                  price={price}
+                  valueUsd={valueUsd}
+                  amount={amount}
+                  copied={copied}
+                  handleCopy={handleCopy}
+                  iconsById={iconsById}
+                  TOKEN_LOGO_FALLBACKS={TOKEN_LOGO_FALLBACKS}
+                  TOKEN_LOGO_OVERRIDES={TOKEN_LOGO_OVERRIDES}
+                  isLocalAsset={isLocalAsset}
+                  usdFmt={usdFmt}
+                />
+              );
+            })}
+          </div>
+        )}
       </div>}
     </div>
   );

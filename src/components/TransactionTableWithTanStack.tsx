@@ -3,12 +3,14 @@ import {
   Table,
   Row,
 } from '@tanstack/react-table';
-import { Loader2 } from 'lucide-react';
+import { Loader2, ArrowDownLeft, ArrowUpRight, ArrowLeftRight } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { transactionColumns } from './transaction-columns';
 import type { UiTransfer } from '../data/transfer-mapper';
 import { TransactionDetailsModal } from './TransactionDetailsModal';
+import { formatTokenAmount, formatRelativeShort } from '../utils/formatters';
+import { shortenHash } from '../utils/formatters';
 
 interface TransactionRowProps {
   row: Row<UiTransfer>;
@@ -47,6 +49,67 @@ const TransactionRow = React.memo(function TransactionRow({ row, newTransfers, o
         </td>
       ))}
     </tr>
+  );
+});
+
+const TransactionCard = React.memo(function TransactionCard({
+  row, newTransfers, onRowClick, onRowKeyDown,
+}: TransactionRowProps) {
+  const tx = row.original;
+  const isIncoming = tx.type === 'INCOMING';
+  const isSwap = tx.method === 'swap' || tx.type === 'SWAP';
+
+  // Format amount
+  let amountLabel: React.ReactNode;
+  if (isSwap && tx.swapInfo) {
+    const bought = tx.swapInfo.bought;
+    const boughtRaw = String(bought.amount || '0');
+    const boughtAbs = boughtRaw.startsWith('-') ? boughtRaw.slice(1) : boughtRaw;
+    const boughtFmt = formatTokenAmount(boughtAbs, bought.token.decimals, bought.token.name);
+    amountLabel = <span className="text-green-600">+{boughtFmt}</span>;
+  } else {
+    const formatted = formatTokenAmount(tx.amount, tx.token.decimals, tx.token.name);
+    const isErcToken = !tx.isNft && (tx.token?.name !== 'REEF') && ((tx.token?.decimals ?? 18) > 0);
+    const prefix = isErcToken ? (isIncoming ? '+' : '\u2212') : '';
+    const cls = isErcToken ? (isIncoming ? 'text-green-600' : 'text-yellow-700') : '';
+    amountLabel = <span className={cls}>{prefix}{formatted}</span>;
+  }
+
+  // Counterparty address
+  const counterparty = isSwap ? null : (isIncoming ? tx.from : tx.to);
+  const counterpartyLabel = isSwap ? null : (isIncoming ? 'From' : 'To');
+
+  return (
+    <div
+      data-testid="tx-card"
+      onClick={(e) => onRowClick(e, tx)}
+      onKeyDown={(e) => onRowKeyDown(e, tx)}
+      tabIndex={0}
+      aria-label="Open transaction details"
+      className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 active:bg-gray-100 transition-colors ${
+        newTransfers.includes(tx.id) ? 'row-wash' : ''
+      }`}
+    >
+      <div className="flex items-center justify-between mb-2">
+        <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full border ${
+          isSwap ? 'border-blue-400 text-blue-600' :
+          isIncoming ? 'border-green-400 text-green-600' : 'border-orange-400 text-orange-600'
+        }`}>
+          {isSwap ? <><ArrowLeftRight className="w-3 h-3" /> Swap</> :
+           isIncoming ? <><ArrowDownLeft className="w-3 h-3" /> In</> :
+           <><ArrowUpRight className="w-3 h-3" /> Out</>}
+        </span>
+        <span className="text-xs text-gray-500">{formatRelativeShort(tx.timestamp)}</span>
+      </div>
+      <div className="text-sm font-semibold tabular-nums mb-1">
+        {amountLabel}
+      </div>
+      {counterparty && (
+        <div className="text-xs text-gray-500 font-mono truncate">
+          {counterpartyLabel}: {shortenHash(counterparty, 8, 6)}
+        </div>
+      )}
+    </div>
   );
 });
 
@@ -217,91 +280,121 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, tot
           </span>
         </div>
       ) : null}
-      <div className="overflow-x-auto md:overflow-x-visible">
-        <div ref={parentRef} className={enableVirtual ? 'max-h-[70vh] min-h-[420px] overflow-auto' : 'min-h-[420px]'}>
-          <table className="w-full table-fixed divide-y divide-gray-200">
-          <thead className="bg-white">
-            {table.getHeaderGroups().map(headerGroup => (
-              <tr key={headerGroup.id} className="border-b-2 border-slate-200">
-                {headerGroup.headers.map(header => (
-                  <th
-                    key={header.id}
-                    className={`px-3 py-3 text-[13px] font-semibold text-slate-700 font-sans text-left
-                      ${header.column.id === 'actions' ? 'w-10 text-center px-1' : ''}
-                      ${header.column.id === 'value' ? 'text-right' : ''}
-                    `}
-                    style={header.column.id !== 'actions' ? { width: '14%' } : undefined}
-                  >
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(
-                          header.column.columnDef.header,
-                          header.getContext()
-                        )}
-                  </th>
-                ))}
-              </tr>
-            ))}
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200 fade-in">
-            {(() => {
-              const hasFiniteTotal = typeof totalCount === 'number' && Number.isFinite(totalCount);
-              const isConfirmedEmpty = showEmptyState;
+      {/* Desktop: table layout */}
+      <div className="hidden sm:block">
+        <div className="overflow-x-auto md:overflow-x-visible">
+          <div ref={parentRef} className={enableVirtual ? 'max-h-[70vh] min-h-[420px] overflow-auto' : 'min-h-[420px]'}>
+            <table className="w-full table-fixed divide-y divide-gray-200">
+            <thead className="bg-white">
+              {table.getHeaderGroups().map(headerGroup => (
+                <tr key={headerGroup.id} className="border-b-2 border-slate-200">
+                  {headerGroup.headers.map(header => (
+                    <th
+                      key={header.id}
+                      className={`px-3 py-3 text-[13px] font-semibold text-slate-700 font-sans text-left
+                        ${header.column.id === 'actions' ? 'w-10 text-center px-1' : ''}
+                        ${header.column.id === 'value' ? 'text-right' : ''}
+                      `}
+                      style={header.column.id !== 'actions' ? { width: '14%' } : undefined}
+                    >
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(
+                            header.column.columnDef.header,
+                            header.getContext()
+                          )}
+                    </th>
+                  ))}
+                </tr>
+              ))}
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200 fade-in">
+              {(() => {
+                const hasFiniteTotal = typeof totalCount === 'number' && Number.isFinite(totalCount);
+                const isConfirmedEmpty = showEmptyState;
 
-              // If totalCount is known to be 0, skip loading and show empty state immediately
-              const isKnownEmpty = hasFiniteTotal && totalCount === 0;
+                // If totalCount is known to be 0, skip loading and show empty state immediately
+                const isKnownEmpty = hasFiniteTotal && totalCount === 0;
 
-              const shouldShowLoading =
-                rows.length === 0 &&
-                !isKnownEmpty &&
-                (isLoading ||
-                  isPageLoading ||
-                  (!hasRequestedData && pageIndex === 0) ||
-                  // Prevent empty-state flash when total is known >0 but rows haven't materialized yet
-                  (pageIndex === 0 && hasFiniteTotal && totalCount > 0 && !isConfirmedEmpty) ||
-                  // If adapter already reports some loaded items, avoid claiming empty
-                  (pageIndex === 0 && typeof loadedCount === 'number' && loadedCount > 0 && !isConfirmedEmpty));
+                const shouldShowLoading =
+                  rows.length === 0 &&
+                  !isKnownEmpty &&
+                  (isLoading ||
+                    isPageLoading ||
+                    (!hasRequestedData && pageIndex === 0) ||
+                    // Prevent empty-state flash when total is known >0 but rows haven't materialized yet
+                    (pageIndex === 0 && hasFiniteTotal && totalCount > 0 && !isConfirmedEmpty) ||
+                    // If adapter already reports some loaded items, avoid claiming empty
+                    (pageIndex === 0 && typeof loadedCount === 'number' && loadedCount > 0 && !isConfirmedEmpty));
 
-              if (shouldShowLoading) {
-                return (
-              <tr>
-                <td colSpan={transactionColumns.length} className="text-center py-6 text-gray-600">
-                  <div className="inline-flex items-center gap-2 justify-center">
-                    {pageIndex === 0 ? (
-                      <>
-                        <Loader2 className="h-5 w-5 animate-spin" />
-                        <span>Loading…</span>
-                      </>
-                    ) : null}
-                  </div>
-                </td>
-              </tr>
-                );
-              }
-
-              if (isConfirmedEmpty || isKnownEmpty) {
-                return (
-              <tr>
-                <td colSpan={transactionColumns.length} className="text-center py-6 text-gray-500">
-                  {emptyHint ?? 'No transactions found for this address.'}
-                </td>
-              </tr>
-                );
-              }
-
-              if (rows.length === 0) return null;
-
-              if (enableVirtual) {
-                return (
-              <>
-                {paddingTop > 0 && (
-                  <tr>
-                    <td colSpan={transactionColumns.length} style={{ height: paddingTop }} />
-                  </tr>
-                )}
-                {virtualItems.map(vItem => {
-                  const row = rows[vItem.index]!;
+                if (shouldShowLoading) {
                   return (
+                <tr>
+                  <td colSpan={transactionColumns.length} className="text-center py-6 text-gray-600">
+                    <div className="inline-flex items-center gap-2 justify-center">
+                      {pageIndex === 0 ? (
+                        <>
+                          <Loader2 className="h-5 w-5 animate-spin" />
+                          <span>Loading…</span>
+                        </>
+                      ) : null}
+                    </div>
+                  </td>
+                </tr>
+                  );
+                }
+
+                if (isConfirmedEmpty || isKnownEmpty) {
+                  return (
+                <tr>
+                  <td colSpan={transactionColumns.length} className="text-center py-6 text-gray-500">
+                    {emptyHint ?? 'No transactions found for this address.'}
+                  </td>
+                </tr>
+                  );
+                }
+
+                if (rows.length === 0) return null;
+
+                if (enableVirtual) {
+                  return (
+                <>
+                  {paddingTop > 0 && (
+                    <tr>
+                      <td colSpan={transactionColumns.length} style={{ height: paddingTop }} />
+                    </tr>
+                  )}
+                  {virtualItems.map(vItem => {
+                    const row = rows[vItem.index]!;
+                    return (
+                      <TransactionRow
+                        key={row.id}
+                        row={row}
+                        newTransfers={newTransfers}
+                        onRowClick={onRowClick}
+                        onRowKeyDown={onRowKeyDown}
+                      />
+                    );
+                  })}
+                  {paddingBottom > 0 && (
+                    <tr>
+                      <td colSpan={transactionColumns.length} style={{ height: paddingBottom }} />
+                    </tr>
+                  )}
+                  {isFetching && (
+                    <tr>
+                      <td colSpan={transactionColumns.length} className="text-center py-4 text-gray-500">
+                        Loading more...
+                      </td>
+                    </tr>
+                  )}
+                </>
+                  );
+                }
+
+                return (
+                <>
+                  {rows.map((row) => (
                     <TransactionRow
                       key={row.id}
                       row={row}
@@ -309,48 +402,78 @@ export function TransactionTableWithTanStack({ table, isLoading, isFetching, tot
                       onRowClick={onRowClick}
                       onRowKeyDown={onRowKeyDown}
                     />
-                  );
-                })}
-                {paddingBottom > 0 && (
-                  <tr>
-                    <td colSpan={transactionColumns.length} style={{ height: paddingBottom }} />
-                  </tr>
-                )}
-                {isFetching && (
-                  <tr>
-                    <td colSpan={transactionColumns.length} className="text-center py-4 text-gray-500">
-                      Loading more...
-                    </td>
-                  </tr>
-                )}
-              </>
+                  ))}
+                  {isFetching && (
+                    <tr>
+                      <td colSpan={transactionColumns.length} className="text-center py-4 text-gray-500">
+                        Loading more...
+                      </td>
+                    </tr>
+                  )}
+                </>
                 );
-              }
-
-              return (
-              <>
-                {rows.map((row) => (
-                  <TransactionRow
-                    key={row.id}
-                    row={row}
-                    newTransfers={newTransfers}
-                    onRowClick={onRowClick}
-                    onRowKeyDown={onRowKeyDown}
-                  />
-                ))}
-                {isFetching && (
-                  <tr>
-                    <td colSpan={transactionColumns.length} className="text-center py-4 text-gray-500">
-                      Loading more...
-                    </td>
-                  </tr>
-                )}
-              </>
-              );
-            })()}
-          </tbody>
-          </table>
+              })()}
+            </tbody>
+            </table>
+          </div>
         </div>
+      </div>
+
+      {/* Mobile: card layout */}
+      <div className="sm:hidden">
+        {(() => {
+          const hasFiniteTotal = typeof totalCount === 'number' && Number.isFinite(totalCount);
+          const isConfirmedEmpty = showEmptyState;
+          const isKnownEmpty = hasFiniteTotal && totalCount === 0;
+          const shouldShowLoading =
+            rows.length === 0 &&
+            !isKnownEmpty &&
+            (isLoading ||
+              isPageLoading ||
+              (!hasRequestedData && pageIndex === 0) ||
+              (pageIndex === 0 && hasFiniteTotal && totalCount > 0 && !isConfirmedEmpty) ||
+              (pageIndex === 0 && typeof loadedCount === 'number' && loadedCount > 0 && !isConfirmedEmpty));
+
+          if (shouldShowLoading) {
+            return (
+              <div className="flex items-center justify-center py-8 text-gray-600">
+                {pageIndex === 0 ? (
+                  <div className="inline-flex items-center gap-2">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    <span>Loading…</span>
+                  </div>
+                ) : null}
+              </div>
+            );
+          }
+
+          if (isConfirmedEmpty || isKnownEmpty) {
+            return (
+              <div className="py-8 text-center text-gray-500">
+                {emptyHint ?? 'No transactions found for this address.'}
+              </div>
+            );
+          }
+
+          if (rows.length === 0) return null;
+
+          return (
+            <div className="divide-y divide-gray-100">
+              {rows.map(row => (
+                <TransactionCard
+                  key={row.id}
+                  row={row}
+                  newTransfers={newTransfers}
+                  onRowClick={onRowClick}
+                  onRowKeyDown={onRowKeyDown}
+                />
+              ))}
+              {isFetching && (
+                <div className="py-4 text-center text-gray-500 text-sm">Loading more...</div>
+              )}
+            </div>
+          );
+        })()}
       </div>
       {/* Centered overlay for deep-page loading */}
       {showDeepPageLoader ? (
