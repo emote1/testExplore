@@ -42,3 +42,7 @@ blob-report/
 test-results/
 
 .vercel
+
+# Excluded folders
+Output/
+.playwright-mcp/

@@ -185,11 +185,13 @@ function normalizeIntegerText(value: string): string | null {
     return `${sign}${digits.slice(0, integerLength)}`.replace(/^(-?)0+(?=\d)/, '$1') || '0';
   }
   const integerLength = whole.length + exponent;
-  return `${sign}${digits.slice(0, integerLength).replace(/^0+(?=\d)/, '') || '0'}`;
+  const padded = digits.length < integerLength ? digits.padEnd(integerLength, '0') : digits.slice(0, integerLength);
+  return `${sign}${padded.replace(/^0+(?=\d)/, '') || '0'}`;
 }
 
 function toBigIntText(value: unknown): string | null {
   if (typeof value === 'string') return normalizeIntegerText(value);
+  if (typeof value === 'bigint') return value.toString();
   if (typeof value === 'number' && Number.isFinite(value)) return normalizeIntegerText(Math.trunc(value).toString());
   return null;
 }

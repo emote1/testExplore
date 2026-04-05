@@ -1,0 +1,46 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//home/ubuntu/reefExplore/**)",
+      "Bash(docker-compose ps:*)",
+      "Bash(docker compose:*)",
+      "Bash(docker exec:*)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" -H \"x-hasura-admin-secret: local_dev_secret\" http://localhost:8080/healthz)",
+      "Bash(npm search:*)",
+      "Bash(pip search:*)",
+      "Bash(pip install:*)",
+      "mcp__ssh__ssh_connect",
+      "mcp__ssh__ssh_exec",
+      "Bash(grep -E \"\\\\.tsx$|\\\\.ts$\")",
+      "Bash(ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no ubuntu@89.167.60.159 \"echo 'Connected OK'\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173/)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://89.167.60.159/)",
+      "Read(//home/emote/.ssh/**)",
+      "Read(//mnt/c/Users/podde/.ssh/**)",
+      "Bash(ssh -i ~/.ssh/id_ed25519_hetzner -o ConnectTimeout=10 -o StrictHostKeyChecking=no ubuntu@89.167.60.159 \"echo 'Connected OK'\")",
+      "Bash(curl -s -w \"\\\\n---HTTP_STATUS:%{http_code}---\" \"https://ndhxz-raaaa-aaaag-avdoa-cai.icp0.io/active-wallets-daily.json\")",
+      "Bash(curl -s -w \"\\\\n---HTTP_STATUS:%{http_code}---\" \"https://ndhxz-raaaa-aaaag-avdoa-cai.icp0.io/new-wallets-inflow.json\")",
+      "Bash(curl -s -w \"\\\\n---HTTP_STATUS:%{http_code}---\" -X POST \"http://89.167.60.159:8080/v1/graphql\" -H \"Content-Type: application/json\" -H \"x-hasura-admin-secret: myadminsecret\" -d '{\"query\":\"query { block\\(order_by: {height: desc}, limit: 1\\) { height timestamp } }\"}')",
+      "Bash(ssh -i /mnt/c/Users/podde/.ssh/id_ed25519_hetzner_20260307 -o ConnectTimeout=10 -o StrictHostKeyChecking=no ubuntu@89.167.60.159 \"echo 'Connected OK'\")",
+      "Bash(curl -s -w \"\\\\n---HTTP_STATUS:%{http_code}---\" \"http://localhost:5173/v1/staking/summary\")",
+      "Bash(ssh -v -i ~/.ssh/id_ed25519_hetzner -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o BatchMode=yes ubuntu@89.167.60.159 \"echo ok\")",
+      "Bash(curl -s -w \"\\\\n---HTTP_STATUS:%{http_code}---\" -X POST \"http://89.167.60.159:8080/v1/graphql\" -H \"Content-Type: application/json\" -H \"x-hasura-admin-secret: myadminsecret\" -d '{\"query\":\"query { era_validator_info\\(order_by: [{era: desc}], limit: 5\\) { era address total commission } }\"}')",
+      "Bash(curl -s -w \"\\\\n---HTTP_STATUS:%{http_code}---\" -X POST \"http://89.167.60.159:8080/v1/graphql\" -H \"Content-Type: application/json\" -H \"x-hasura-admin-secret: myadminsecret\" -d '{\"query\":\"query { staking\\(where: {type: {_eq: \\\\\"Reward\\\\\"}}, order_by: [{timestamp: desc}], limit: 5\\) { amount timestamp } }\"}')",
+      "Bash(ssh:*)",
+      "WebFetch(domain:89.167.60.159)",
+      "Bash(curl -s \"http://89.167.60.159/\")",
+      "Bash(cp /mnt/c/Users/podde/.ssh/id_ed25519_hetzner_20260307 ~/.ssh/id_ed25519_hetzner_prod)",
+      "Bash(chmod 600 ~/.ssh/id_ed25519_hetzner_prod)",
+      "Bash(curl -s \"http://89.167.60.159/assets/index-CMk2meXg.js\")",
+      "Bash(curl -s -w \"\\\\n---HTTP_STATUS:%{http_code}---\" -X POST \"https://squid.subsquid.io/reef-explorer/graphql\" -H \"Content-Type: application/json\" -d '{\"query\":\"query { blocks\\(orderBy: height_DESC, limit: 1\\) { height timestamp } }\"}')",
+      "Bash(curl -s -w \"\\\\n---HTTP_STATUS:%{http_code}---\" -X POST \"https://squid.subsquid.io/reef-explorer/graphql\" -H \"Content-Type: application/json\" -d '{\"query\":\"query { eraValidatorInfos\\(orderBy: era_DESC, limit: 5\\) { era address total } }\"}')",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8080/v1/graphql)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "playwright",
+    "ssh",
+    "context7"
+  ]
+}
