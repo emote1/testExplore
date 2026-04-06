@@ -385,21 +385,21 @@ export function TransactionDetailsModal({ open, transfer, onClose, pricesById, r
   if ((boughtTok && (!Number.isFinite(Number(boughtTok.decimals)) || !boughtTok.id)) || (soldTok && (!Number.isFinite(Number(soldTok.decimals)) || !soldTok.id))) riskChips.push('Unknown token metadata');
   if (aMidThenVal == null && bMidThenVal == null) riskChips.push('Illiquid route');
   const riskClass = (t: string) => {
-    if (t === 'High price impact') return 'bg-red-100 text-red-800 border border-red-200';
-    if (t === 'Unknown token metadata') return 'bg-gray-100 text-gray-800 border border-gray-200';
-    if (t === 'Illiquid route') return 'bg-yellow-100 text-yellow-800 border border-yellow-200';
-    return 'bg-gray-100 text-gray-800 border border-gray-200';
+    if (t === 'High price impact') return 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-200 border border-red-200 dark:border-red-800';
+    if (t === 'Unknown token metadata') return 'bg-muted text-foreground border border-border';
+    if (t === 'Illiquid route') return 'bg-yellow-100 dark:bg-yellow-950 text-yellow-800 dark:text-yellow-200 border border-yellow-200 dark:border-yellow-800';
+    return 'bg-muted text-foreground border border-border';
   };
 
   return (
     <div className="fixed inset-0 z-50">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="absolute inset-0 flex items-center justify-center p-4">
-        <div className="w-full max-w-3xl rounded-xl bg-white shadow-2xl border border-gray-200">
-          <div className="flex items-center justify-between px-5 py-4 border-b bg-gray-50 rounded-t-xl">
+        <div className="w-full max-w-3xl rounded-xl bg-card shadow-2xl border border-border">
+          <div className="flex items-center justify-between px-5 py-4 border-b bg-muted rounded-t-xl">
             <div className="flex items-center gap-3">
-              <h3 className="text-lg font-semibold text-gray-900">Transaction Details</h3>
-              <Badge className={transfer.success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}>
+              <h3 className="text-lg font-semibold text-foreground">Transaction Details</h3>
+              <Badge className={transfer.success ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-200' : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-200'}>
                 {transfer.success ? 'Success' : 'Failed'}
               </Badge>
               {isSwap ? (
@@ -419,60 +419,60 @@ export function TransactionDetailsModal({ open, transfer, onClose, pricesById, r
             </div>
           ) : null}
           {isSwap ? (
-            <div className="px-5 pt-1 text-xs text-gray-600 flex items-center gap-2">
-              <span className="text-gray-500">View:</span>
-              <button className={`px-2 py-0.5 border rounded ${viewMode === 'basic' ? 'bg-gray-100' : 'bg-white'}`} onClick={() => setViewMode('basic')}>Basic</button>
-              <button className={`px-2 py-0.5 border rounded ${viewMode === 'advanced' ? 'bg-gray-100' : 'bg-white'}`} onClick={() => setViewMode('advanced')}>Advanced</button>
+            <div className="px-5 pt-1 text-xs text-muted-foreground flex items-center gap-2">
+              <span className="text-muted-foreground">View:</span>
+              <button className={`px-2 py-0.5 border rounded ${viewMode === 'basic' ? 'bg-muted' : 'bg-card'}`} onClick={() => setViewMode('basic')}>Basic</button>
+              <button className={`px-2 py-0.5 border rounded ${viewMode === 'advanced' ? 'bg-muted' : 'bg-card'}`} onClick={() => setViewMode('advanced')}>Advanced</button>
             </div>
           ) : null}
 
           <div className="px-5 py-4 grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <h4 className="text-sm font-semibold text-gray-700 mb-2">General</h4>
+              <h4 className="text-sm font-semibold text-foreground mb-2">General</h4>
               <table className="w-full text-[13px]">
                 <tbody className="divide-y">
                   <tr>
-                    <td className="py-1 text-gray-500">Timestamp</td>
-                    <td className="py-1 text-gray-900">{ts}</td>
+                    <td className="py-1 text-muted-foreground">Timestamp</td>
+                    <td className="py-1 text-foreground">{ts}</td>
                   </tr>
                   <tr>
-                    <td className="py-1 text-gray-500">Type</td>
-                    <td className="py-1 text-gray-900">{transfer.type}</td>
+                    <td className="py-1 text-muted-foreground">Type</td>
+                    <td className="py-1 text-foreground">{transfer.type}</td>
                   </tr>
                 </tbody>
               </table>
             </div>
 
             <div>
-              <h4 className="text-sm font-semibold text-gray-700 mb-2">Participants</h4>
+              <h4 className="text-sm font-semibold text-foreground mb-2">Participants</h4>
               <table className="w-full text-[13px]">
                 <tbody className="divide-y">
                   <tr>
-                    <td className="py-1.5 text-gray-500">From</td>
-                    <td className="py-1.5 text-gray-900">
+                    <td className="py-1.5 text-muted-foreground">From</td>
+                    <td className="py-1.5 text-foreground">
                       <div className="flex items-center justify-between gap-2">
                         <AddressDisplay address={transfer.from} />
                         <button
-                          className="no-row-open p-1 rounded hover:bg-gray-100"
+                          className="no-row-open p-1 rounded hover:bg-muted"
                           title="Copy from address"
                           onClick={() => copyToClipboard(transfer.from, 'from')}
                         >
-                          {copied.from ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4 text-gray-600" />}
+                          {copied.from ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4 text-muted-foreground" />}
                         </button>
                       </div>
                     </td>
                   </tr>
                   <tr>
-                    <td className="py-1.5 text-gray-500">To</td>
-                    <td className="py-1.5 text-gray-900">
+                    <td className="py-1.5 text-muted-foreground">To</td>
+                    <td className="py-1.5 text-foreground">
                       <div className="flex items-center justify-between gap-2">
                         <AddressDisplay address={transfer.to} />
                         <button
-                          className="no-row-open p-1 rounded hover:bg-gray-100"
+                          className="no-row-open p-1 rounded hover:bg-muted"
                           title="Copy to address"
                           onClick={() => copyToClipboard(transfer.to, 'to')}
                         >
-                          {copied.to ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4 text-gray-600" />}
+                          {copied.to ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4 text-muted-foreground" />}
                         </button>
                       </div>
                     </td>
@@ -482,30 +482,30 @@ export function TransactionDetailsModal({ open, transfer, onClose, pricesById, r
             </div>
             
             <div>
-              <h4 className="text-sm font-semibold text-gray-700 mb-2">Amounts</h4>
+              <h4 className="text-sm font-semibold text-foreground mb-2">Amounts</h4>
               <table className="w-full text-[13px]">
                 <tbody className="divide-y">
                   {isSwap ? (
                     <>
                       <tr>
-                        <td className="py-1.5 text-gray-500">PnL</td>
-                        <td className="py-1.5 text-gray-900">
+                        <td className="py-1.5 text-muted-foreground">PnL</td>
+                        <td className="py-1.5 text-foreground">
                           {/* Execution/Spot/Impact/Now only in Advanced */}
                           {viewMode === 'advanced' && (
-                            <div className="no-row-open mb-2 text-[11px] text-gray-700 space-y-0.5">
+                            <div className="no-row-open mb-2 text-[11px] text-foreground space-y-0.5">
                               {exeTokenName && exeReefPerToken != null ? (
                                 <>
                                   <div className="flex items-center justify-end mb-1 gap-2">
-                                    <label className="inline-flex items-center gap-1 text-[10px] text-gray-500" title="Show inverse rate (REEF per token and token per REEF)">
+                                    <label className="inline-flex items-center gap-1 text-[10px] text-muted-foreground" title="Show inverse rate (REEF per token and token per REEF)">
                                       <input type="checkbox" checked={showInverse} onChange={(e) => setShowInverse(e.target.checked)} />
                                       <span>Inverse rate</span>
                                     </label>
                                     <span className="inline-flex" title="Execution — actual trade rate; Now — current market rate (from USD prices); Spot — reference rate at trade time; Δ — execution vs spot difference">
-                                      <Info className="h-3.5 w-3.5 text-gray-400" />
+                                      <Info className="h-3.5 w-3.5 text-muted-foreground" />
                                     </span>
                                   </div>
                                   <div className="font-mono" title={`Execution: 1 ${exeTokenName} = ${fmt4(exeReefPerToken)} REEF${nowReefPerToken != null ? ` • Now: 1 ${exeTokenName} = ${fmt4(nowReefPerToken)} REEF` : ''}${spotReefPerToken != null ? ` • Spot: ${fmt4(spotReefPerToken)} REEF per 1 ${exeTokenName}` : ''}`}>
-                                    <span className="text-gray-500" title="Execution price from the actual trade volumes">{exeTokenName}/REEF:</span>
+                                    <span className="text-muted-foreground" title="Execution price from the actual trade volumes">{exeTokenName}/REEF:</span>
                                     <span className="ml-2">{fmt4(exeReefPerToken)}</span>
                                     {nowReefPerToken != null ? (
                                       <>
@@ -514,17 +514,17 @@ export function TransactionDetailsModal({ open, transfer, onClose, pricesById, r
                                       </>
                                     ) : null}
                                     {spotReefPerToken != null ? (
-                                      <span className="ml-2 text-gray-500" title="Reference spot rate at the time of trade">(spot {fmt4(spotReefPerToken)})</span>
+                                      <span className="ml-2 text-muted-foreground" title="Reference spot rate at the time of trade">(spot {fmt4(spotReefPerToken)})</span>
                                     ) : null}
                                     {impactPct != null ? (
                                       <>
-                                        <span className="ml-2 text-gray-500" title="Difference between execution and spot">Δ</span>
+                                        <span className="ml-2 text-muted-foreground" title="Difference between execution and spot">Δ</span>
                                         <span className={`ml-1 ${impactPct >= 0 ? 'text-green-600' : 'text-red-600'}`}>{impactPct >= 0 ? '+' : ''}{impactPct.toFixed(2)}%</span>
                                       </>
                                     ) : null}
                                   </div>
                                   {showInverse && (
-                                    <div className="font-mono text-gray-500" title={`Inverse rate • Execution: 1 REEF = ${fmt4(1 / exeReefPerToken)} ${exeTokenName}${nowReefPerToken != null ? ` • Now: 1 REEF = ${fmt4(1 / nowReefPerToken)} ${exeTokenName}` : ''}`}>
+                                    <div className="font-mono text-muted-foreground" title={`Inverse rate • Execution: 1 REEF = ${fmt4(1 / exeReefPerToken)} ${exeTokenName}${nowReefPerToken != null ? ` • Now: 1 REEF = ${fmt4(1 / nowReefPerToken)} ${exeTokenName}` : ''}`}>
                                       <span title="Inverse rate">REEF/{exeTokenName}:</span>
                                       <span className="ml-2">{fmt4(1 / exeReefPerToken)}</span>
                                       {nowReefPerToken != null ? (
@@ -578,8 +578,8 @@ export function TransactionDetailsModal({ open, transfer, onClose, pricesById, r
                   ) : (
                     <>
                       <tr>
-                        <td className="py-1.5 text-gray-500">Amount</td>
-                        <td className="py-1.5 text-gray-900 font-medium">
+                        <td className="py-1.5 text-muted-foreground">Amount</td>
+                        <td className="py-1.5 text-foreground font-medium">
                           {formatTokenAmount(transfer.amount, transfer.token.decimals, displayTokenName(transfer.token))}
                         </td>
                       </tr>
@@ -589,17 +589,17 @@ export function TransactionDetailsModal({ open, transfer, onClose, pricesById, r
                         const dStr = (deltaTransfer != null) ? `${deltaTransfer >= 0 ? '+' : ''}${deltaTransfer.toFixed(2)}%` : null;
                         return (currStr || blockStr) ? (
                           <tr>
-                            <td className="py-1.5 text-gray-500">Value</td>
-                            <td className="py-1.5 text-gray-700">
+                            <td className="py-1.5 text-muted-foreground">Value</td>
+                            <td className="py-1.5 text-foreground">
                               <div className="flex flex-col gap-0.5">
                                 {blockStr && (
                                   <span className="text-sm">
-                                    {blockStr} <span className="text-gray-500">then</span>
+                                    {blockStr} <span className="text-muted-foreground">then</span>
                                   </span>
                                 )}
                                 {currStr && (
                                   <span className="text-sm">
-                                    {currStr} <span className="text-gray-500">now</span>
+                                    {currStr} <span className="text-muted-foreground">now</span>
                                     {dStr && (
                                       <span className={`ml-2 font-medium ${deltaTransfer! >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                                         {dStr}
@@ -619,18 +619,18 @@ export function TransactionDetailsModal({ open, transfer, onClose, pricesById, r
             </div>
 
             <div>
-              <h4 className="text-sm font-semibold text-gray-700 mb-2">Network</h4>
+              <h4 className="text-sm font-semibold text-foreground mb-2">Network</h4>
               <table className="w-full text-sm">
                 <tbody className="divide-y">
                   <tr>
-                    <td className="py-2 text-gray-500">Block • Extrinsic • Event</td>
-                    <td className="py-2 text-gray-900">
+                    <td className="py-2 text-muted-foreground">Block • Extrinsic • Event</td>
+                    <td className="py-2 text-foreground">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-mono text-[13px]">
                           {(blockShow ?? '—')} • {(extrinsicShow ?? '—')} • {(eventShow ?? '—')}
                         </span>
                         <button
-                          className="no-row-open p-1 rounded hover:bg-gray-100"
+                          className="no-row-open p-1 rounded hover:bg-muted"
                           title="Copy block/extrinsic/event"
                           onClick={() => {
                             const b = (blockShow ?? '');
@@ -640,17 +640,17 @@ export function TransactionDetailsModal({ open, transfer, onClose, pricesById, r
                             copyToClipboard(text, 'idx');
                           }}
                         >
-                          {copied.idx ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4 text-gray-600" />}
+                          {copied.idx ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4 text-muted-foreground" />}
                         </button>
                       </div>
                     </td>
                   </tr>
                   <>
                     <tr>
-                      <td className="py-2 text-gray-500">Technical details</td>
-                      <td className="py-2 text-gray-900">
+                      <td className="py-2 text-muted-foreground">Technical details</td>
+                      <td className="py-2 text-foreground">
                         <button
-                          className="no-row-open inline-flex items-center gap-1 px-2 py-1 border rounded hover:bg-gray-50 text-sm text-gray-700"
+                          className="no-row-open inline-flex items-center gap-1 px-2 py-1 border rounded hover:bg-muted text-sm text-foreground"
                           onClick={() => setExpandTech(v => !v)}
                           title={expandTech ? 'Hide technical details' : 'Show technical details'}
                         >
@@ -661,19 +661,19 @@ export function TransactionDetailsModal({ open, transfer, onClose, pricesById, r
                     </tr>
                     {expandTech && exIdShow && (
                       <tr>
-                        <td className="py-2 text-gray-500">Extrinsic id</td>
-                        <td className="py-2 text-gray-900">
+                        <td className="py-2 text-muted-foreground">Extrinsic id</td>
+                        <td className="py-2 text-foreground">
                           <div className="flex items-center justify-between gap-2">
                             <span className="truncate font-mono text-[13px]">
                               {shortenHash(exIdShow, 6, 6)}
                             </span>
                             <div className="flex items-center gap-1">
                               <button
-                                className="no-row-open p-1 rounded hover:bg-gray-100"
+                                className="no-row-open p-1 rounded hover:bg-muted"
                                 title="Copy extrinsic id"
                                 onClick={() => copyToClipboard(exIdShow!, 'exid')}
                               >
-                                {copied.exid ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4 text-gray-600" />}
+                                {copied.exid ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4 text-muted-foreground" />}
                               </button>
                             </div>
                           </div>
@@ -686,7 +686,7 @@ export function TransactionDetailsModal({ open, transfer, onClose, pricesById, r
             </div>
           </div>
 
-          <div className="px-5 pb-5 pt-3 border-t flex items-center justify-end bg-gray-50 rounded-b-xl">
+          <div className="px-5 pb-5 pt-3 border-t flex items-center justify-end bg-muted rounded-b-xl">
             <div className="flex items-center gap-3">
               <ExternalLink href={reefscan.href} title={reefscan.title} />
               <Button onClick={onClose} variant="secondary">Close</Button>

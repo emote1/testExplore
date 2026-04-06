@@ -15,7 +15,7 @@ export const TypeCell = React.memo(function TypeCell(ctx: CellContext<UiTransfer
   
   if (t.method === 'swap' || type === 'SWAP') {
     return (
-      <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full border border-blue-400 text-blue-600 bg-white">
+      <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full border border-blue-400 dark:border-blue-700 text-blue-600 dark:text-blue-400 bg-card">
         <ArrowLeftRight className="w-3 h-3" />
         Swap
       </span>
@@ -28,7 +28,7 @@ export const TypeCell = React.memo(function TypeCell(ctx: CellContext<UiTransfer
   
   if (isIncoming) {
     return (
-      <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full border border-green-400 text-green-600 bg-white">
+      <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full border border-green-400 dark:border-green-700 text-green-600 dark:text-green-400 bg-card">
         <ArrowDownLeft className="w-3 h-3" />
         {label}
       </span>
@@ -36,7 +36,7 @@ export const TypeCell = React.memo(function TypeCell(ctx: CellContext<UiTransfer
   }
   
   return (
-    <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full border border-orange-400 text-orange-600 bg-white">
+    <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full border border-orange-400 dark:border-orange-700 text-orange-600 dark:text-orange-400 bg-card">
       <ArrowUpRight className="w-3 h-3" />
       {label}
     </span>
@@ -91,10 +91,10 @@ export const TimestampCell = React.memo(function TimestampCell(ctx: CellContext<
       <Tooltip>
         <TooltipTrigger asChild>
           <div className="cursor-help inline-flex items-start gap-2">
-            <Clock className="h-3.5 w-3.5 text-gray-400 mt-[2px]" />
+            <Clock className="h-3.5 w-3.5 text-muted-foreground mt-[2px]" />
             <div className="leading-tight">
-              <div className="font-semibold text-gray-800">{top}</div>
-              <div className="text-[11px] text-gray-500">{bottom}</div>
+              <div className="font-semibold text-foreground">{top}</div>
+              <div className="text-[11px] text-muted-foreground">{bottom}</div>
             </div>
           </div>
         </TooltipTrigger>
@@ -110,7 +110,7 @@ export const FromCell = React.memo(function FromCell(ctx: CellContext<UiTransfer
   return (
     <AddressDisplay
       address={ctx.row.getValue('from') as string}
-      className="inline-block text-sm font-mono text-slate-700 bg-slate-100/50 px-2 py-1 rounded"
+      className="inline-block text-sm font-mono text-foreground bg-muted/50 px-2 py-1 rounded"
     />
   );
 });
@@ -119,7 +119,7 @@ export const ToCell = React.memo(function ToCell(ctx: CellContext<UiTransfer, un
   return (
     <AddressDisplay
       address={ctx.row.getValue('to') as string}
-      className="inline-block text-sm font-mono text-slate-700 bg-slate-100/50 px-2 py-1 rounded"
+      className="inline-block text-sm font-mono text-foreground bg-muted/50 px-2 py-1 rounded"
     />
   );
 });
@@ -190,7 +190,7 @@ export const AmountCellComponent = React.memo(function AmountCellComponent({ ctx
     }
     const content = (
       <div className="flex flex-col">
-        {primaryEl ?? <span className="text-gray-500">—</span>}
+        {primaryEl ?? <span className="text-muted-foreground">—</span>}
       </div>
     );
 
@@ -200,9 +200,9 @@ export const AmountCellComponent = React.memo(function AmountCellComponent({ ctx
           <TooltipTrigger asChild>{content}</TooltipTrigger>
           <TooltipContent>
             <div className="space-y-1">
-              <div className="text-xs text-gray-700">Bought: {boughtFmt}</div>
-              <div className="text-xs text-gray-700">Sold: {formatForLabel(soldAbs, sold.token)}</div>
-              <div className="text-xs text-gray-700">Rate: 1 {sold.token.name} = {rateStr()} {bought.token.name}</div>
+              <div className="text-xs text-foreground">Bought: {boughtFmt}</div>
+              <div className="text-xs text-foreground">Sold: {formatForLabel(soldAbs, sold.token)}</div>
+              <div className="text-xs text-foreground">Rate: 1 {sold.token.name} = {rateStr()} {bought.token.name}</div>
             </div>
           </TooltipContent>
         </Tooltip>
@@ -264,12 +264,12 @@ export const ValueCell = React.memo(function ValueCell(ctx: CellContext<UiTransf
     if (soldUsd && boughtUsd) {
       const label = `≈ ${soldUsd} → ${boughtUsd}`;
       return (
-        <span className="block w-full text-right text-gray-700 text-sm" title={label}>{label}</span>
+        <span className="block w-full text-right text-foreground text-sm" title={label}>{label}</span>
       );
     }
     // Fallbacks when price known only for one side: show single approx line
     const approx = soldUsd ?? boughtUsd;
-    return <span className="block w-full text-right text-gray-700" title={approx ?? undefined}>{approx ?? '—'}</span>;
+    return <span className="block w-full text-right text-foreground" title={approx ?? undefined}>{approx ?? '—'}</span>;
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

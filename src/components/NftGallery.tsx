@@ -58,9 +58,9 @@ function isVideoNft(nft: Nft): boolean {
 function NftCard({ nft, onPreview, priority, onThumbReady, suspended }: { nft: Nft; onPreview: (n: Nft) => void; priority?: boolean; onThumbReady?: (id: string) => void; suspended?: boolean }) {
   if (nft.error) {
     return (
-      <div className="border rounded-lg p-4 flex flex-col items-center justify-center bg-gray-50 aspect-square" data-testid="nft-card" data-nft-id={nft.id}>
+      <div className="border rounded-lg p-4 flex flex-col items-center justify-center bg-muted aspect-square" data-testid="nft-card" data-nft-id={nft.id}>
         <p className="text-red-500 text-sm font-semibold">Loading Failed</p>
-        <p className="text-xs text-gray-500 truncate w-full text-center mt-1">{nft.id}</p>
+        <p className="text-xs text-muted-foreground truncate w-full text-center mt-1">{nft.id}</p>
       </div>
     );
   }
@@ -83,17 +83,17 @@ function NftCard({ nft, onPreview, priority, onThumbReady, suspended }: { nft: N
 
   if (!nft.image && !nft.thumbnail && !nft.media) {
     return (
-      <div className="border rounded-lg p-4 flex flex-col items-center justify-center bg-gray-50 aspect-square" data-testid="nft-card" data-nft-id={nft.id}>
-        <div className="w-16 h-16 rounded bg-gray-200 mb-2" />
-        <p className="text-gray-600 text-sm">{nft.name || 'Unnamed NFT'}</p>
+      <div className="border rounded-lg p-4 flex flex-col items-center justify-center bg-muted aspect-square" data-testid="nft-card" data-nft-id={nft.id}>
+        <div className="w-16 h-16 rounded bg-muted mb-2" />
+        <p className="text-muted-foreground text-sm">{nft.name || 'Unnamed NFT'}</p>
         {showAmount ? (
-          <span data-testid="nft-amount-badge-fallback" className="mt-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 border border-gray-200">x{amount}</span>
+          <span data-testid="nft-amount-badge-fallback" className="mt-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-muted text-foreground border border-border">x{amount}</span>
         ) : null}
       </div>
     );
   }
   return (
-    <div className="border rounded-lg overflow-hidden bg-white" data-testid="nft-card" data-nft-id={nft.id}>
+    <div className="border rounded-lg overflow-hidden bg-card" data-testid="nft-card" data-nft-id={nft.id}>
       <div className="relative">
         {isVideo ? (
           <NftVideoThumb
@@ -126,11 +126,11 @@ function NftCard({ nft, onPreview, priority, onThumbReady, suspended }: { nft: N
         <div className="flex items-center gap-2">
           <h3 className="font-semibold text-sm truncate flex-1">{nft.name || 'Unnamed NFT'}</h3>
           {showAmount ? (
-            <span data-testid="nft-amount-badge-inline" className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 border border-gray-200">x{amount}</span>
+            <span data-testid="nft-amount-badge-inline" className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-muted text-foreground border border-border">x{amount}</span>
           ) : null}
         </div>
         {nft.collection?.name ? (
-          <p className="text-xs text-gray-500 truncate">{nft.collection.name}</p>
+          <p className="text-xs text-muted-foreground truncate">{nft.collection.name}</p>
         ) : null}
       </div>
     </div>
@@ -139,7 +139,7 @@ function NftCard({ nft, onPreview, priority, onThumbReady, suspended }: { nft: N
 
 function NftCardSkeleton() {
   return (
-    <div className="border rounded-lg overflow-hidden bg-white">
+    <div className="border rounded-lg overflow-hidden bg-card">
       <Skeleton className="w-full h-44 sm:h-52 md:h-56" />
       <div className="p-3 space-y-2">
         <Skeleton className="h-4 w-3/4" />
@@ -152,13 +152,13 @@ function NftCardSkeleton() {
 function CollectionOpenPanel({ collectionIdInput, onChangeInput, onOpen, isOpening, showHelpLink = true, onChangeAddress, 'data-testid': dataTestId }: { collectionIdInput: string; onChangeInput: (v: string) => void; onOpen: (id: string) => void; isOpening: boolean; showHelpLink?: boolean; onChangeAddress: () => void; 'data-testid'?: string; }) {
   return (
     <div className="mt-4 space-y-2" data-testid={dataTestId ?? 'collection-open-panel'}>
-      <label className="text-sm font-medium text-gray-700" htmlFor="collectionId">Open a collection by ID</label>
+      <label className="text-sm font-medium text-foreground" htmlFor="collectionId">Open a collection by ID</label>
       <div className="flex gap-2">
         <input
           id="collectionId"
           aria-label="Collection ID"
           placeholder="Enter collection ID (e.g., Jz41NjucSzaXUQ45Hjk1)"
-          className="flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          className="flex-1 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           value={collectionIdInput}
           onChange={(e) => onChangeInput(e.target.value.trim())}
         />
@@ -171,10 +171,10 @@ function CollectionOpenPanel({ collectionIdInput, onChangeInput, onOpen, isOpeni
           {isOpening ? 'Opening...' : 'Open'}
         </button>
       </div>
-      <div className="mt-2 flex items-center gap-4 text-xs text-gray-600">
+      <div className="mt-2 flex items-center gap-4 text-xs text-muted-foreground">
         {showHelpLink ? (
           <a
-            className="underline hover:text-gray-800"
+            className="underline hover:text-foreground"
             href="https://www.youtube.com/watch?v=jdgVZP0v30w"
             target="_blank"
             rel="noopener noreferrer"
@@ -199,20 +199,20 @@ function CollectionCard({ col, onClick }: { col: Collection; onClick: (c: Collec
     <button
       type="button"
       onClick={() => onClick(col)}
-      className="text-left border rounded-lg overflow-hidden bg-white hover:shadow focus:shadow outline-none"
+      className="text-left border rounded-lg overflow-hidden bg-card hover:shadow focus:shadow outline-none"
       title={col.name}
       data-testid="collection-card"
     >
-      <div className="w-full h-32 sm:h-36 md:h-44 bg-gray-100 overflow-hidden">
+      <div className="w-full h-32 sm:h-36 md:h-44 bg-muted overflow-hidden">
         {col.image ? (
           <NftImage imageUrl={col.image} name={col.name} className="w-full h-full object-cover" />
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">No image</div>
+          <div className="w-full h-full flex items-center justify-center text-muted-foreground text-sm">No image</div>
         )}
       </div>
       <div className="p-3">
         <h3 className="font-semibold text-sm truncate">{col.name}</h3>
-        <p className="text-xs text-gray-500">{col.itemCount} items</p>
+        <p className="text-xs text-muted-foreground">{col.itemCount} items</p>
       </div>
     </button>
   );
@@ -500,7 +500,7 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
   const otherNonVideoNfts = React.useMemo(() => nftsWithoutCollection.filter(n => !isVideoNft(n)), [nftsWithoutCollection]);
 
   function badgeClass(isActive: boolean): string {
-    return isActive ? 'bg-white/20 text-white border-white/20' : 'bg-gray-100 text-gray-600 border-gray-200';
+    return isActive ? 'bg-white/20 text-white border-white/20' : 'bg-muted text-muted-foreground border-border';
   }
 
   function pillClass(isActive: boolean, active: string, inactive: string): string {
@@ -665,10 +665,10 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
 
   if (!address) {
     return (
-      <div className="relative bg-white rounded-xl border border-gray-200 shadow-sm p-6 overflow-hidden">
+      <div className="relative bg-card rounded-xl border border-border shadow-sm dark:shadow-none p-6 overflow-hidden">
         <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-blue-500/40 to-transparent opacity-60" />
         <div className="text-center py-8">
-          <p className="text-gray-500">Please enter an address to view NFTs.</p>
+          <p className="text-muted-foreground">Please enter an address to view NFTs.</p>
         </div>
       </div>
     );
@@ -680,7 +680,7 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
 
   if (isOwnerNftsLoading) {
     return (
-      <div className="relative bg-white rounded-xl border border-gray-200 shadow-sm p-6 overflow-hidden" role="status" aria-live="polite" aria-busy="true">
+      <div className="relative bg-card rounded-xl border border-border shadow-sm dark:shadow-none p-6 overflow-hidden" role="status" aria-live="polite" aria-busy="true">
         <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-blue-500/40 to-transparent opacity-60" />
         <div className="flex items-center justify-center p-8">
           {showOwnerLoader ? <Loader2 className="h-6 w-6 animate-spin" /> : null}
@@ -691,7 +691,7 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
 
   if (ownerError) {
     return (
-      <div className="relative bg-white rounded-xl border border-gray-200 shadow-sm p-6 overflow-hidden">
+      <div className="relative bg-card rounded-xl border border-border shadow-sm dark:shadow-none p-6 overflow-hidden">
         <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-blue-500/40 to-transparent opacity-60" />
         <div className="flex items-center gap-3 p-4 text-red-700 bg-red-100 rounded-lg">
           <AlertTriangle className="h-5 w-5" />
@@ -713,7 +713,7 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
   const sourceError = ownerInfError ?? fallbackError;
   if (!selectedCollection && sourceError && totalItems === 0) {
     return (
-      <div className="relative bg-white rounded-xl border border-gray-200 shadow-sm p-6 overflow-hidden">
+      <div className="relative bg-card rounded-xl border border-border shadow-sm dark:shadow-none p-6 overflow-hidden">
         <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-blue-500/40 to-transparent opacity-60" />
         <div className="flex items-center gap-3 p-4 text-red-700 bg-red-100 rounded-lg">
           <AlertTriangle className="h-5 w-5" />
@@ -728,11 +728,11 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
 
   if (!selectedCollection && totalItems === 0) {
     return (
-      <div className="relative bg-white rounded-xl border border-gray-200 shadow-sm p-6 overflow-hidden">
+      <div className="relative bg-card rounded-xl border border-border shadow-sm dark:shadow-none p-6 overflow-hidden">
         <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-blue-500/40 to-transparent opacity-60" />
-        <h3 className="text-base font-semibold text-gray-900">No NFTs found for this address</h3>
+        <h3 className="text-base font-semibold text-foreground">No NFTs found for this address</h3>
         {isNonEvmInput ? (
-          <p className="mt-1 text-sm text-gray-600" data-testid="nft-non-evm-note">
+          <p className="mt-1 text-sm text-muted-foreground" data-testid="nft-non-evm-note">
             This Reef address isn’t mapped to an EVM account, so we can’t show EVM-based NFTs.
           </p>
         ) : null}
@@ -752,13 +752,13 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
 
   return (
     <PreviewPlaybackProvider maxConcurrent={1}>
-    <div className="relative bg-white rounded-xl border border-gray-200 shadow-sm p-6 overflow-hidden space-y-6">
+    <div className="relative bg-card rounded-xl border border-border shadow-sm dark:shadow-none p-6 overflow-hidden space-y-6">
       <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-blue-500/40 to-transparent opacity-60" />
-      <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="rounded-lg border border-border bg-card p-4 shadow-sm dark:shadow-none">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-lg font-semibold" data-testid="nft-header">{selectedCollection ? selectedCollection.name : 'NFTs'}</h2>
-            <p className="text-sm text-gray-500">Collections and items with media preview</p>
+            <p className="text-sm text-muted-foreground">Collections and items with media preview</p>
           </div>
 
           {selectedCollection ? (
@@ -772,7 +772,7 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
                 type="button"
                 variant="outline"
                 size="sm"
-                className={`h-9 px-4 py-2 text-sm font-medium ${pillClass(collectionFilter === 'all', 'bg-black text-white border-black', 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50')}`}
+                className={`h-9 px-4 py-2 text-sm font-medium ${pillClass(collectionFilter === 'all', 'bg-black text-white border-black', 'bg-card text-foreground border-border hover:bg-muted')}`}
                 onClick={() => setCollectionFilter('all')}
                 data-testid="filter-all"
               >
@@ -783,7 +783,7 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
                 type="button"
                 variant="outline"
                 size="sm"
-                className={`h-9 px-4 py-2 text-sm font-medium ${pillClass(collectionFilter === 'video', 'bg-pink-600 hover:bg-pink-700 text-white border-pink-600', 'bg-white text-gray-700 border-gray-200 hover:bg-pink-50 hover:text-pink-700 hover:border-pink-300')}`}
+                className={`h-9 px-4 py-2 text-sm font-medium ${pillClass(collectionFilter === 'video', 'bg-pink-600 hover:bg-pink-700 text-white border-pink-600', 'bg-card text-foreground border-border hover:bg-pink-50 dark:hover:bg-pink-950 hover:text-pink-700 hover:border-pink-300')}`}
                 onClick={() => setCollectionFilter('video')}
                 data-testid="filter-video"
               >
@@ -793,7 +793,7 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
               </Button>
 
               <select
-                className="ml-2 border rounded-md px-2 py-1.5 text-sm bg-white"
+                className="ml-2 border border-border rounded-md px-2 py-1.5 text-sm bg-card text-foreground"
                 value={limit}
                 onChange={(e) => setLimit(Number(e.target.value))}
                 disabled={isCollectionLoading}
@@ -813,7 +813,7 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
                 aria-selected={overviewTab === 'collections'}
                 variant="outline"
                 size="sm"
-                className={`h-9 px-4 py-2 text-sm font-medium ${pillClass(overviewTab === 'collections', 'bg-purple-600 hover:bg-purple-700 text-white border-purple-600', 'bg-white text-gray-700 border-gray-200 hover:bg-purple-50 hover:text-purple-700 hover:border-purple-300')}`}
+                className={`h-9 px-4 py-2 text-sm font-medium ${pillClass(overviewTab === 'collections', 'bg-purple-600 hover:bg-purple-700 text-white border-purple-600', 'bg-card text-foreground border-border hover:bg-purple-50 dark:hover:bg-purple-950 hover:text-purple-700 hover:border-purple-300')}`}
                 onClick={() => setOverviewTab('collections')}
                 data-testid="tab-collections"
               >
@@ -827,7 +827,7 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
                 aria-selected={overviewTab === 'video'}
                 variant="outline"
                 size="sm"
-                className={`h-9 px-4 py-2 text-sm font-medium ${pillClass(overviewTab === 'video', 'bg-pink-600 hover:bg-pink-700 text-white border-pink-600', 'bg-white text-gray-700 border-gray-200 hover:bg-pink-50 hover:text-pink-700 hover:border-pink-300')}`}
+                className={`h-9 px-4 py-2 text-sm font-medium ${pillClass(overviewTab === 'video', 'bg-pink-600 hover:bg-pink-700 text-white border-pink-600', 'bg-card text-foreground border-border hover:bg-pink-50 dark:hover:bg-pink-950 hover:text-pink-700 hover:border-pink-300')}`}
                 onClick={() => setOverviewTab('video')}
                 data-testid="tab-video"
               >
@@ -841,7 +841,7 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
                 aria-selected={overviewTab === 'other'}
                 variant="outline"
                 size="sm"
-                className={`h-9 px-4 py-2 text-sm font-medium ${pillClass(overviewTab === 'other', 'bg-orange-600 hover:bg-orange-700 text-white border-orange-600', 'bg-white text-gray-700 border-gray-200 hover:bg-orange-50 hover:text-orange-700 hover:border-orange-300')}`}
+                className={`h-9 px-4 py-2 text-sm font-medium ${pillClass(overviewTab === 'other', 'bg-orange-600 hover:bg-orange-700 text-white border-orange-600', 'bg-card text-foreground border-border hover:bg-orange-50 dark:hover:bg-orange-950 hover:text-orange-700 hover:border-orange-300')}`}
                 onClick={() => setOverviewTab('other')}
                 data-testid="tab-other"
               >
@@ -854,7 +854,7 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
         </div>
 
         {!selectedCollection && ownerTotalCount !== null && ownerTotalCount > 0 ? (
-          <div className="mt-2 text-xs text-gray-500" data-testid="owner-nfts-progress">
+          <div className="mt-2 text-xs text-muted-foreground" data-testid="owner-nfts-progress">
             Loaded {Math.min(loadedOwnerCount, ownerTotalCount)} of {ownerTotalCount} owner NFTs
           </div>
         ) : null}
@@ -907,8 +907,8 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
                   {scrollGateActive ? (
                   <>
                     {/* Overlay customization: adjust opacity/blur/colors via classNames below. Text comes from OVERLAY_TEXT. */}
-                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 backdrop-blur-[1px] pointer-events-auto" role="status" aria-live="polite" aria-busy="true" data-testid="row-gate-overlay">
-                      <div className="flex items-center gap-3 text-gray-700 rounded-full bg-white/90 shadow px-4 py-2">
+                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/70 backdrop-blur-[1px] pointer-events-auto" role="status" aria-live="polite" aria-busy="true" data-testid="row-gate-overlay">
+                      <div className="flex items-center gap-3 text-foreground rounded-full bg-card/90 shadow dark:shadow-none px-4 py-2">
                         <Loader2 className="h-6 w-6 animate-spin" />
                         <span className="text-sm">{OVERLAY_TEXT}</span>
                       </div>
@@ -917,7 +917,7 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
                 ) : null}
                 </div>
                 {isFetchingNextPage ? (
-                  <div className="flex justify-center py-2 text-sm text-gray-500">Loading more...</div>
+                  <div className="flex justify-center py-2 text-sm text-muted-foreground">Loading more...</div>
                 ) : null}
               </>
             )}
@@ -943,7 +943,7 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
             )}
             {overviewTab === 'collections' && collectionsWithCount.length === 0 && (
               <div>
-                <div className="text-sm text-gray-600" data-testid="no-collections-note">
+                <div className="text-sm text-muted-foreground" data-testid="no-collections-note">
                   No collections found for this address.
                 </div>
                 <CollectionOpenPanel
@@ -1004,8 +1004,8 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
                 {scrollGateActive ? (
                   <>
                     {/* Overlay customization: adjust opacity/blur/colors via classNames below. Text comes from OVERLAY_TEXT. */}
-                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 backdrop-blur-[1px] pointer-events-auto" role="status" aria-live="polite" aria-busy="true" data-testid="row-gate-overlay">
-                      <div className="flex items-center gap-3 text-gray-700 rounded-full bg-white/90 shadow px-4 py-2">
+                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/70 backdrop-blur-[1px] pointer-events-auto" role="status" aria-live="polite" aria-busy="true" data-testid="row-gate-overlay">
+                      <div className="flex items-center gap-3 text-foreground rounded-full bg-card/90 shadow dark:shadow-none px-4 py-2">
                         <Loader2 className="h-6 w-6 animate-spin" />
                         <span className="text-sm">{OVERLAY_TEXT}</span>
                       </div>
@@ -1013,7 +1013,7 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
                   </>
                 ) : null}
                 {revealVideo ? (
-                  <div className="flex justify-center py-2 text-sm text-gray-500" data-testid="row-loader-video">
+                  <div className="flex justify-center py-2 text-sm text-muted-foreground" data-testid="row-loader-video">
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Loading...
                   </div>
                 ) : null}
@@ -1053,7 +1053,7 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
                   offsetTop={0}
                 />
                 {revealOther ? (
-                  <div className="flex justify-center py-2 text-sm text-gray-500" data-testid="row-loader-other">
+                  <div className="flex justify-center py-2 text-sm text-muted-foreground" data-testid="row-loader-other">
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Loading...
                   </div>
                 ) : null}
@@ -1070,7 +1070,7 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
           onClick={() => setViewer(null)}
         >
           <div
-            className="relative bg-white rounded-2xl shadow-2xl ring-1 ring-black/10 p-4 md:p-6 max-w-[min(92vw,860px)] max-h-[88vh] overflow-auto"
+            className="relative bg-card rounded-2xl shadow-2xl ring-1 ring-black/10 dark:ring-white/10 p-4 md:p-6 max-w-[min(92vw,860px)] max-h-[88vh] overflow-auto"
             data-testid="viewer-content"
             onClick={(e) => e.stopPropagation()}
           >
@@ -1085,7 +1085,7 @@ export function NftGallery({ address, enableOwnerInfinite = false, onCountsChang
             </button>
             {viewer.name ? (
               <div className="mb-3 pr-14">
-                <h3 className="text-sm font-medium text-gray-900 truncate">{viewer.name}</h3>
+                <h3 className="text-sm font-medium text-foreground truncate">{viewer.name}</h3>
               </div>
             ) : null}
             <NftMediaViewer
