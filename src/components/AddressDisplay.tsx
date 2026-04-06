@@ -40,7 +40,7 @@ export function AddressDisplay({ address, className, copyable = false }: Address
       {copyable ? (
         <button
           type="button"
-          className="p-1 rounded-full text-emerald-700/80 hover:text-emerald-700 hover:bg-emerald-100/70 transition"
+          className="p-1 rounded-full text-emerald-700/80 dark:text-emerald-400/80 hover:text-emerald-700 dark:hover:text-emerald-300 hover:bg-emerald-100/70 dark:hover:bg-emerald-900/70 transition"
           title={copied ? 'Copied' : 'Copy address'}
           aria-label={copied ? 'Address copied' : 'Copy address'}
           onClick={handleCopy}

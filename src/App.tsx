@@ -7,6 +7,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { WsStatusToast } from './components/WsStatusToast';
 import { useReefExtension } from './hooks/use-reef-extension';
 import { useMobileWalletConnect } from './hooks/use-mobile-walletconnect';
+import { useTheme } from '@/hooks/use-theme';
 
 const EXPLORER_BACKEND = String(import.meta.env.VITE_REEF_EXPLORER_BACKEND ?? '').toLowerCase();
 const WS_HEALTH_ENABLED = EXPLORER_BACKEND !== 'hasura';
@@ -27,6 +28,20 @@ function App() {
   const [currentPage, setCurrentPage] = React.useState<AppPage>('search');
   const reefExtension = useReefExtension();
   const mobileWallet = useMobileWalletConnect();
+  const { theme } = useTheme();
+
+  React.useEffect(() => {
+    const root = document.documentElement;
+    if (theme === 'system') {
+      const mql = window.matchMedia('(prefers-color-scheme: dark)');
+      root.classList.toggle('dark', mql.matches);
+      const handler = (e: MediaQueryListEvent) => root.classList.toggle('dark', e.matches);
+      mql.addEventListener('change', handler);
+      return () => mql.removeEventListener('change', handler);
+    } else {
+      root.classList.toggle('dark', theme === 'dark');
+    }
+  }, [theme]);
 
   const {
     isAvailable,
@@ -90,7 +105,7 @@ function App() {
 
   function AppShell() {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-background">
         <Navigation
           currentPage={currentPage}
           onPageChange={handlePageChange}

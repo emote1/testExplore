@@ -674,41 +674,41 @@ function TransactionsView({
   function typeBtnClass(intent: TxTypeFilter) {
     const isActive = txType === intent;
     if (intent === 'incoming') {
-      return `rounded-full transition-all duration-300 ${isActive ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-sm' : 'bg-white text-gray-700 border-gray-200 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-300'}`;
+      return `rounded-full transition-all duration-300 ${isActive ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-sm' : 'bg-card text-foreground/70 border-border hover:bg-emerald-50 dark:hover:bg-emerald-950 hover:text-emerald-700 hover:border-emerald-300'}`;
     }
     if (intent === 'outgoing') {
-      return `rounded-full transition-all duration-300 ${isActive ? 'bg-rose-600 hover:bg-rose-700 text-white border-rose-600 shadow-sm' : 'bg-white text-gray-700 border-gray-200 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-300'}`;
+      return `rounded-full transition-all duration-300 ${isActive ? 'bg-rose-600 hover:bg-rose-700 text-white border-rose-600 shadow-sm' : 'bg-card text-foreground/70 border-border hover:bg-rose-50 dark:hover:bg-rose-950 hover:text-rose-700 hover:border-rose-300'}`;
     }
     if (intent === 'swap') {
-      return `rounded-full transition-all duration-300 ${isActive ? 'bg-[#2563EB] hover:bg-[#3B82F6] text-white border-[#2563EB] shadow-md shadow-[#2563EB]/20' : 'bg-white text-gray-700 border-gray-200 hover:bg-[#E0F2FE] hover:text-[#2563EB] hover:border-[#3B82F6]/40'}`;
+      return `rounded-full transition-all duration-300 ${isActive ? 'bg-brand hover:bg-brand-light text-white border-brand shadow-md shadow-brand/20' : 'bg-card text-foreground/70 border-border hover:bg-brand-accent hover:text-brand hover:border-brand-light/40'}`;
     }
     if (intent === 'staking') {
-      return `rounded-full transition-all duration-300 ${isActive ? 'bg-purple-600 hover:bg-purple-700 text-white border-purple-600 shadow-sm' : 'bg-white text-gray-700 border-gray-200 hover:bg-purple-50 hover:text-purple-700 hover:border-purple-300'}`;
+      return `rounded-full transition-all duration-300 ${isActive ? 'bg-purple-600 hover:bg-purple-700 text-white border-purple-600 shadow-sm' : 'bg-card text-foreground/70 border-border hover:bg-purple-50 dark:hover:bg-purple-950 hover:text-purple-700 hover:border-purple-300'}`;
     }
-    return `rounded-full transition-all duration-300 ${isActive ? 'bg-blue-600 hover:bg-blue-700 text-white border-blue-600 shadow-sm' : 'bg-white text-gray-700 border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`;
+    return `rounded-full transition-all duration-300 ${isActive ? 'bg-blue-600 hover:bg-blue-700 text-white border-blue-600 shadow-sm' : 'bg-card text-foreground/70 border-border hover:border-border hover:bg-muted'}`;
   }
 
   const { status: healthStatus } = useSquidHealth({ intervalMs: 30_000, enabled: isActive });
   
   const statusColors = {
-    loading: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', dot: 'bg-blue-500' },
-    live: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', dot: 'bg-emerald-500' },
-    lagging: { bg: 'bg-yellow-50', text: 'text-yellow-700', border: 'border-yellow-200', dot: 'bg-yellow-500' },
-    stale: { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200', dot: 'bg-orange-500' },
-    down: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', dot: 'bg-red-500' },
+    loading: { bg: 'bg-blue-50 dark:bg-blue-950', text: 'text-blue-700 dark:text-blue-300', border: 'border-blue-200 dark:border-blue-800', dot: 'bg-blue-500' },
+    live: { bg: 'bg-emerald-50 dark:bg-emerald-950', text: 'text-emerald-700 dark:text-emerald-300', border: 'border-emerald-200 dark:border-emerald-800', dot: 'bg-emerald-500' },
+    lagging: { bg: 'bg-yellow-50 dark:bg-yellow-950', text: 'text-yellow-700 dark:text-yellow-300', border: 'border-yellow-200 dark:border-yellow-800', dot: 'bg-yellow-500' },
+    stale: { bg: 'bg-orange-50 dark:bg-orange-950', text: 'text-orange-700 dark:text-orange-300', border: 'border-orange-200 dark:border-orange-800', dot: 'bg-orange-500' },
+    down: { bg: 'bg-red-50 dark:bg-red-950', text: 'text-red-700 dark:text-red-300', border: 'border-red-200 dark:border-red-800', dot: 'bg-red-500' },
   };
   
   const statusLabel = healthStatus === 'loading' ? 'Connecting' : healthStatus === 'live' ? 'Live' : healthStatus === 'lagging' ? 'Lagging' : healthStatus === 'stale' ? 'Stale' : 'Down';
   const colors = statusColors[healthStatus];
 
   return (
-    <div className="relative bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+    <div className="relative bg-card rounded-xl border border-border shadow-sm p-6">
       <div className="absolute top-0 left-0 right-0 h-1 data-refresh-shimmer opacity-60" />
       {/* Header */}
       <div className="flex items-start justify-between mb-6">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900 mb-1">Transaction History</h2>
-          <p className="text-sm text-gray-500">All wallet transactions with real-time updates</p>
+          <h2 className="text-lg font-semibold text-foreground mb-1">Transaction History</h2>
+          <p className="text-sm text-muted-foreground">All wallet transactions with real-time updates</p>
         </div>
         <Badge variant="secondary" className={`${colors.bg} ${colors.text} border ${colors.border} rounded-full shadow-sm px-3 py-1.5`}>
           <span className="inline-flex items-center gap-2">
@@ -730,7 +730,7 @@ function TransactionsView({
         isRangeInvalid={isRangeInvalid}
       />
       {errorMessage ? (
-        <div className="flex items-center gap-4 p-4 mb-4 text-red-700 bg-red-100 rounded-lg shadow">
+        <div className="flex items-center gap-4 p-4 mb-4 text-red-700 dark:text-red-300 bg-red-100 dark:bg-red-950 rounded-lg shadow dark:shadow-none">
           <AlertTriangle className="h-6 w-6" />
           <div>
             <h3 className="font-bold">Error Fetching Transactions</h3>
@@ -740,11 +740,11 @@ function TransactionsView({
       ) : null}
       {toastTransfer ? (
         <div
-          className={`fixed bottom-6 right-6 z-50 max-w-sm w-[360px] p-4 rounded-lg shadow-lg border ${toastTransfer.type === 'INCOMING' ? 'bg-green-50 border-green-200 text-green-900' : 'bg-red-50 border-red-200 text-red-900'}`}
+          className={`fixed bottom-6 right-6 z-50 max-w-sm w-[360px] p-4 rounded-lg shadow-lg border ${toastTransfer.type === 'INCOMING' ? 'bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800 text-green-900 dark:text-green-100' : 'bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-800 text-red-900 dark:text-red-100'}`}
           data-testid="new-transfer-toast"
         >
           <div className="flex items-start gap-3">
-            <div className={`rounded-full p-2 ${toastTransfer.type === 'INCOMING' ? 'bg-green-100' : 'bg-red-100'}`}>
+            <div className={`rounded-full p-2 ${toastTransfer.type === 'INCOMING' ? 'bg-green-100 dark:bg-green-900' : 'bg-red-100 dark:bg-red-900'}`}>
               {toastTransfer.type === 'INCOMING' ? (
                 <ArrowDownRight className="h-6 w-6" />
               ) : (
@@ -933,24 +933,32 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
     });
   }, []);
 
+  const handleNftCountsChange = React.useCallback((count: number) => {
+    setTabCounts((prev) => {
+      if (typeof nftsTotalCount === 'number' && Number.isFinite(nftsTotalCount)) return prev;
+      if (!Number.isFinite(count)) return prev;
+      return { ...prev, nfts: count };
+    });
+  }, [nftsTotalCount]);
+
   return (
-    <div className="p-6 bg-gray-50 min-h-screen">
+    <div className="p-6 bg-background min-h-screen">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-6">
-          <h1 className="text-2xl font-semibold text-gray-900 mb-1">Transaction History</h1>
-          <p className="text-gray-500">
+          <h1 className="text-2xl font-semibold text-foreground mb-1">Transaction History</h1>
+          <p className="text-muted-foreground">
             All wallet transactions with real-time updates
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="flex items-center gap-4 mb-6 p-4 bg-white rounded-xl border border-gray-100 shadow-sm">
+        <form onSubmit={handleSubmit} className="flex items-center gap-4 mb-6 p-4 bg-card rounded-xl border border-border shadow-sm">
           <input
             type="text"
             value={address}
             onChange={(e) => setAddress(e.target.value)}
             placeholder="Enter Reef address"
-            className="flex-grow px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-grow px-4 py-2 border border-border bg-background text-foreground rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             data-testid="address-input"
           />
           <button
@@ -964,7 +972,7 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
         </form>
 
         {addressError && (
-          <div className="flex items-center gap-4 p-3 mb-4 text-yellow-800 bg-yellow-100 rounded" data-testid="address-error">
+          <div className="flex items-center gap-4 p-3 mb-4 text-yellow-800 dark:text-yellow-200 bg-yellow-100 dark:bg-yellow-950 rounded" data-testid="address-error">
             <AlertTriangle className="h-5 w-5" />
             <p>{addressError}</p>
 
@@ -974,7 +982,7 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
         {/* Network-error box moved into TransactionsView context */}
 
         {submittedAddress && (
-          <div className="mb-6 rounded-xl border border-gray-100 bg-slate-50/70 shadow-sm">
+          <div className="mb-6 rounded-xl border border-border bg-muted/70 shadow-sm">
             <div className="flex items-stretch" role="tablist" aria-label="Wallet sections">
               <button
                 role="tab"
@@ -983,16 +991,16 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
                 aria-controls="tabpanel-transactions"
                 className={`relative flex-1 inline-flex items-center justify-center gap-2 h-14 px-6 text-sm font-medium transition-all duration-200 border-b-[3px] ${
                   viewMode === 'transactions'
-                    ? 'bg-white text-blue-600 border-blue-600'
-                    : 'bg-transparent text-gray-600 border-transparent hover:text-gray-900'
-                } hover:bg-white hover:shadow-sm hover:ring-1 hover:ring-slate-100 hover:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white`}
+                    ? 'bg-card text-blue-600 dark:text-blue-400 border-blue-600'
+                    : 'bg-transparent text-muted-foreground border-transparent hover:text-foreground'
+                } hover:bg-card hover:shadow-sm hover:ring-1 hover:ring-border hover:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-background`}
                 onClick={() => setViewMode('transactions')}
               >
                 <Activity className="w-4 h-4" />
                 Transactions
                 <span
                   className={`ml-2 inline-flex items-center justify-center min-w-7 h-5 px-2 text-xs font-semibold rounded-full border ${
-                    viewMode === 'transactions' ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-slate-100 text-slate-600 border-slate-200'
+                    viewMode === 'transactions' ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800' : 'bg-muted text-muted-foreground border-border'
                   }`}
                 >
                   {tabCounts.transactions ?? '—'}
@@ -1005,9 +1013,9 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
                 aria-controls="tabpanel-balances"
                 className={`relative flex-1 inline-flex items-center justify-center gap-2 h-14 px-6 text-sm font-medium transition-all duration-200 border-b-[3px] ${
                   viewMode === 'balances'
-                    ? 'bg-white text-blue-600 border-blue-600'
-                    : 'bg-transparent text-gray-600 border-transparent hover:text-gray-900'
-                } hover:bg-white hover:shadow-sm hover:ring-1 hover:ring-slate-100 hover:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white`}
+                    ? 'bg-card text-blue-600 dark:text-blue-400 border-blue-600'
+                    : 'bg-transparent text-muted-foreground border-transparent hover:text-foreground'
+                } hover:bg-card hover:shadow-sm hover:ring-1 hover:ring-border hover:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-background`}
                 onClick={() => setViewMode('balances')}
                 data-testid="tab-balances"
               >
@@ -1015,7 +1023,7 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
                 Holdings
                 <span
                   className={`ml-2 inline-flex items-center justify-center min-w-7 h-5 px-2 text-xs font-semibold rounded-full border ${
-                    viewMode === 'balances' ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-slate-100 text-slate-600 border-slate-200'
+                    viewMode === 'balances' ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800' : 'bg-muted text-muted-foreground border-border'
                   }`}
                 >
                   {tabCounts.holdings ?? '—'}
@@ -1028,9 +1036,9 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
                 aria-controls="tabpanel-nfts"
                 className={`relative flex-1 inline-flex items-center justify-center gap-2 h-14 px-6 text-sm font-medium transition-all duration-200 border-b-[3px] ${
                   viewMode === 'nfts'
-                    ? 'bg-white text-blue-600 border-blue-600'
-                    : 'bg-transparent text-gray-600 border-transparent hover:text-gray-900'
-                } hover:bg-white hover:shadow-sm hover:ring-1 hover:ring-slate-100 hover:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white`}
+                    ? 'bg-card text-blue-600 dark:text-blue-400 border-blue-600'
+                    : 'bg-transparent text-muted-foreground border-transparent hover:text-foreground'
+                } hover:bg-card hover:shadow-sm hover:ring-1 hover:ring-border hover:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-background`}
                 onClick={() => setViewMode('nfts')}
                 data-testid="tab-nfts"
               >
@@ -1038,7 +1046,7 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
                 NFTs
                 <span
                   className={`ml-2 inline-flex items-center justify-center min-w-7 h-5 px-2 text-xs font-semibold rounded-full border ${
-                    viewMode === 'nfts' ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-slate-100 text-slate-600 border-slate-200'
+                    viewMode === 'nfts' ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800' : 'bg-muted text-muted-foreground border-border'
                   }`}
                 >
                   {tabCounts.nfts ?? '—'}
@@ -1065,13 +1073,7 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
                     address={submittedAddress}
                     enableOwnerInfinite={enableOwnerInfiniteFlag}
                     totalCount={typeof nftsTotalCount === 'number' && Number.isFinite(nftsTotalCount) ? nftsTotalCount : null}
-                    onCountsChange={(count) => {
-                      setTabCounts((prev) => {
-                        if (typeof nftsTotalCount === 'number' && Number.isFinite(nftsTotalCount)) return prev;
-                        if (!Number.isFinite(count)) return prev;
-                        return { ...prev, nfts: count };
-                      });
-                    }}
+                    onCountsChange={handleNftCountsChange}
                   />
                 </React.Suspense>
               </div>
@@ -1096,8 +1098,8 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
 
           </>
         ) : (
-          <div className="text-center py-12 bg-white rounded-lg shadow">
-            <p className="text-gray-500">Please enter an address to begin.</p>
+          <div className="text-center py-12 bg-card rounded-lg shadow dark:shadow-none">
+            <p className="text-muted-foreground">Please enter an address to begin.</p>
           </div>
         )}
       </div>

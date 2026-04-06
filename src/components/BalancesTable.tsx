@@ -1,5 +1,6 @@
 import { toFloatAmount } from '@/utils/token-helpers';
-import { Loader2, Wallet, Copy, Check } from 'lucide-react';
+import { Wallet, Copy, Check } from 'lucide-react';
+import { EmptyState } from './ui/empty-state';
 import { useTokenBalances } from '@/hooks/use-token-balances';
 import { formatTokenAmount } from '@/utils/formatters';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
@@ -82,7 +83,7 @@ const TokenIcon = React.memo(function TokenIcon({
       loading="lazy"
       decoding="async"
       referrerPolicy="no-referrer"
-      className="h-6 w-6 rounded-full object-cover border border-gray-200"
+      className="h-6 w-6 rounded-full object-cover border border-border"
       onError={() => {
         const next = srcIdx + 1;
         if (next < sources.length) {
@@ -128,7 +129,7 @@ const BalanceRow = React.memo(function BalanceRow({
   return (
     <tr
       key={b.token.id}
-      className={`group transition-colors transition-transform duration-200 hover:bg-gray-50 hover:-translate-y-px ${index % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}`}
+      className={`group transition-colors transition-transform duration-200 hover:bg-muted hover:-translate-y-px ${index % 2 === 0 ? 'bg-card' : 'bg-muted/30'}`}
     >
       <td className="px-4 py-5 whitespace-nowrap">
         <TooltipProvider>
@@ -151,13 +152,13 @@ const BalanceRow = React.memo(function BalanceRow({
                   isLocalAsset={isLocalAsset}
                 />
                 <div className="flex flex-col items-start">
-                  <span className="font-medium text-gray-800">{b.token.name}</span>
-                  <span className="text-xs text-gray-500 inline-flex items-center gap-1">
+                  <span className="font-medium text-foreground">{b.token.name}</span>
+                  <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
                     <span className="font-mono">{shortenHash(b.token.id, 6, 6)}</span>
                     {copied === b.token.id ? (
                       <Check className="h-3.5 w-3.5 text-green-600" />
                     ) : (
-                      <Copy className="h-3.5 w-3.5 text-gray-400 group-hover:text-blue-600" />
+                      <Copy className="h-3.5 w-3.5 text-muted-foreground group-hover:text-blue-600" />
                     )}
                   </span>
                 </div>
@@ -171,21 +172,21 @@ const BalanceRow = React.memo(function BalanceRow({
       </td>
       <td className="px-4 py-5 whitespace-nowrap">
         <div className="flex items-center gap-2">
-          <span className="font-medium tabular-nums text-gray-900">{amount}</span>
+          <span className="font-medium tabular-nums text-foreground">{amount}</span>
         </div>
       </td>
       <td className="px-2 py-5 whitespace-nowrap text-right">
         {typeof price === 'number' && Number.isFinite(price) && price > 0 ? (
           <span className="tabular-nums">{usdFmt.format(price)}</span>
         ) : (
-          <span className="text-gray-500">—</span>
+          <span className="text-muted-foreground">—</span>
         )}
       </td>
       <td className="px-2 py-5 whitespace-nowrap text-right">
         {typeof valueUsd === 'number' && Number.isFinite(valueUsd) && valueUsd > 0 ? (
           <span className="font-semibold tabular-nums">{usdFmt.format(valueUsd)}</span>
         ) : (
-          <span className="text-gray-500">—</span>
+          <span className="text-muted-foreground">—</span>
         )}
       </td>
     </tr>
@@ -222,7 +223,7 @@ const BalanceCard = React.memo(function BalanceCard({
 }: BalanceCardProps) {
   return (
     <div
-      className="flex items-center gap-3 p-4 border-b border-gray-100 hover:bg-gray-50 transition-colors"
+      className="flex items-center gap-3 p-4 border-b border-border hover:bg-muted transition-colors"
     >
       <button
         type="button"
@@ -243,20 +244,20 @@ const BalanceCard = React.memo(function BalanceCard({
       </button>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="font-medium text-gray-800 text-sm">{b.token.name}</span>
-          <span className="text-xs text-gray-400 font-mono">{shortenHash(b.token.id, 4, 4)}</span>
+          <span className="font-medium text-foreground text-sm">{b.token.name}</span>
+          <span className="text-xs text-muted-foreground font-mono">{shortenHash(b.token.id, 4, 4)}</span>
           {copied === b.token.id ? (
             <Check className="h-3 w-3 text-green-600 flex-shrink-0" />
           ) : null}
         </div>
-        <div className="text-sm tabular-nums text-gray-900 font-medium">{amount}</div>
+        <div className="text-sm tabular-nums text-foreground font-medium">{amount}</div>
       </div>
       <div className="text-right flex-shrink-0">
         {typeof valueUsd === 'number' && Number.isFinite(valueUsd) && valueUsd > 0 ? (
-          <div className="text-sm font-semibold tabular-nums text-gray-900">{usdFmt.format(valueUsd)}</div>
+          <div className="text-sm font-semibold tabular-nums text-foreground">{usdFmt.format(valueUsd)}</div>
         ) : null}
         {typeof price === 'number' && Number.isFinite(price) && price > 0 ? (
-          <div className="text-xs text-gray-500 tabular-nums">{usdFmt.format(price)}/unit</div>
+          <div className="text-xs text-muted-foreground tabular-nums">{usdFmt.format(price)}/unit</div>
         ) : null}
       </div>
     </div>
@@ -389,25 +390,25 @@ export function BalancesTable({ address, onCountsChange }: BalancesTableProps) {
   }, [])
 
   return (
-    <div className="relative p-6 bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+    <div className="relative p-6 bg-card rounded-xl border border-border shadow-sm overflow-hidden">
       {sortBadge ? (
         <div className="absolute top-2 right-3">
-          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full border border-gray-200 bg-gray-50 text-gray-700">
+          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full border border-border bg-muted text-muted-foreground">
             Sorted by {sortBadge}
           </span>
         </div>
       ) : null}
       <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-blue-500/40 to-transparent opacity-60" />
       <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2 text-gray-700">
+        <div className="flex items-center gap-2 text-foreground">
           <Wallet className="h-5 w-5" />
           <span className="font-semibold">Token Balances</span>
-          <span className="text-sm text-gray-500">{totalCount ? `${totalCount} total` : ''}</span>
+          <span className="text-sm text-muted-foreground">{totalCount ? `${totalCount} total` : ''}</span>
           {Number.isFinite(totalUsd) && totalUsd > 0 ? (
-            <span className="ml-2 text-sm text-gray-600">Portfolio: <span className="font-semibold">{usdFmt.format(totalUsd)}</span></span>
+            <span className="ml-2 text-sm text-muted-foreground">Portfolio: <span className="font-semibold text-foreground">{usdFmt.format(totalUsd)}</span></span>
           ) : null}
         </div>
-        <label className="flex items-center gap-2 text-sm text-gray-600 select-none">
+        <label className="flex items-center gap-2 text-sm text-muted-foreground select-none">
           <input
             type="checkbox"
             className="h-4 w-4 accent-blue-600"
@@ -421,33 +422,69 @@ export function BalancesTable({ address, onCountsChange }: BalancesTableProps) {
 
       {error && (
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        <div className="mb-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-red-800">{String((error as any)?.message || error)}</div>
+        <div className="mb-3 rounded border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950 px-3 py-2 text-red-800 dark:text-red-200">{String((error as any)?.message || error)}</div>
       )}
 
       {loading && (
-        <div className="flex items-center justify-center p-8">
-          <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
+        <div className="hidden sm:block">
+          <table className="w-full table-fixed divide-y divide-border">
+            <thead className="bg-muted">
+              <tr className="border-b-2 border-border">
+                <th className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-[0.14em] font-sans">TOKEN</th>
+                <th className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-[0.14em] font-sans">BALANCE</th>
+                <th className="px-2 py-3 text-right text-[11px] font-semibold text-muted-foreground uppercase tracking-[0.14em] font-sans">PRICE (USD)</th>
+                <th className="px-2 py-3 text-right text-[11px] font-semibold text-muted-foreground uppercase tracking-[0.14em] font-sans">VALUE (USD)</th>
+              </tr>
+            </thead>
+            <tbody className="bg-card divide-y divide-border">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <tr key={`bal-skel-${i}`} className="animate-pulse">
+                  <td className="px-4 py-5"><div className="flex items-center gap-3"><div className="h-6 w-6 bg-muted rounded-full" /><div><div className="h-4 w-20 bg-muted rounded mb-1" /><div className="h-3 w-24 bg-muted rounded" /></div></div></td>
+                  <td className="px-4 py-5"><div className="h-4 w-24 bg-muted rounded" /></td>
+                  <td className="px-2 py-5 text-right"><div className="h-4 w-16 bg-muted rounded ml-auto" /></td>
+                  <td className="px-2 py-5 text-right"><div className="h-4 w-20 bg-muted rounded ml-auto" /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {loading && (
+        <div className="sm:hidden divide-y divide-border">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={`bal-skel-card-${i}`} className="flex items-center gap-3 p-4 animate-pulse">
+              <div className="h-6 w-6 bg-muted rounded-full flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="h-4 w-20 bg-muted rounded mb-1" />
+                <div className="h-3 w-28 bg-muted rounded" />
+              </div>
+              <div className="text-right flex-shrink-0">
+                <div className="h-4 w-16 bg-muted rounded mb-1" />
+                <div className="h-3 w-12 bg-muted rounded ml-auto" />
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
       {/* Desktop: table layout */}
       {!loading && <div className="hidden sm:block">
         <div className="overflow-x-auto md:overflow-x-visible">
-          <table className="w-full table-fixed divide-y divide-gray-200">
-            <thead className="bg-slate-50">
-              <tr className="border-b-2 border-slate-200">
-                <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-400 uppercase tracking-[0.14em] font-sans">TOKEN</th>
+          <table className="w-full table-fixed divide-y divide-border">
+            <thead className="bg-muted">
+              <tr className="border-b-2 border-border">
+                <th className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-[0.14em] font-sans">TOKEN</th>
                 <th
-                  className="px-4 py-3 text-left text-[11px] font-semibold text-slate-400 uppercase tracking-[0.14em] font-sans cursor-pointer select-none"
+                  className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-[0.14em] font-sans cursor-pointer select-none"
                   onClick={() => toggleSort('balance')}
                   aria-sort={sort?.key === 'balance' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
                   title="Sort by balance"
                 >
                   BALANCE <span className="ml-1 opacity-70">{sortIndicator('balance')}</span>
                 </th>
-                <th className="px-2 py-3 text-right text-[11px] font-semibold text-slate-400 uppercase tracking-[0.14em] font-sans">PRICE (USD)</th>
+                <th className="px-2 py-3 text-right text-[11px] font-semibold text-muted-foreground uppercase tracking-[0.14em] font-sans">PRICE (USD)</th>
                 <th
-                  className="px-2 py-3 text-right text-[11px] font-semibold text-slate-400 uppercase tracking-[0.14em] font-sans cursor-pointer select-none"
+                  className="px-2 py-3 text-right text-[11px] font-semibold text-muted-foreground uppercase tracking-[0.14em] font-sans cursor-pointer select-none"
                   onClick={() => toggleSort('value')}
                   aria-sort={sort?.key === 'value' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
                   title="Sort by value (USD)"
@@ -456,16 +493,16 @@ export function BalancesTable({ address, onCountsChange }: BalancesTableProps) {
                 </th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {loading && balances.length === 0 ? (
+            <tbody className="bg-card divide-y divide-border">
+              {balances.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="py-6 text-center text-gray-600">
-                    <div className="inline-flex items-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /><span>Loading…</span></div>
+                  <td colSpan={4}>
+                    <EmptyState
+                      icon={Wallet}
+                      title="No token balances found"
+                      description="No token balances found for this address."
+                    />
                   </td>
-                </tr>
-              ) : balances.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="py-6 text-center text-gray-600">No balances found for this address.</td>
                 </tr>
               ) : (
                 displayBalances.map((b, index) => {
@@ -501,9 +538,13 @@ export function BalancesTable({ address, onCountsChange }: BalancesTableProps) {
       {/* Mobile: card layout */}
       {!loading && <div className="sm:hidden">
         {balances.length === 0 ? (
-          <div className="py-8 text-center text-gray-600">No balances found for this address.</div>
+          <EmptyState
+            icon={Wallet}
+            title="No token balances found"
+            description="No token balances found for this address."
+          />
         ) : (
-          <div className="divide-y divide-gray-100">
+          <div className="divide-y divide-border">
             {displayBalances.map((b) => {
               const amount = formatTokenAmount(b.balance, b.token.decimals, b.token.name);
               const lowerId = (b.token.id || '').toLowerCase();
