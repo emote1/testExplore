@@ -72,3 +72,16 @@ const NFTS_BY_OWNER_COUNT_HASURA_QUERY = parse(`
 `);
 
 export const NFTS_BY_OWNER_COUNT_QUERY = NFTS_BY_OWNER_COUNT_HASURA_QUERY;
+
+// Fetch NFT metadata from our indexer (nft_metadata table)
+export const NFT_METADATA_BATCH_QUERY = parse(`
+  query NftMetadataBatch($ids: [String!]!) {
+    nft_metadata(where: { id: { _in: $ids } }) {
+      id
+      contract_id
+      token_id
+      metadata_uri
+      metadata
+    }
+  }
+`);

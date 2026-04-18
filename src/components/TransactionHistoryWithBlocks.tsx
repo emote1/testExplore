@@ -37,6 +37,9 @@ const StakingTable = React.lazy(() =>
   import('./StakingTable').then(m => ({ default: m.StakingTable }))
 );
 
+// Feature flag: set to true when Reef Chain NFT archive is available
+const ENABLE_NFT_TAB = false;
+
 const NftGallery = React.lazy(() =>
   import('./NftGallery').then(m => ({ default: m.NftGallery }))
 );
@@ -982,7 +985,7 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
         {/* Network-error box moved into TransactionsView context */}
 
         {submittedAddress && (
-          <div className="mb-6 rounded-xl border border-border bg-muted/70 shadow-sm">
+          <div className="mb-6 rounded-xl border border-border/60 bg-gradient-to-br from-card via-card to-muted/30 shadow-sm overflow-hidden">
             <div className="flex items-stretch" role="tablist" aria-label="Wallet sections">
               <button
                 role="tab"
@@ -991,16 +994,18 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
                 aria-controls="tabpanel-transactions"
                 className={`relative flex-1 inline-flex items-center justify-center gap-2 h-14 px-6 text-sm font-medium transition-all duration-200 border-b-[3px] ${
                   viewMode === 'transactions'
-                    ? 'bg-card text-blue-600 dark:text-blue-400 border-blue-600'
-                    : 'bg-transparent text-muted-foreground border-transparent hover:text-foreground'
-                } hover:bg-card hover:shadow-sm hover:ring-1 hover:ring-border hover:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-background`}
+                    ? 'bg-blue-50/60 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border-blue-500 shadow-[inset_0_-2px_8px_rgba(59,130,246,0.08)]'
+                    : 'bg-transparent text-muted-foreground border-transparent hover:text-blue-500 dark:hover:text-blue-400 hover:bg-blue-50/30 dark:hover:bg-blue-950/20'
+                } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-background`}
                 onClick={() => setViewMode('transactions')}
               >
-                <Activity className="w-4 h-4" />
+                <Activity className={`w-4 h-4 transition-colors ${viewMode === 'transactions' ? 'text-blue-500' : 'text-muted-foreground group-hover:text-blue-400'}`} />
                 Transactions
                 <span
-                  className={`ml-2 inline-flex items-center justify-center min-w-7 h-5 px-2 text-xs font-semibold rounded-full border ${
-                    viewMode === 'transactions' ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800' : 'bg-muted text-muted-foreground border-border'
+                  className={`ml-1.5 inline-flex items-center justify-center min-w-[1.4rem] h-5 px-1.5 text-xs font-bold rounded-full border transition-colors ${
+                    viewMode === 'transactions'
+                      ? 'bg-blue-500 text-white border-blue-500 shadow-sm shadow-blue-500/30'
+                      : 'bg-blue-100/70 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 border-blue-200/60 dark:border-blue-700/40'
                   }`}
                 >
                   {tabCounts.transactions ?? '—'}
@@ -1013,22 +1018,25 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
                 aria-controls="tabpanel-balances"
                 className={`relative flex-1 inline-flex items-center justify-center gap-2 h-14 px-6 text-sm font-medium transition-all duration-200 border-b-[3px] ${
                   viewMode === 'balances'
-                    ? 'bg-card text-blue-600 dark:text-blue-400 border-blue-600'
-                    : 'bg-transparent text-muted-foreground border-transparent hover:text-foreground'
-                } hover:bg-card hover:shadow-sm hover:ring-1 hover:ring-border hover:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-background`}
+                    ? 'bg-violet-50/60 dark:bg-violet-950/40 text-violet-600 dark:text-violet-400 border-violet-500 shadow-[inset_0_-2px_8px_rgba(139,92,246,0.08)]'
+                    : 'bg-transparent text-muted-foreground border-transparent hover:text-violet-500 dark:hover:text-violet-400 hover:bg-violet-50/30 dark:hover:bg-violet-950/20'
+                } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-background`}
                 onClick={() => setViewMode('balances')}
                 data-testid="tab-balances"
               >
-                <Coins className="w-4 h-4" />
+                <Coins className={`w-4 h-4 transition-colors ${viewMode === 'balances' ? 'text-violet-500' : 'text-muted-foreground'}`} />
                 Holdings
                 <span
-                  className={`ml-2 inline-flex items-center justify-center min-w-7 h-5 px-2 text-xs font-semibold rounded-full border ${
-                    viewMode === 'balances' ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800' : 'bg-muted text-muted-foreground border-border'
+                  className={`ml-1.5 inline-flex items-center justify-center min-w-[1.4rem] h-5 px-1.5 text-xs font-bold rounded-full border transition-colors ${
+                    viewMode === 'balances'
+                      ? 'bg-violet-500 text-white border-violet-500 shadow-sm shadow-violet-500/30'
+                      : 'bg-violet-100/70 dark:bg-violet-900/40 text-violet-600 dark:text-violet-400 border-violet-200/60 dark:border-violet-700/40'
                   }`}
                 >
                   {tabCounts.holdings ?? '—'}
                 </span>
               </button>
+              {ENABLE_NFT_TAB ? (
               <button
                 role="tab"
                 id="tab-nfts"
@@ -1036,22 +1044,25 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
                 aria-controls="tabpanel-nfts"
                 className={`relative flex-1 inline-flex items-center justify-center gap-2 h-14 px-6 text-sm font-medium transition-all duration-200 border-b-[3px] ${
                   viewMode === 'nfts'
-                    ? 'bg-card text-blue-600 dark:text-blue-400 border-blue-600'
-                    : 'bg-transparent text-muted-foreground border-transparent hover:text-foreground'
-                } hover:bg-card hover:shadow-sm hover:ring-1 hover:ring-border hover:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-background`}
+                    ? 'bg-amber-50/60 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border-amber-500 shadow-[inset_0_-2px_8px_rgba(245,158,11,0.08)]'
+                    : 'bg-transparent text-muted-foreground border-transparent hover:text-amber-500 dark:hover:text-amber-400 hover:bg-amber-50/30 dark:hover:bg-amber-950/20'
+                } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 focus-visible:ring-offset-background`}
                 onClick={() => setViewMode('nfts')}
                 data-testid="tab-nfts"
               >
-                <Image className="w-4 h-4" />
+                <Image className={`w-4 h-4 transition-colors ${viewMode === 'nfts' ? 'text-amber-500' : 'text-muted-foreground'}`} />
                 NFTs
                 <span
-                  className={`ml-2 inline-flex items-center justify-center min-w-7 h-5 px-2 text-xs font-semibold rounded-full border ${
-                    viewMode === 'nfts' ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800' : 'bg-muted text-muted-foreground border-border'
+                  className={`ml-1.5 inline-flex items-center justify-center min-w-[1.4rem] h-5 px-1.5 text-xs font-bold rounded-full border transition-colors ${
+                    viewMode === 'nfts'
+                      ? 'bg-amber-500 text-white border-amber-500 shadow-sm shadow-amber-500/30'
+                      : 'bg-amber-100/70 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 border-amber-200/60 dark:border-amber-700/40'
                   }`}
                 >
                   {tabCounts.nfts ?? '—'}
                 </span>
               </button>
+              ) : null}
             </div>
           </div>
         )}
@@ -1066,7 +1077,7 @@ export function TransactionHistoryWithBlocks({ initialAddress = '' }: Transactio
               />
             </div>
 
-            {(hasMountedNfts || viewMode === 'nfts') ? (
+            {ENABLE_NFT_TAB && (hasMountedNfts || viewMode === 'nfts') ? (
               <div role="tabpanel" id="tabpanel-nfts" aria-labelledby="tab-nfts" className={viewMode === 'nfts' ? '' : 'hidden'} aria-hidden={viewMode !== 'nfts'}>
                 <React.Suspense fallback={<div className="flex items-center justify-center p-8"><Loader2 className="h-6 w-6 animate-spin" /></div>}>
                   <NftGallery

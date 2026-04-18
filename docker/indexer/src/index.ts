@@ -8,9 +8,11 @@ import {
   insertBlockBatch,
   getContractsWithoutIcon,
   mergeContractIcon,
+  getNftsWithoutMetadataUri,
+  updateNftMetadataUri,
   close,
 } from './db.js';
-import { parseBlock, fetchContractIcon, downloadIcon } from './parser.js';
+import { parseBlock, fetchContractIcon, downloadIcon, fetchNftTokenUri, fetchNftMetadataJson } from './parser.js';
 
 // ─── Configuration ──────────────────────────────────────────
 const RPC_URL = process.env.RPC_URL ?? 'wss://rpc.reefscan.info/ws';
@@ -83,6 +85,69 @@ async function enrichContractIcons(): Promise<void> {
   console.log(`🎨 Icon enrichment done: ${enriched} updated, ${skipped} no icon available`);
 }
 
+// ─── NFT metadata backfill: fetch tokenURI for existing NFTs with NULL metadata_uri ──
+async function backfillNftMetadata(provider: WsProvider): Promise<void> {
+  const nfts = await getNftsWithoutMetadataUri();
+  if (nfts.length === 0) {
+    console.log('🖼️ All NFTs already have metadata_uri (or none registered)');
+    return;
+  }
+  console.log(`🖼️ Backfilling metadata_uri for ${nfts.length} NFTs...`);
+
+  let enriched = 0;
+  let skipped = 0;
+  let errors = 0;
+
+  for (let i = 0; i < nfts.length; i++) {
+    const nft = nfts[i];
+    try {
+      if (i < 3) {
+        console.log(`🖼️ [${i + 1}/${nfts.length}] Fetching tokenURI for ${nft.id} (contract=${nft.contractId}, token=${nft.tokenId})...`);
+      }
+      // Try tokenURI (ERC721) first, then uri (ERC1155)
+      const uri = await fetchNftTokenUri(provider, nft.contractId, nft.tokenId);
+      if (uri) {
+        // Try to fetch metadata JSON
+        let metaJson: Record<string, unknown> | null = null;
+        try {
+          metaJson = await fetchNftMetadataJson(uri);
+        } catch {
+          // metadata fetch failed, still save the URI
+        }
+
+        await updateNftMetadataUri(nft.id, uri, metaJson);
+        enriched++;
+
+        if (i < 5 || enriched % 100 === 0) {
+          console.log(`🖼️ [${i + 1}/${nfts.length}] ${nft.id} → ${uri.slice(0, 80)}${uri.length > 80 ? '...' : ''}`);
+        }
+      } else {
+        skipped++;
+        if (i < 5 || skipped % 500 === 0) {
+          console.log(`🖼️ [${i + 1}/${nfts.length}] ${nft.id} → no URI (skipped ${skipped} total)`);
+        }
+      }
+    } catch (err) {
+      errors++;
+      if (errors <= 10) {
+        console.log(`🖼️ [${i + 1}] ${nft.id} → ERROR: ${(err as Error).message.slice(0, 100)}`);
+      }
+    }
+
+    // Progress log every 200 NFTs
+    if ((i + 1) % 200 === 0) {
+      console.log(`🖼️ Progress: ${i + 1}/${nfts.length} processed (${enriched} enriched, ${skipped} skipped, ${errors} errors)`);
+    }
+
+    // Rate limit: ~150ms between calls to avoid overloading the RPC
+    if (i % 10 === 9) {
+      await new Promise((r) => setTimeout(r, 150));
+    }
+  }
+
+  console.log(`🖼️ NFT metadata backfill done: ${enriched} enriched, ${skipped} no URI, ${errors} errors`);
+}
+
 async function main() {
   console.log('🔗 Connecting to Reef Chain RPC:', RPC_URL);
   const provider = new WsProvider(RPC_URL);
@@ -144,6 +209,11 @@ async function main() {
   // ─── Enrich contract icons from Reefscan (non-blocking) ──
   enrichContractIcons().catch((err) =>
     console.warn('⚠️ Icon enrichment failed:', (err as Error).message)
+  );
+
+  // ─── Backfill NFT metadata_uri for existing records (non-blocking) ──
+  backfillNftMetadata(provider).catch((err) =>
+    console.warn('⚠️ NFT metadata backfill failed:', (err as Error).message)
   );
 
   let currentBlock = fromBlock;

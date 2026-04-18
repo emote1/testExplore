@@ -117,6 +117,8 @@ export interface NftRecord {
   contractId: string;
   tokenId: string;
   ownerId: string;
+  metadataUri: string | null;
+  metadata: Record<string, unknown> | null;
   timestamp: Date;
 }
 
@@ -401,15 +403,17 @@ export async function insertBlockBatch(block: BlockData) {
       );
     }
 
-    // 7. Upsert NFT metadata (ownership tracking)
+    // 7. Upsert NFT metadata (ownership tracking + metadata_uri)
     for (const nft of block.nfts) {
       await client.query(
-        `INSERT INTO nft_metadata (id, contract_id, token_id, owner_id, last_transfer, timestamp)
-         VALUES ($1, $2, $3, $4, $5, $5)
+        `INSERT INTO nft_metadata (id, contract_id, token_id, owner_id, metadata_uri, metadata, last_transfer, timestamp)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
          ON CONFLICT (id) DO UPDATE SET
            owner_id = EXCLUDED.owner_id,
-           last_transfer = EXCLUDED.last_transfer`,
-        [nft.id, nft.contractId, nft.tokenId, nft.ownerId, nft.timestamp]
+           last_transfer = EXCLUDED.last_transfer,
+           metadata_uri = COALESCE(EXCLUDED.metadata_uri, nft_metadata.metadata_uri),
+           metadata = COALESCE(EXCLUDED.metadata, nft_metadata.metadata)`,
+        [nft.id, nft.contractId, nft.tokenId, nft.ownerId, nft.metadataUri, nft.metadata ? JSON.stringify(nft.metadata) : null, nft.timestamp]
       );
     }
 
@@ -479,6 +483,37 @@ export async function mergeContractIcon(id: string, iconUrl: string): Promise<vo
      SET contract_data = COALESCE(contract_data::jsonb, '{}'::jsonb) || jsonb_build_object('iconUrl', $2::text)
      WHERE id = $1`,
     [id, iconUrl]
+  );
+}
+
+// ─── NFT metadata backfill helpers ──────────────────────────
+
+/** Get NFT records that have no metadata_uri yet */
+export async function getNftsWithoutMetadataUri(): Promise<Array<{ id: string; contractId: string; tokenId: string }>> {
+  const res = await query(
+    `SELECT id, contract_id, token_id FROM nft_metadata
+     WHERE metadata_uri IS NULL
+     ORDER BY timestamp DESC NULLS LAST`
+  );
+  return res.rows.map((r: { id: string; contract_id: string; token_id: string }) => ({
+    id: r.id,
+    contractId: r.contract_id,
+    tokenId: r.token_id,
+  }));
+}
+
+/** Update metadata_uri (and optionally metadata JSON) for a single NFT */
+export async function updateNftMetadataUri(
+  id: string,
+  metadataUri: string,
+  metadata: Record<string, unknown> | null
+): Promise<void> {
+  await query(
+    `UPDATE nft_metadata
+     SET metadata_uri = $2,
+         metadata = COALESCE($3, metadata)
+     WHERE id = $1`,
+    [id, metadataUri, metadata ? JSON.stringify(metadata) : null]
   );
 }
 

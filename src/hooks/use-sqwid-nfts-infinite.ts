@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { apolloClient as client } from '../apollo-client';
 import { useAddressResolver } from './use-address-resolver';
-import { NFTS_BY_OWNER_PAGED_QUERY } from '../data/nfts';
-import { normalizeIpfs } from '../utils/ipfs';
+import { NFTS_BY_OWNER_PAGED_QUERY, NFT_METADATA_BATCH_QUERY } from '../data/nfts';
+import { normalizeIpfs, toIpfsHttp } from '../utils/ipfs';
 import { toU64 } from '../utils/number';
-import { fetchNftMetadata, setAbortSignal, type Nft } from './use-sqwid-nfts';
+import { getString } from '../utils/object';
+import { fetchNftMetadata, setAbortSignal, hasuraMetaCache, type Nft } from './use-sqwid-nfts';
 import { sleep } from '../utils/time';
 
 export interface UseSqwidNftsInfiniteParams {
@@ -46,8 +47,6 @@ const FETCH_CONCURRENCY: number = (() => {
     return 4;
   }
 })();
-const DEBUG_NFT_FLOW = ENV.VITE_DEBUG_NFT_FLOW === '1' || ENV.VITE_DEBUG_NFT_FLOW === 'true';
-
 export function useSqwidNftsInfinite(params: UseSqwidNftsInfiniteParams) {
   const { owner, limit = 48 } = params;
   const { resolveEvmAddress } = useAddressResolver();
@@ -140,14 +139,6 @@ export function useSqwidNftsInfinite(params: UseSqwidNftsInfiniteParams) {
         }
 
         const holders = Array.isArray(response?.tokenHolders) ? response!.tokenHolders : [];
-        if (DEBUG_NFT_FLOW) {
-          console.debug('[NFT][Hasura] token_holders page', {
-            owner: ownerForHasura,
-            offset,
-            limit,
-            count: holders.length,
-          });
-        }
         if (holders.length === 0) return { __offset: offset, __fetchedCount: 0, __pairs: [], __nfts: [] };
 
         // 2) Map to unique (contract, token) pairs and preserve owned amount
@@ -169,43 +160,80 @@ export function useSqwidNftsInfinite(params: UseSqwidNftsInfiniteParams) {
 
         if (pairs.length === 0) return { __offset: offset, __fetchedCount: holders.length, __pairs: [], __nfts: [] };
 
-        // 3) Fetch metadata for this page with limited concurrency
-        const n = Math.min(FETCH_CONCURRENCY, Math.max(1, pairs.length));
-        const results: (Nft | null)[] = Array(pairs.length).fill(null);
-        let idx = 0;
-        async function worker() {
-          while (idx < pairs.length) {
-            const current = idx++;
-            const { contractAddress, nftId, tokenType, amount } = pairs[current];
-            const value = await fetchNftMetadata(contractAddress, nftId, tokenType);
-            if (value) {
-              if (typeof amount === 'number' && amount > 0) value.amount = amount;
-              // Normalize IPFS url for image to keep UI consistent
-              value.image = normalizeIpfs(value.image);
+        // 2.5) Pre-fetch metadata from Hasura nft_metadata in one batch
+        try {
+          // Only query IDs not already in cache
+          const allIds = pairs
+            .map(p => `${p.contractAddress.toLowerCase()}-${typeof p.nftId === 'string' ? parseInt(p.nftId, 10) : p.nftId}`)
+            .filter(id => hasuraMetaCache.get(id) === undefined);
+          if (allIds.length === 0) throw new Error('all cached'); // skip query
+          const { data: metaBatch } = await client.query({
+            query: NFT_METADATA_BATCH_QUERY,
+            variables: { ids: allIds },
+            fetchPolicy: 'cache-first',
+          });
+          const metaRows = Array.isArray(metaBatch?.nft_metadata) ? metaBatch.nft_metadata : [];
+          for (const row of metaRows) {
+            const meta = row.metadata as Record<string, unknown> | null;
+            const metaUri = row.metadata_uri as string | null;
+            const rowId = String(row.id);
+            if (meta && typeof meta === 'object') {
+              const name = getString(meta, ['name']) ?? `Token #${row.token_id}`;
+              const image = toIpfsHttp(getString(meta, ['image']) ?? getString(meta, ['image_url']));
+              const media = toIpfsHttp(getString(meta, ['animation_url']) ?? getString(meta, ['media']));
+              const thumbnail = toIpfsHttp(getString(meta, ['thumbnail']) ?? getString(meta, ['image_preview']));
+              const mimetype = getString(meta, ['mimetype']) ?? getString(meta, ['mime_type']);
+              if (image || media || thumbnail) {
+                hasuraMetaCache.set(rowId, { id: rowId, name, image, media, thumbnail, mimetype } as Nft);
+                continue;
+              }
             }
-            results[current] = value;
+            if (metaUri) {
+              hasuraMetaCache.set(rowId, { id: rowId, name: `Token #${row.token_id}` } as Nft);
+            }
+          }
+        } catch { /* Hasura batch failed, proceed with individual fetches */ }
+
+        // 3) Resolve metadata: use Hasura cache first, fetch remaining with limited concurrency
+        const results: (Nft | null)[] = Array(pairs.length).fill(null);
+        const uncachedIndices: number[] = [];
+
+        // First pass: resolve from cache (sync, no async overhead)
+        for (let i = 0; i < pairs.length; i++) {
+          const { contractAddress, nftId, amount } = pairs[i];
+          const cacheId = `${contractAddress.toLowerCase()}-${typeof nftId === 'string' ? parseInt(nftId, 10) : nftId}`;
+          const cached = hasuraMetaCache.get(cacheId);
+          if (cached) {
+            const value = { ...cached };
+            if (typeof amount === 'number' && amount > 0) value.amount = amount;
+            value.image = normalizeIpfs(value.image);
+            results[i] = value;
+          } else {
+            uncachedIndices.push(i);
           }
         }
-        await Promise.all(Array.from({ length: n }, () => worker()));
+
+        // Second pass: fetch only uncached NFTs with limited concurrency
+        if (uncachedIndices.length > 0) {
+          const n = Math.min(FETCH_CONCURRENCY, Math.max(1, uncachedIndices.length));
+          let idx = 0;
+          async function worker() {
+            while (idx < uncachedIndices.length) {
+              const ui = idx++;
+              const current = uncachedIndices[ui];
+              const { contractAddress, nftId, tokenType, amount } = pairs[current];
+              const value = await fetchNftMetadata(contractAddress, nftId, tokenType);
+              if (value) {
+                if (typeof amount === 'number' && amount > 0) value.amount = amount;
+                value.image = normalizeIpfs(value.image);
+              }
+              results[current] = value;
+            }
+          }
+          await Promise.all(Array.from({ length: n }, () => worker()));
+        }
 
         const nfts = results.filter((x): x is Nft => !!x);
-        if (DEBUG_NFT_FLOW) {
-          const withAnyMedia = nfts.filter((it) => !!(it.image || it.media || it.thumbnail)).length;
-          const withImage = nfts.filter((it) => !!it.image).length;
-          const withMedia = nfts.filter((it) => !!it.media).length;
-          const withThumbnail = nfts.filter((it) => !!it.thumbnail).length;
-          console.debug('[NFT][Summary] page metadata coverage', {
-            owner: ownerForHasura,
-            offset,
-            pairs: pairs.length,
-            nfts: nfts.length,
-            withAnyMedia,
-            withoutAnyMedia: Math.max(0, nfts.length - withAnyMedia),
-            withImage,
-            withMedia,
-            withThumbnail,
-          });
-        }
         return { __offset: offset, __fetchedCount: holders.length, __pairs: pairs, __nfts: nfts };
       } finally {
         setAbortSignal(undefined);
