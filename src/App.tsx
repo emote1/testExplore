@@ -121,7 +121,11 @@ function App() {
         <WsStatusToast wsEnabled={WS_HEALTH_ENABLED && currentPage !== 'wallet'} />
         <main className="pt-16">
           <React.Suspense fallback={<div className="flex items-center justify-center p-8"><Loader2 className="h-6 w-6 animate-spin" /></div>}>
-            {currentPage === 'wallet' && searchAddr
+            {window.location.search.includes('preview=nft') ? (
+              <React.Suspense fallback={null}>
+                {React.createElement(React.lazy(() => import('./components/NftMarketplacePreview').then(m => ({ default: m.NftMarketplacePreview }))))}
+              </React.Suspense>
+            ) : currentPage === 'wallet' && searchAddr
               ? (
                 <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                   <ErrorBoundary name="WalletPage">

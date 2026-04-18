@@ -1,6 +1,7 @@
 import React from 'react';
 import { Search, PlugZap, Wallet } from 'lucide-react';
 import { NetworkStatistics } from './NetworkStatistics';
+// import { TrendingNfts } from './TrendingNfts'; // hidden until Reef NFT archive
 import { Button } from './ui/button';
 import { useMediaQuery } from '@/hooks/use-media-query';
 
@@ -176,6 +177,9 @@ export function HomeLanding({
           </form>
         </div>
       </section>
+
+      {/* Trending NFTs — hidden until Reef Chain NFT archive is available */}
+      {/* <TrendingNfts /> */}
 
       {/* Network Statistics */}
       <div ref={statsRef}>

@@ -18,7 +18,7 @@ export interface ParsedBlock {
   extrinsics: ExtrinsicRow[];
 }
 
-type RpcSender = {
+export type RpcSender = {
   send: (method: string, params: unknown[]) => Promise<unknown>;
 };
 
@@ -187,17 +187,43 @@ function isPlaceholderName(value: string | null | undefined): boolean {
   return lower === 'unknown' || lower === 'token';
 }
 
+const EVM_CALL_TIMEOUT_MS = 8000; // 8s timeout per RPC attempt
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Timeout ${ms}ms: ${label}`)), ms);
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
+
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+
 async function ethCallHex(provider: RpcSender, contractAddress: string, data: string): Promise<string | null> {
+  // Reef evm_call requires from/gasLimit/storageLimit; eth_call is not supported on Reef RPC.
+  // Try the correct Reef evm_call format first, then fallback variants.
   const attempts: Array<[string, unknown[]]> = [
-    ['eth_call', [{ to: contractAddress, data }, 'latest']],
-    ['eth_call', [{ to: contractAddress, data }]],
-    ['evm_call', [{ to: contractAddress, data }, 'latest']],
+    ['evm_call', [{
+      from: ZERO_ADDRESS,
+      to: contractAddress,
+      data,
+      value: '0x0',
+      gasLimit: 10_000_000,
+      storageLimit: 0,
+    }]],
     ['evm_call', [{ to: contractAddress, data }]],
+    ['eth_call', [{ to: contractAddress, data }, 'latest']],
   ];
 
   for (const [method, params] of attempts) {
     try {
-      const result = await provider.send(method, params);
+      const result = await withTimeout(
+        provider.send(method, params),
+        EVM_CALL_TIMEOUT_MS,
+        `${method} ${contractAddress}`,
+      );
       const hex = typeof result === 'string' ? result : String(result ?? '');
       if (hex && hex.startsWith('0x') && hex.length > 2) {
         return hex;
@@ -276,6 +302,96 @@ async function fetchErc20Meta(provider: RpcSender, contractAddress: string): Pro
   const result = { displayName, name, symbol, decimals };
   tokenMetaCache.set(contractAddress, result);
   return result;
+}
+
+// ─── NFT tokenURI / uri fetching ────────────────────────────
+
+// Selectors:
+// tokenURI(uint256) = 0xc87b56dd  (ERC721)
+// uri(uint256)      = 0x0e89341c  (ERC1155)
+
+function encodeTokenIdArg(tokenId: string): string {
+  const bn = BigInt(tokenId);
+  return bn.toString(16).padStart(64, '0');
+}
+
+/**
+ * Fetch tokenURI (ERC721) or uri (ERC1155) for an NFT via EVM call.
+ * Tries tokenURI first, then uri. Returns the decoded URI string or null.
+ */
+export async function fetchNftTokenUri(
+  provider: RpcSender,
+  contractAddress: string,
+  tokenId: string,
+  contractType: 'ERC721' | 'ERC1155' = 'ERC721',
+): Promise<string | null> {
+  const encodedTokenId = encodeTokenIdArg(tokenId);
+
+  // Try the primary selector first based on contract type, then fallback
+  const selectors = contractType === 'ERC721'
+    ? ['0xc87b56dd', '0x0e89341c']  // tokenURI first, then uri
+    : ['0x0e89341c', '0xc87b56dd']; // uri first, then tokenURI
+
+  for (const selector of selectors) {
+    try {
+      const calldata = selector + encodedTokenId;
+      const resultHex = await ethCallHex(provider, contractAddress, calldata);
+      if (!resultHex) continue;
+
+      const uri = decodeAbiString(resultHex);
+      if (uri && uri.length > 0) return uri;
+    } catch {
+      // try next selector
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Fetch metadata JSON from a tokenURI. Supports HTTP(S) and IPFS URIs.
+ * Returns parsed JSON or null on failure.
+ */
+export async function fetchNftMetadataJson(uri: string): Promise<Record<string, unknown> | null> {
+  try {
+    let fetchUrl: string;
+
+    if (uri.startsWith('ipfs://')) {
+      // Convert IPFS URI to HTTP gateway URL
+      const cid = extractCid(uri);
+      if (!cid) return null;
+      fetchUrl = `${IPFS_GATEWAYS[0]}${cid}`;
+    } else if (uri.startsWith('http://') || uri.startsWith('https://')) {
+      fetchUrl = uri;
+    } else if (uri.startsWith('data:application/json')) {
+      // data URI — base64 or plain
+      const commaIdx = uri.indexOf(',');
+      if (commaIdx < 0) return null;
+      const payload = uri.slice(commaIdx + 1);
+      const isBase64 = uri.slice(0, commaIdx).includes('base64');
+      const jsonStr = isBase64 ? Buffer.from(payload, 'base64').toString('utf8') : decodeURIComponent(payload);
+      return JSON.parse(jsonStr) as Record<string, unknown>;
+    } else {
+      return null; // unknown URI scheme
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const res = await fetch(fetchUrl, { signal: controller.signal });
+    clearTimeout(timeout);
+
+    if (!res.ok) return null;
+
+    const contentType = res.headers.get('content-type') ?? '';
+    if (!contentType.includes('json') && !contentType.includes('text')) return null;
+
+    const text = await res.text();
+    if (text.length > 100_000) return null; // skip absurdly large metadata
+
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
 }
 
 export async function parseBlock(
@@ -558,6 +674,8 @@ export async function parseBlock(
             contractId: contractAddress,
             tokenId: nftTokenId,
             ownerId: toEvm,
+            metadataUri: null,
+            metadata: null,
             timestamp,
           });
 
@@ -685,6 +803,8 @@ export async function parseBlock(
             contractId: contractAddress,
             tokenId: nftTokenId,
             ownerId: toEvm,
+            metadataUri: null,
+            metadata: null,
             timestamp,
           });
 
@@ -797,6 +917,32 @@ export async function parseBlock(
       contractsToFetchNames.map(async ([addr, c]) => {
         const meta = await fetchErc20Meta(provider, addr);
         c.name = meta.displayName;
+      })
+    );
+  }
+
+  // ── Enrich NFTs with tokenURI / metadata ──────────────────
+  if (nfts.length > 0) {
+    await Promise.all(
+      nfts.map(async (nft) => {
+        try {
+          // Determine contract type from the contracts map or transfers
+          const contractInfo = contracts.get(nft.contractId);
+          const contractType: 'ERC721' | 'ERC1155' =
+            contractInfo?.type === 'ERC1155' ? 'ERC1155' : 'ERC721';
+
+          const uri = await fetchNftTokenUri(provider, nft.contractId, nft.tokenId, contractType);
+          if (uri) {
+            nft.metadataUri = uri;
+            // Try to fetch and parse the metadata JSON (non-blocking failure)
+            const metaJson = await fetchNftMetadataJson(uri);
+            if (metaJson) {
+              nft.metadata = metaJson;
+            }
+          }
+        } catch {
+          // tokenURI not supported or call failed — leave as null
+        }
       })
     );
   }

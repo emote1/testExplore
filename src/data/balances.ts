@@ -94,6 +94,10 @@ export function mapTokenHoldersToUiBalances(edges: Array<{ node?: any } | null> 
     // Support both Subsquid (token) and Hasura (token_id) field shapes
     const tokenData = n?.token || (n?.token_id ? { id: n.token_id, contractData: null } : null);
     if (!tokenData?.id) continue;
+    // Filter out NFT tokens (ERC721/ERC1155) — they belong in NFTs tab, not Holdings
+    const tokenType = String(n?.type ?? tokenData?.type ?? '').toUpperCase();
+    if (tokenType === 'ERC721' || tokenType === 'ERC1155') continue;
+    if (n?.nft_id != null) continue;
     const tokenId = String(tokenData.id);
     const tokenIdLower = tokenId.toLowerCase();
     

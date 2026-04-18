@@ -2,15 +2,14 @@ import { safeBigInt } from '@/utils/token-helpers';
 import { useQuery } from '@tanstack/react-query';
 import { apolloClient as client } from '../apollo-client';
 import { useAddressResolver } from './use-address-resolver';
-import { NFTS_BY_OWNER_PAGED_QUERY } from '../data/nfts';
-import { normalizeIpfs, toIpfsHttp, fetchIpfsWithFallback, isIpfsLike } from '../utils/ipfs';
+import { NFTS_BY_OWNER_PAGED_QUERY, NFT_METADATA_BATCH_QUERY } from '../data/nfts';
+import { normalizeIpfs, toIpfsHttp, fetchIpfsWithFallback } from '../utils/ipfs';
 import { TtlCache } from '../data/ttl-cache';
 import { toU64 } from '../utils/number';
 import { sleep } from '../utils/time';
 import { get, getString, getNumber } from '../utils/object';
-import { parseDataUrlJson } from '../utils/data-url';
-import { toHex, decodeAbiString, applyErc1155Template } from '../utils/abi';
-import { isLikelyRpcEndpoint } from '../utils/url';
+// import { parseDataUrlJson } from '../utils/data-url'; // RPC fallback removed
+import { toHex, decodeAbiString } from '../utils/abi';
 import { isValidEvmAddressFormat } from '../utils/address-helpers';
 
 // Define the types for better type-checking
@@ -170,8 +169,7 @@ const EVM_RPC_URL: string = (() => {
     return RAW_EVM_RPC_URL;
   }
 })();
-const DEBUG_NFT_FLOW = ENV.VITE_DEBUG_NFT_FLOW === '1' || ENV.VITE_DEBUG_NFT_FLOW === 'true';
-const ENABLE_NFT_RPC_FALLBACK = ENV.VITE_ENABLE_NFT_RPC_FALLBACK === '1' || ENV.VITE_ENABLE_NFT_RPC_FALLBACK === 'true';
+// RPC fallback disabled — indexer handles tokenURI server-side
 const SQWID_COLLECTION_PAGE_LIMIT: number = (() => {
   try {
     const raw = Number(ENV.VITE_SQWID_COLLECTION_PAGE_LIMIT);
@@ -205,9 +203,9 @@ const FETCH_CONCURRENCY: number = (() => {
   try {
     const raw = ENV.VITE_FETCH_CONCURRENCY;
     const n = Number(raw);
-    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 12;
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 2;
   } catch {
-    return 12;
+    return 2;
   }
 })();
 let evmRpcHealthy: boolean = false;
@@ -219,7 +217,7 @@ let reefEvmCallDisabled = false; // disabled when endpoint is Ethereum-like
 // If eth_call keeps failing or returning 0x, disable it to avoid unnecessary requests
 const ETH_CALL_FAIL_THRESHOLD = 3;
 let ethCallFailCount = 0;
-const REEF_EVM_FAIL_THRESHOLD = 2;
+const REEF_EVM_FAIL_THRESHOLD = 10;
 let reefEvmFailCount = 0;
 // In-flight promises for finalized head and blocks (dedupe concurrent requests)
 let headPending: Promise<string | null> | null = null;
@@ -706,7 +704,7 @@ async function reefEvmCallBatch(to: string, datas: string[]): Promise<(string | 
 
 // decodeAbiString and applyErc1155Template moved to src/utils/abi
 
-async function resolveTokenURI(contractAddress: string, nftId: string | number, tokenType?: TokenType): Promise<string | null> {
+export async function resolveTokenURI(contractAddress: string, nftId: string | number, tokenType?: TokenType): Promise<string | null> {
   if (!isValidEvmAddressFormat(contractAddress)) return null;
   const cached = readTokenUriCache(contractAddress, nftId);
   if (cached) return cached;
@@ -743,12 +741,41 @@ async function resolveTokenURI(contractAddress: string, nftId: string | number, 
   return (await tryCall(sel721)) ?? (await tryCall(sel1155));
 }
 
+// Map EVM contract address → Sqwid collection ID
+const sqwidCollectionIdMap = new Map<string, string>();
+let sqwidCollectionMapLoaded = false;
+
+async function ensureSqwidCollectionMap(): Promise<void> {
+  if (sqwidCollectionMapLoaded) return;
+  sqwidCollectionMapLoaded = true;
+  try {
+    // Fetch marketplace items and extract owner → collection.id mapping
+    const res = await fetchWithAbort('https://sqwid-api-mainnet.reefscan.info/get/marketplace/all/0?limit=200', { headers: { accept: 'application/json' } });
+    if (!res.ok) return;
+    const json = await res.json().catch(() => null);
+    const items = Array.isArray((json as Record<string, unknown>)?.items) ? (json as Record<string, unknown>).items as Array<Record<string, unknown>> : [];
+    for (const it of items) {
+      const col = it?.collection as Record<string, unknown> | undefined;
+      if (!col) continue;
+      const owner = typeof col.owner === 'string' ? col.owner.toLowerCase() : '';
+      const colId = typeof col.id === 'string' ? col.id : '';
+      if (owner && colId && !sqwidCollectionIdMap.has(owner)) {
+        sqwidCollectionIdMap.set(owner, colId);
+      }
+    }
+  } catch { /* ignore */ }
+}
+
 async function getSqwidMeta(contractAddress: string, nftId: string | number): Promise<SqwidMeta | null> {
   try {
     const tokenIdKey = String(nftId);
     const ttlKey = `${contractAddress}:${tokenIdKey}`;
     const cached = sqwidMetaTtl.get(ttlKey);
     if (cached) return cached;
+
+    // Resolve Sqwid collection ID from contract address
+    await ensureSqwidCollectionMap();
+    const collectionId = sqwidCollectionIdMap.get(contractAddress.toLowerCase()) ?? contractAddress;
 
     let pending = sqwidPending.get(contractAddress);
     if (!pending) {
@@ -759,7 +786,7 @@ async function getSqwidMeta(contractAddress: string, nftId: string | number): Pr
         let fullyHydrated = true;
         for (let page = 0; page < SQWID_COLLECTION_MAX_PAGES; page++) {
           const limit = SQWID_COLLECTION_PAGE_LIMIT;
-          const url = `https://sqwid-api-mainnet.reefscan.info/get/marketplace/by-collection/${contractAddress}/0?limit=${limit}&startFrom=${startFrom}`;
+          const url = `https://sqwid-api-mainnet.reefscan.info/get/marketplace/by-collection/${collectionId}/0?limit=${limit}&startFrom=${startFrom}`;
           const res = await fetchWithAbort(url, { headers: { accept: 'application/json' } });
           if (!res.ok) {
             fullyHydrated = false;
@@ -809,6 +836,77 @@ async function getSqwidMeta(contractAddress: string, nftId: string | number): Pr
   }
 }
 
+// Fetch NFT metadata from our Hasura nft_metadata table (fastest, most reliable)
+export const hasuraMetaCache = new TtlCache<Nft | null>({ namespace: 'hasuraMeta', defaultTtlMs: 5 * 60_000 });
+
+async function fetchHasuraNftMeta(contractAddress: string, nftId: string | number): Promise<Nft | null> {
+  const nftIdNum = typeof nftId === 'string' ? parseInt(nftId, 10) : nftId;
+  const id = `${contractAddress.toLowerCase()}-${nftIdNum}`;
+  const cached = hasuraMetaCache.get(id);
+  if (cached !== undefined) return cached;
+
+  try {
+    const { data } = await client.query({
+      query: NFT_METADATA_BATCH_QUERY,
+      variables: { ids: [id] },
+      fetchPolicy: 'network-only',
+    });
+    const rows = Array.isArray(data?.nft_metadata) ? data.nft_metadata : [];
+    if (rows.length === 0) { hasuraMetaCache.set(id, null); return null; }
+
+    const row = rows[0];
+    const meta = row.metadata as Record<string, unknown> | null;
+    const metaUri = row.metadata_uri as string | null;
+
+    // If we have parsed metadata JSON with image — use it directly
+    if (meta && typeof meta === 'object') {
+      const name = getString(meta, ['name']) ?? `Token #${nftId}`;
+      const image = toIpfsHttp(getString(meta, ['image']) ?? getString(meta, ['image_url']));
+      const media = toIpfsHttp(getString(meta, ['animation_url']) ?? getString(meta, ['media']));
+      const thumbnail = toIpfsHttp(getString(meta, ['thumbnail']) ?? getString(meta, ['image_preview']));
+      const mimetype = getString(meta, ['mimetype']) ?? getString(meta, ['mime_type']);
+      if (image || media || thumbnail) {
+        const nft = { id, name, image, media, thumbnail, mimetype } as Nft;
+        hasuraMetaCache.set(id, nft);
+        return nft;
+      }
+    }
+
+    // If we only have metadata_uri — fetch and parse it
+    if (metaUri) {
+      const httpUri = toIpfsHttp(metaUri);
+      if (httpUri) {
+        try {
+          const res = await fetchIpfsWithFallback(httpUri, { signal: AbortSignal.timeout(8000) });
+          if (res && res.ok) {
+            const json = await res.json().catch(() => null);
+            if (json && typeof json === 'object') {
+              const j = json as Record<string, unknown>;
+              const name = getString(j, ['name']) ?? `Token #${nftId}`;
+              const image = toIpfsHttp(getString(j, ['image']) ?? getString(j, ['image_url']));
+              const media = toIpfsHttp(getString(j, ['animation_url']) ?? getString(j, ['media']));
+              const thumbnail = toIpfsHttp(getString(j, ['thumbnail']) ?? getString(j, ['image_preview']));
+              const mimetype = getString(j, ['mimetype']) ?? getString(j, ['mime_type']);
+              if (image || media || thumbnail) {
+                const nft = { id, name, image, media, thumbnail, mimetype } as Nft;
+                hasuraMetaCache.set(id, nft);
+                return nft;
+              }
+            }
+          }
+        } catch { /* IPFS fetch failed */ }
+      }
+      // metadata_uri exists but IPFS failed — return stub NFT to prevent RPC fallback
+      const stub = { id, name: `Token #${nftId}` } as Nft;
+      hasuraMetaCache.set(id, stub);
+      return stub;
+    }
+  } catch { /* Hasura query failed */ }
+
+  hasuraMetaCache.set(id, null);
+  return null;
+}
+
 async function fetchMetadataOnce(contractAddress: string, nftId: string | number, tokenType?: TokenType): Promise<Nft | null> {
   const key = `${contractAddress}-${nftId}`;
   if (inflight.has(key)) return inflight.get(key)!;
@@ -823,7 +921,20 @@ async function fetchMetadataOnce(contractAddress: string, nftId: string | number
         ...extra,
       });
     };
-    // Приоритет: сначала Sqwid API (быстро, стабильно), потом RPC (медленно, часто ошибки)
+
+    // 1. Приоритет: наша Hasura nft_metadata (быстро, надёжно, metadata уже в БД)
+    const hasuraMeta = await fetchHasuraNftMeta(contractAddress, nftId);
+    if (hasuraMeta) {
+      // If we got image/media/thumbnail — use it
+      if (hasuraMeta.image || hasuraMeta.media || hasuraMeta.thumbnail) {
+        return hasuraMeta;
+      }
+      // Hasura has the record but no image yet (IPFS timeout during backfill) —
+      // return with name only, skip RPC fallback (CORS blocked on production)
+      return hasuraMeta;
+    }
+
+    // 2. Sqwid API (fallback for NFTs not in our database)
     const sqwidQuick = await getSqwidMeta(contractAddress, nftId);
     if (sqwidQuick && (sqwidQuick.image || sqwidQuick.media || sqwidQuick.thumbnail)) {
       const name = sqwidQuick.name ?? `Token #${nftId}`;
@@ -835,122 +946,15 @@ async function fetchMetadataOnce(contractAddress: string, nftId: string | number
       return { id: key, name, image, media, thumbnail, mimetype, amount } as Nft;
     }
 
-    // Если Sqwid API не дал медиа, идём в tokenURI rescue.
-    // Даже при отключённом env fallback здесь оставляем последнюю попытку,
-    // иначе NFT остаются навсегда без картинки, когда Sqwid не покрывает коллекцию.
-    if (!ENABLE_NFT_RPC_FALLBACK) {
-      if (DEBUG_NFT_FLOW) {
-        console.debug('[NFT][RPC fallback] env-disabled, running rescue because Sqwid media is empty', {
-          contractAddress,
-          nftId,
-          tokenType,
-          sqwidImage: sqwidQuick?.image ?? null,
-          sqwidMedia: sqwidQuick?.media ?? null,
-          sqwidThumbnail: sqwidQuick?.thumbnail ?? null,
-        });
-      }
-    }
-
-    if (DEBUG_NFT_FLOW) {
-      console.debug('[NFT][RPC fallback] resolve tokenURI', { contractAddress, nftId, tokenType });
-    }
-    let tokenUri = await resolveTokenURI(contractAddress, nftId, tokenType);
-    if (!tokenUri) {
-      logMissing('no_token_uri', {
-        sqwidImage: sqwidQuick?.image ?? null,
-        sqwidMedia: sqwidQuick?.media ?? null,
-        sqwidThumbnail: sqwidQuick?.thumbnail ?? null,
-        sqwidMimetype: sqwidQuick?.mimetype ?? null,
-      });
-      // Если RPC тоже не дал tokenURI, используем Sqwid name-only fallback
-      if (sqwidQuick) {
-        const name = sqwidQuick.name ?? `Token #${nftId}`;
-        return { id: key, name, image: sqwidQuick.image, media: sqwidQuick.media, thumbnail: sqwidQuick.thumbnail, mimetype: sqwidQuick.mimetype, amount: sqwidQuick.amount } as Nft;
-      }
-      return { id: key, name: `Token #${nftId}` } as Nft;
-    }
-    if (tokenUri.startsWith('data:')) {
-      const meta = parseDataUrlJson(tokenUri);
-      if (meta && typeof meta === 'object') {
-        const name = getString(meta, ['name']) ?? `Token #${nftId}`;
-        const image = toIpfsHttp(getString(meta, ['image']) ?? getString(meta, ['image_url']) ?? getString(meta, ['thumbnail']));
-        const media = toIpfsHttp(getString(meta, ['media']) ?? getString(meta, ['animation_url']) ?? getString(meta, ['animation']));
-        const thumbnail = toIpfsHttp(getString(meta, ['thumbnail']) ?? getString(meta, ['image_preview']) ?? getString(meta, ['image_small']) ?? getString(meta, ['preview_image']));
-        const mimetype = getString(meta, ['mimetype']) ?? getString(meta, ['mime_type']) ?? getString(meta, ['mimeType']) ?? getString(meta, ['format']);
-        if (!image && !media && !thumbnail) {
-          logMissing('data_uri_metadata_empty', { tokenUri });
-        }
-        return { id: key, name, image, media, thumbnail, mimetype } as Nft;
-      }
-      logMissing('data_uri_unparseable', { tokenUri });
-      return { id: key, name: `Token #${nftId}` } as Nft;
-    }
-    if (tokenUri.includes('{id}') || tokenUri.includes('{ID}')) {
-      tokenUri = applyErc1155Template(tokenUri, nftId);
-    }
-    const httpUri = toIpfsHttp(tokenUri);
-    if (!httpUri || isLikelyRpcEndpoint(httpUri)) {
-      const sqwid = await getSqwidMeta(contractAddress, nftId);
-      if (!(sqwid?.image || sqwid?.media || sqwid?.thumbnail)) {
-        logMissing('invalid_token_uri', {
-          tokenUri,
-          httpUri: httpUri ?? null,
-          sqwidImage: sqwid?.image ?? null,
-          sqwidMedia: sqwid?.media ?? null,
-          sqwidThumbnail: sqwid?.thumbnail ?? null,
-        });
-      }
-      if (sqwid) {
-        const name = sqwid.name ?? `Token #${nftId}`;
-        const image = sqwid.image;
-        const media = sqwid.media;
-        const thumbnail = sqwid.thumbnail;
-        const mimetype = sqwid.mimetype;
-        const amount = sqwid.amount;
-        return { id: key, name, image, media, thumbnail, mimetype, amount } as Nft;
-      }
-      return { id: key, name: `Token #${nftId}` } as Nft;
-    }
-    const resp = isIpfsLike(tokenUri)
-      ? await fetchIpfsWithFallback(tokenUri, { method: 'GET', signal: getAbortSignal() })
-      : await fetchWithAbort(httpUri, { method: 'GET' });
-    if (!resp || !resp.ok) {
-      const sqwid = await getSqwidMeta(contractAddress, nftId);
-      if (!(sqwid?.image || sqwid?.media || sqwid?.thumbnail)) {
-        logMissing('metadata_fetch_failed', {
-          httpUri,
-          status: resp?.status ?? null,
-          sqwidImage: sqwid?.image ?? null,
-          sqwidMedia: sqwid?.media ?? null,
-          sqwidThumbnail: sqwid?.thumbnail ?? null,
-        });
-      }
-      if (sqwid) return { id: key, name: sqwid.name ?? `Token #${nftId}`, image: sqwid.image, media: sqwid.media, thumbnail: sqwid.thumbnail, mimetype: sqwid.mimetype } as Nft;
-      return { id: key, name: `Token #${nftId}` } as Nft;
-    }
-    const json = await resp.json().catch(() => null);
-    if (!json || typeof json !== 'object') {
-      const sqwid = await getSqwidMeta(contractAddress, nftId);
-      if (!(sqwid?.image || sqwid?.media || sqwid?.thumbnail)) {
-        logMissing('metadata_json_invalid', {
-          httpUri,
-          sqwidImage: sqwid?.image ?? null,
-          sqwidMedia: sqwid?.media ?? null,
-          sqwidThumbnail: sqwid?.thumbnail ?? null,
-        });
-      }
-      if (sqwid) return { id: key, name: sqwid.name ?? `Token #${nftId}`, image: sqwid.image, media: sqwid.media, thumbnail: sqwid.thumbnail, mimetype: sqwid.mimetype, amount: sqwid.amount } as Nft;
-      return { id: key, name: `Token #${nftId}` } as Nft;
-    }
-    const name = getString(json, ['name']) ?? `Token #${nftId}`;
-    const image = toIpfsHttp(getString(json, ['image']) ?? getString(json, ['image_url']) ?? getString(json, ['thumbnail']));
-    const media = toIpfsHttp(getString(json, ['media']) ?? getString(json, ['animation_url']) ?? getString(json, ['animation']));
-    const thumbnail = toIpfsHttp(getString(json, ['thumbnail']) ?? getString(json, ['image_preview']) ?? getString(json, ['image_small']) ?? getString(json, ['preview_image']));
-    const mimetype = getString(json, ['mimetype']) ?? getString(json, ['mime_type']) ?? getString(json, ['mimeType']) ?? getString(json, ['format']);
-    if (!image && !media && !thumbnail) {
-      logMissing('metadata_json_empty', { httpUri });
-    }
-    return { id: key, name, image, media, thumbnail, mimetype } as Nft;
+    // 3. Skip RPC entirely — Hasura indexer handles tokenURI server-side.
+    // RPC from browser is unreliable (503, CORS) and generates console spam.
+    // RPC fallback disabled — Hasura indexer handles tokenURI server-side.
+    // Browser RPC calls are unreliable (503/CORS) and spam the console.
+    logMissing('no_media_available', {
+      sqwidImage: sqwidQuick?.image ?? null,
+      sqwidMedia: sqwidQuick?.media ?? null,
+    });
+    return { id: key, name: sqwidQuick?.name ?? `Token #${nftId}` } as Nft;
   })();
 
   inflight.set(key, task);
@@ -1044,10 +1048,11 @@ export const useSqwidNfts = (address: string | null) => {
           return { nfts: [], collections: [] };
         }
 
-        await checkEvmRpcHealth();
-        await checkEthCallSupport();
-        await checkReefEvmSupport();
-
+        try {
+          await checkEvmRpcHealth();
+          await checkEthCallSupport();
+          await checkReefEvmSupport();
+        } catch { /* RPC checks failed */ }
         try {
           const byContract = new Map<string, { nftId: string | number; tokenType?: TokenType }[]>();
           for (const p of uniquePairs) {

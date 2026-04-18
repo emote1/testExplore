@@ -82,7 +82,7 @@ export default defineConfig(async ({ mode }) => {
       target: proxyTarget,
       changeOrigin: true,
       secure: false,
-      ws: true,
+      ws: false,
       rewrite: () => proxyPath,
       configure: (proxyInstance: {
         on: (
