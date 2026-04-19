@@ -1,6 +1,8 @@
 import './setup/polyfills';
 import './setup/quiet-console';
-import { StrictMode } from 'react';
+// import { StrictMode } from 'react';
+// Re-enable <StrictMode> when auditing effect cleanup / re-mount safety.
+// It doubles every effect in dev — keeps CPU honest but heavy on live pages.
 import ReactDOM from 'react-dom/client';
 import App from './App.tsx';
 import './index.css'; // Ваши глобальные стили
@@ -28,10 +30,8 @@ const queryClient = new QueryClient({
 });
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <App />
-      <ReactQueryDevtools initialIsOpen={true} buttonPosition="bottom-right" />
-    </QueryClientProvider>
-  </StrictMode>,
+  <QueryClientProvider client={queryClient}>
+    <App />
+    <ReactQueryDevtools initialIsOpen={false} buttonPosition="bottom-right" />
+  </QueryClientProvider>,
 );

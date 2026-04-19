@@ -290,6 +290,14 @@ export function useTpsLive(windowSec = 60, source: 'extrinsics' | 'transfers' | 
 
   useEffect(() => {
     let intervalId: number | null = null;
+    let lastPersistMs = 0;
+    function persistSnapshot() {
+      try {
+        const snapshot = { ts: Date.now(), windowSec, buf: buf.current, trend: trendRef.current, lastTps: lastTpsRef.current, lastPerMin: lastPerMinRef.current };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+        lastPersistMs = Date.now();
+      } catch { /* ignore storage errors */ }
+    }
     function tick() {
       const now = Date.now();
       const currentSecond = Math.floor(now / 1000);
@@ -303,7 +311,7 @@ export function useTpsLive(windowSec = 60, source: 'extrinsics' | 'transfers' | 
         lastPerMinRef.current = nextPerMin;
         setPerMin(nextPerMin);
       }
-      
+
       // Push to trend - store perMin history for smooth sparkline
       if (currentSecond !== lastSecondRef.current) {
         trendRef.current.push(nextPerMin);
@@ -314,23 +322,23 @@ export function useTpsLive(windowSec = 60, source: 'extrinsics' | 'transfers' | 
       } else {
         trendRef.current.push(nextPerMin);
       }
-      
       if (trendRef.current.length > windowSec) trendRef.current.shift();
       setTpsTrend([...trendRef.current]);
-      // persist compact state
-      try {
-        const snapshot = { ts: Date.now(), windowSec, buf: buf.current, trend: trendRef.current, lastTps: lastTpsRef.current, lastPerMin: lastPerMinRef.current };
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
-      } catch { /* ignore storage errors */ }
+
+      // persist at most once per 30s in the hot loop
+      if (now - lastPersistMs >= 30_000) persistSnapshot();
     }
     function start() {
       if (intervalId) window.clearInterval(intervalId);
-      const period = document.hidden ? 5000 : 1000;
+      const period = document.hidden ? 10_000 : 2000;
       tick();
       intervalId = window.setInterval(tick, period);
     }
     start();
-    const onVis = () => start();
+    const onVis = () => {
+      if (document.hidden) persistSnapshot();
+      start();
+    };
     document.addEventListener('visibilitychange', onVis);
     return () => {
       if (intervalId) window.clearInterval(intervalId);

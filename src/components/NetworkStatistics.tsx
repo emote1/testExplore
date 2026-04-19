@@ -182,7 +182,7 @@ Active wallets chart: ${activeIcp.sparkDated.length} days`;
     <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Glass background gradient */}
       <div className="relative">
-        <div className="absolute inset-0 bg-gradient-to-br from-blue-100/50 via-purple-50/30 to-pink-100/50 dark:from-blue-950/30 dark:via-purple-950/20 dark:to-pink-950/30 rounded-2xl blur-xl" />
+        <div className="absolute inset-0 bg-gradient-to-br from-blue-100/40 via-purple-50/20 to-pink-100/40 dark:from-blue-950/20 dark:via-purple-950/10 dark:to-pink-950/20 rounded-2xl" />
         <div className="relative bg-transparent rounded-2xl p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-semibold text-foreground tracking-tight">Network Statistics</h2>
@@ -435,7 +435,7 @@ Active wallets chart: ${activeIcp.sparkDated.length} days`;
             />
         </div>
         <div className="mt-4">
-            <div className="rounded-2xl border border-border/60 bg-card/60 backdrop-blur-sm p-4 shadow-sm">
+            <div className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <div className="text-sm font-semibold text-foreground">New Wallets Inflow (24h, ICP)</div>
@@ -552,13 +552,13 @@ function StatCard({ title, value, sub, tooltip, valueNode, sparkNode, sparkClass
   }[color];
 
   return (
-    <div className={`group relative rounded-2xl bg-card backdrop-blur-md p-6 border border-border dark:border-border/80 shadow-lg dark:shadow-black/30 hover:shadow-xl ${glowColor} transition-all duration-300 hover:scale-[1.02] h-full`}>
+    <div className={`group relative rounded-2xl bg-card p-6 border border-border dark:border-border/80 shadow-lg dark:shadow-black/30 hover:shadow-xl ${glowColor} transition-shadow duration-300 h-full`}>
       {/* Subtle gradient overlay — light mode only */}
       <div className="absolute inset-0 bg-gradient-to-br from-white/30 to-transparent dark:from-transparent rounded-2xl pointer-events-none" />
       <div className="relative">
         <div className="flex items-center justify-between text-foreground text-sm">
           <span className="inline-flex items-center gap-2 cursor-help font-medium" title={tooltip}>{title}</span>
-          <span className={`inline-flex items-center justify-center w-12 h-12 rounded-full ${iconBg} border backdrop-blur-sm shadow-sm`}>
+          <span className={`inline-flex items-center justify-center w-12 h-12 rounded-full ${iconBg} border shadow-sm`}>
             {icon}
           </span>
         </div>
@@ -580,7 +580,7 @@ function StatCard({ title, value, sub, tooltip, valueNode, sparkNode, sparkClass
           )}
           {sub ? <div className="text-xs text-muted-foreground">{sub}</div> : null}
         </div>
-        {delta ? <div className={`text-xs px-2 py-1 rounded-lg border backdrop-blur-sm font-medium ${delta.startsWith('-') ? 'text-red-500 bg-red-100/70 dark:bg-red-950/70 border-red-200/50 dark:border-red-800/50 dark:text-red-400' : 'text-emerald-600 bg-emerald-100/70 dark:bg-emerald-950/70 border-emerald-200/50 dark:border-emerald-800/50 dark:text-emerald-400'}`}>{delta}</div> : null}
+        {delta ? <div className={`text-xs px-2 py-1 rounded-lg border font-medium ${delta.startsWith('-') ? 'text-red-500 bg-red-100/70 dark:bg-red-950/70 border-red-200/50 dark:border-red-800/50 dark:text-red-400' : 'text-emerald-600 bg-emerald-100/70 dark:bg-emerald-950/70 border-emerald-200/50 dark:border-emerald-800/50 dark:text-emerald-400'}`}>{delta}</div> : null}
       </div>
       {bottomChart}
       </div>
