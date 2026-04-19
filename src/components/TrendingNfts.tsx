@@ -43,7 +43,7 @@ function FeaturedNft() {
         visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
       }`}
     >
-      <img src={nft.image} alt={nft.name} className="w-full h-full object-cover transition-transform duration-[2s] group-hover:scale-105" referrerPolicy="no-referrer" />
+      <img src={nft.image} alt={nft.name} className="w-full h-full object-cover transition-transform [transition-duration:2000ms] group-hover:scale-105" referrerPolicy="no-referrer" />
       <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222,20%,8%)]/90 via-[hsl(222,20%,8%)]/50 to-transparent" />
       <div className="absolute inset-0 bg-gradient-to-r from-brand/20 via-transparent to-transparent" />
       <div className="absolute left-0 top-1/4 bottom-1/4 w-1 bg-gradient-to-b from-transparent via-brand to-transparent rounded-full" />

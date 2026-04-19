@@ -19,7 +19,7 @@ function FeaturedHero() {
   return (
     <div className="relative h-[420px] md:h-[460px] rounded-3xl overflow-hidden group">
       {/* Background with parallax effect */}
-      <img src={featured.image} alt={featured.name} className="w-full h-full object-cover transition-transform duration-[2s] group-hover:scale-105" referrerPolicy="no-referrer" />
+      <img src={featured.image} alt={featured.name} className="w-full h-full object-cover transition-transform [transition-duration:2000ms] group-hover:scale-105" referrerPolicy="no-referrer" />
 
       {/* Multi-layer gradient */}
       <div className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/50 to-transparent" />

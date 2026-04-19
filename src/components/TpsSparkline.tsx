@@ -206,11 +206,29 @@ export const TpsSparkline = React.memo(function TpsSparkline({
       seededRef.current = true;
     }
   }, [renderSeries]);
-  // Update target on new data
-  React.useEffect(() => { targetRef.current = renderSeries; }, [renderSeries]);
+  const resumeRef = React.useRef<(() => void) | null>(null);
+  // Update target on new data (and wake animation loop if it paused while settled)
+  React.useEffect(() => {
+    targetRef.current = renderSeries;
+    resumeRef.current?.();
+  }, [renderSeries]);
   // Continuous smoothing loop while hovered
   React.useEffect(() => {
+    let settledFrames = 0;
+    let paused = false;
+    function arraysClose(a: number[], b: number[], eps: number): boolean {
+      if (a.length !== b.length) return false;
+      for (let i = 0; i < a.length; i++) {
+        if (Math.abs((a[i] ?? 0) - (b[i] ?? 0)) > eps) return false;
+      }
+      return true;
+    }
     function step(now: number) {
+      if (document.hidden) {
+        paused = true;
+        pathAnimRef.current = null;
+        return;
+      }
       const prevTs = lastTsRef.current;
       lastTsRef.current = now;
       const dt = prevTs == null ? 16 : Math.max(0, now - prevTs);
@@ -247,8 +265,20 @@ export const TpsSparkline = React.memo(function TpsSparkline({
         const base = (blendedRef.current && blendedRef.current.length) ? blendedRef.current : (displaySeries.length ? displaySeries : to);
         const fromArr = resampleToLength(base, outLen);
         const tgtArr = resampleToLength(to, outLen);
-        // Very smooth exponential interpolation for fluid transitions
-        const smoothFactor = 0.012; // Very low = very smooth marker movement
+        // If the blended output is already ~equal to target, snap and pause.
+        if (arraysClose(fromArr, tgtArr, 0.25)) {
+          settledFrames += 1;
+          if (settledFrames > 4) {
+            blendedRef.current = tgtArr.slice();
+            paused = true;
+            pathAnimRef.current = null;
+            return;
+          }
+        } else {
+          settledFrames = 0;
+        }
+        // Exponential interpolation — converges within ~30 frames (~0.5s at 60fps)
+        const smoothFactor = 0.12;
         const blended = new Array(outLen);
         for (let i = 0; i < outLen; i++) {
           const diff = tgtArr[i] - fromArr[i];
@@ -304,12 +334,8 @@ export const TpsSparkline = React.memo(function TpsSparkline({
         if (markerRef.current) {
           const pathPoint = pathTopRef.current ? pointAtX(pathTopRef.current, markX) : null;
           const targetY = pathPoint?.y ?? (Number.isFinite(v) ? scaleY(v) : H / 2);
-          if (pathPoint) {
-            markerYRef.current = targetY;
-          } else {
-            const markerSmooth = 0.2;
-            markerYRef.current += (targetY - markerYRef.current) * markerSmooth;
-          }
+          const markerSmooth = pathPoint ? 0.25 : 0.15;
+          markerYRef.current += (targetY - markerYRef.current) * markerSmooth;
 
           markerRef.current.setAttribute('cx', String(markX));
           markerRef.current.setAttribute('cy', String(markerYRef.current));
@@ -317,9 +343,27 @@ export const TpsSparkline = React.memo(function TpsSparkline({
       }
       pathAnimRef.current = requestAnimationFrame(step);
     }
+    function resume() {
+      if (!paused) return;
+      paused = false;
+      settledFrames = 0;
+      lastTsRef.current = null;
+      if (pathAnimRef.current == null) {
+        pathAnimRef.current = requestAnimationFrame(step);
+      }
+    }
     if (pathAnimRef.current) cancelAnimationFrame(pathAnimRef.current);
     pathAnimRef.current = requestAnimationFrame(step);
-    return () => { if (pathAnimRef.current) cancelAnimationFrame(pathAnimRef.current); };
+    // Expose resume hook so outer effect can wake us on new data / visibility.
+    resumeRef.current = resume;
+    const onVis = () => { if (!document.hidden) resume(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      if (pathAnimRef.current) cancelAnimationFrame(pathAnimRef.current);
+      pathAnimRef.current = null;
+      resumeRef.current = null;
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, [pathAnimMs, H, W, XPAD, displaySeries, emaAlpha, yPadPx]);
 
   // target y-domain based on incoming data to avoid per-frame domain changes
