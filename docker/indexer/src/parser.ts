@@ -969,51 +969,43 @@ function detectAndMarkSwaps(transfers: TransferRow[]): void {
   }
 
   // Analyze each extrinsic group
+  const ZERO_ADDR = '0x0000000000000000000000000000000000000000';
   for (const [, group] of byExtrinsic.entries()) {
-    if (group.length < 2) continue; // Need at least 2 legs for swap
+    if (group.length < 2) continue;
 
-    // Collect unique addresses and tokens
-    const addresses = new Set<string>();
-    const tokens = new Set<string>();
+    // For each candidate user (a non-zero EVM address that participates as
+    // both source and sink), collect the set of tokens flowing OUT and IN
+    // (excluding mint/burn legs from/to the zero address). A real swap has
+    // exactly one outgoing token and one different incoming token. Two or
+    // more outs is an add-liquidity; two or more ins is a remove-liquidity.
+    const evmAddrs = new Set<string>();
     for (const t of group) {
-      addresses.add(t.fromId.toLowerCase());
-      addresses.add(t.toId.toLowerCase());
-      tokens.add(t.tokenId.toLowerCase());
+      const f = t.fromId.toLowerCase();
+      const to = t.toId.toLowerCase();
+      if (f && f !== ZERO_ADDR) evmAddrs.add(f);
+      if (to && to !== ZERO_ADDR) evmAddrs.add(to);
     }
 
-    // Swap requires at least 2 different tokens
-    if (tokens.size < 2) continue;
-
-    // Find a user address (appears in both from and to across different legs)
-    let userAddress: string | null = null;
-    for (const addr of addresses) {
-      const hasOutgoing = group.some(t => t.fromId.toLowerCase() === addr);
-      const hasIncoming = group.some(t => t.toId.toLowerCase() === addr);
-      if (hasOutgoing && hasIncoming) {
-        userAddress = addr;
-        break;
+    let isSwap = false;
+    for (const addr of evmAddrs) {
+      const outTokens = new Set<string>();
+      const inTokens = new Set<string>();
+      for (const t of group) {
+        const f = t.fromId.toLowerCase();
+        const to = t.toId.toLowerCase();
+        const tok = t.tokenId.toLowerCase();
+        if (f === addr && to !== ZERO_ADDR) outTokens.add(tok);
+        if (to === addr && f !== ZERO_ADDR) inTokens.add(tok);
+      }
+      if (outTokens.size === 1 && inTokens.size === 1) {
+        const [outT] = outTokens;
+        const [inT] = inTokens;
+        if (outT !== inT) { isSwap = true; break; }
       }
     }
 
-    if (!userAddress) continue; // No clear user address found
+    if (!isSwap) continue;
 
-    // Identify incoming and outgoing legs for the user
-    const outgoing = group.filter(t => t.fromId.toLowerCase() === userAddress);
-    const incoming = group.filter(t => t.toId.toLowerCase() === userAddress);
-
-    if (outgoing.length === 0 || incoming.length === 0) continue;
-
-    // Check if tokens differ between largest incoming and outgoing
-    const maxOut = outgoing.reduce((max, t) => 
-      BigInt(t.amount) > BigInt(max.amount) ? t : max
-    );
-    const maxIn = incoming.reduce((max, t) => 
-      BigInt(t.amount) > BigInt(max.amount) ? t : max
-    );
-
-    if (maxOut.tokenId.toLowerCase() === maxIn.tokenId.toLowerCase()) continue;
-
-    // Mark all transfers in this extrinsic as Swap
     for (const t of group) {
       t.reefswapAction = 'Swap';
     }
