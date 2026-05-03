@@ -171,26 +171,11 @@ export const AmountCellComponent = React.memo(function AmountCellComponent({ ctx
       return formatTokenAmount(abs, token.decimals, token.name);
     }
 
-    // Single-line BUY/SELL presentation for swaps (ERC-focused):
-    // - If bought leg is ERC (non-REEF, decimals>0) → show "+<bought> TOKEN" in green
-    // - Else if sold leg is ERC → show "−<sold> TOKEN" in yellow
-    // - Else fallback to showing +bought
-    const isErc = (tok?: { name?: string; decimals: number }) => !!tok && tok.decimals > 0 && (tok.name || '').toUpperCase() !== 'REEF';
-    const boughtIsErc = isErc(bought.token);
-    const soldIsErc = isErc(sold.token);
-    let primaryEl: JSX.Element | null = null;
-    if (boughtIsErc || !soldIsErc) {
-      // Prefer bought side when ERC (or when neither is ERC)
-      const cls = 'text-green-600';
-      primaryEl = <span className={cls}>+{boughtFmt}</span>;
-    } else {
-      const soldLabel = formatForLabel(soldAbs, sold.token);
-      const cls = 'text-yellow-700';
-      primaryEl = <span className={cls}>−{soldLabel}</span>;
-    }
+    const soldLabel = formatForLabel(soldAbs, sold.token);
     const content = (
-      <div className="flex flex-col">
-        {primaryEl ?? <span className="text-muted-foreground">—</span>}
+      <div className="flex flex-col leading-tight">
+        <span className="text-green-600">+{boughtFmt}</span>
+        <span className="text-yellow-700">−{soldLabel}</span>
       </div>
     );
 
