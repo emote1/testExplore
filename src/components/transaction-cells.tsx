@@ -3,7 +3,7 @@ import type { CellContext, HeaderContext } from '@tanstack/react-table';
 import type { UiTransfer } from '../data/transfer-mapper';
 import { formatTokenAmount, formatTimestampFull, parseTimestampToDate, formatTimeOfDay } from '../utils/formatters';
 import { ExternalLink } from './ui/external-link';
-import { Clock, ArrowDownLeft, ArrowUpRight, ArrowLeftRight, CheckCircle2, Clock as ClockIcon } from 'lucide-react';
+import { Clock, ArrowDownLeft, ArrowUpRight, ArrowLeftRight, ArrowRight, CheckCircle2, Clock as ClockIcon } from 'lucide-react';
 import { AddressDisplay } from './AddressDisplay';
 import { Tooltip, TooltipTrigger, TooltipProvider, TooltipContent } from './ui/tooltip';
 import { REEFSCAN_ORIGIN } from '@/constants/reefscan';
@@ -173,21 +173,41 @@ export const AmountCellComponent = React.memo(function AmountCellComponent({ ctx
 
     const soldLabel = formatForLabel(soldAbs, sold.token);
     const content = (
-      <div className="flex flex-col leading-tight">
-        <span className="text-green-600">+{boughtFmt}</span>
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
         <span className="text-yellow-700">−{soldLabel}</span>
-      </div>
+        <ArrowRight className="w-3 h-3 text-muted-foreground shrink-0" />
+        <span className="text-green-600">+{boughtFmt}</span>
+      </span>
     );
+
+    const isLpName = (n?: string) => !!n && n.startsWith('LP 0x');
+    const lpSides: Array<{ side: 'sold' | 'bought'; token: { id: string; name: string } }> = [];
+    if (isLpName(sold.token.name)) lpSides.push({ side: 'sold', token: sold.token });
+    if (isLpName(bought.token.name)) lpSides.push({ side: 'bought', token: bought.token });
 
     return (
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>{content}</TooltipTrigger>
           <TooltipContent>
-            <div className="space-y-1">
-              <div className="text-xs text-foreground">Bought: {boughtFmt}</div>
+            <div className="space-y-1 max-w-xs">
               <div className="text-xs text-foreground">Sold: {formatForLabel(soldAbs, sold.token)}</div>
+              <div className="text-xs text-foreground">Bought: {boughtFmt}</div>
               <div className="text-xs text-foreground">Rate: 1 {sold.token.name} = {rateStr()} {bought.token.name}</div>
+              {lpSides.map(({ side, token }) => (
+                <div key={side} className="text-xs text-muted-foreground border-t border-border/50 pt-1 mt-1">
+                  <span className="font-medium">{token.name}</span> is a Reefswap V2 liquidity-pair token.{' '}
+                  <a
+                    href={`${REEFSCAN_ORIGIN}/contract/${token.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline hover:text-foreground"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    View pair
+                  </a>
+                </div>
+              ))}
             </div>
           </TooltipContent>
         </Tooltip>
