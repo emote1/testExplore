@@ -905,7 +905,7 @@ export async function parseBlock(
     // staking.currentEra not available — skip
   }
 
-  // Detect swaps by analyzing transfers grouped by extrinsicHash
+  // Detect swaps by analyzing transfers grouped by extrinsicId
   detectAndMarkSwaps(transfers);
 
   // Fetch real names for new ERC20/ERC721/ERC1155 contracts (skip REEF native)
@@ -958,13 +958,14 @@ export async function parseBlock(
  * - Different tokens involved (token_id differs)
  */
 function detectAndMarkSwaps(transfers: TransferRow[]): void {
-  // Group transfers by extrinsicHash
+  // Group transfers by extrinsicId. extrinsicHash is always null in this
+  // indexer build, so grouping by it would skip every record.
   const byExtrinsic = new Map<string, TransferRow[]>();
   for (const t of transfers) {
-    if (!t.extrinsicHash || t.type !== 'ERC20') continue;
-    const group = byExtrinsic.get(t.extrinsicHash) || [];
+    if (!t.extrinsicId || t.type !== 'ERC20') continue;
+    const group = byExtrinsic.get(t.extrinsicId) || [];
     group.push(t);
-    byExtrinsic.set(t.extrinsicHash, group);
+    byExtrinsic.set(t.extrinsicId, group);
   }
 
   // Analyze each extrinsic group
