@@ -135,83 +135,20 @@ export const AmountCellComponent = React.memo(function AmountCellComponent({ ctx
     const boughtRaw = String(bought.amount || '0');
     const soldAbs = soldRaw.startsWith('-') ? soldRaw.slice(1) : soldRaw;
     const boughtAbs = boughtRaw.startsWith('-') ? boughtRaw.slice(1) : boughtRaw;
-    const boughtFmt = formatTokenAmount(boughtAbs, bought.token.decimals, bought.token.name);
 
-    function toNumeric(amount: string, decimals: number): number | null {
-      if (!/^\d+$/.test(amount || '')) return null;
-      try {
-        const bi = BigInt(amount);
-        const d = Math.max(0, decimals || 0);
-        const div = 10n ** BigInt(d);
-        const ip = div === 0n ? 0n : bi / (div || 1n);
-        const fp = div === 0n ? '0' : (bi % div).toString().padStart(d, '0');
-        const n = d === 0 ? Number(ip) : parseFloat(`${ip}.${fp}`);
-        return Number.isFinite(n) ? n : null;
-      } catch {
-        return null;
-      }
-    }
-    function rateStr(): string {
-      const soldNum = toNumeric(sold.amount, sold.token.decimals);
-      const boughtNum = toNumeric(bought.amount, bought.token.decimals);
-      if (soldNum == null || soldNum <= 0 || boughtNum == null) return '—';
-      const r = boughtNum / soldNum;
-      if (!Number.isFinite(r)) return '—';
-      return r.toLocaleString('en-US', { maximumFractionDigits: 6 });
-    }
-    // For the 'for …' line: if value is extremely small (< 1e-6), increase precision and prefix with ≈
-    function formatForLabel(rawAmount: string, token: { decimals: number; name: string }): string {
-      const raw = String(rawAmount || '0');
-      const abs = raw.startsWith('-') ? raw.slice(1) : raw;
-      const n = toNumeric(abs, token.decimals);
-      if (n != null && n > 0 && n < 1e-6) {
-        const precise = formatTokenAmount(abs, token.decimals, token.name, { maximumFractionDigits: Math.min(18, token.decimals) });
-        return `≈ ${precise}`;
-      }
-      return formatTokenAmount(abs, token.decimals, token.name);
-    }
+    // Compact pair-token label for the cell ("LP 0x07...0ef0" -> "LP").
+    // Full name with address is kept on the underlying token, so the
+    // Transaction Details modal still shows the contract id.
+    const compactName = (name: string) => name.startsWith('LP 0x') ? 'LP' : name;
+    const boughtFmt = formatTokenAmount(boughtAbs, bought.token.decimals, compactName(bought.token.name));
+    const soldFmt = formatTokenAmount(soldAbs, sold.token.decimals, compactName(sold.token.name));
 
-    const soldLabel = formatForLabel(soldAbs, sold.token);
-    const content = (
+    return (
       <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-        <span className="text-yellow-700">−{soldLabel}</span>
+        <span className="text-yellow-700">−{soldFmt}</span>
         <ArrowRight className="w-3 h-3 text-muted-foreground shrink-0" />
         <span className="text-green-600">+{boughtFmt}</span>
       </span>
-    );
-
-    const isLpName = (n?: string) => !!n && n.startsWith('LP 0x');
-    const lpSides: Array<{ side: 'sold' | 'bought'; token: { id: string; name: string } }> = [];
-    if (isLpName(sold.token.name)) lpSides.push({ side: 'sold', token: sold.token });
-    if (isLpName(bought.token.name)) lpSides.push({ side: 'bought', token: bought.token });
-
-    return (
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>{content}</TooltipTrigger>
-          <TooltipContent>
-            <div className="space-y-1 max-w-xs">
-              <div className="text-xs text-foreground">Sold: {formatForLabel(soldAbs, sold.token)}</div>
-              <div className="text-xs text-foreground">Bought: {boughtFmt}</div>
-              <div className="text-xs text-foreground">Rate: 1 {sold.token.name} = {rateStr()} {bought.token.name}</div>
-              {lpSides.map(({ side, token }) => (
-                <div key={side} className="text-xs text-muted-foreground border-t border-border/50 pt-1 mt-1">
-                  <span className="font-medium">{token.name}</span> is a Reefswap V2 liquidity-pair token.{' '}
-                  <a
-                    href={`${REEFSCAN_ORIGIN}/contract/${token.id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline hover:text-foreground"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    View pair
-                  </a>
-                </div>
-              ))}
-            </div>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
     );
   }
   const formattedAmount = formatTokenAmount(
