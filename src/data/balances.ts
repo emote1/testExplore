@@ -50,6 +50,9 @@ const TOKEN_HOLDERS_PAGED_HASURA_QUERY = parse(`
       balance
       token_id
       type
+      verified_contract {
+        contract_data
+      }
     }
     tokenHoldersAggregate: token_holder_aggregate(
       where: {
@@ -91,8 +94,9 @@ export function mapTokenHoldersToUiBalances(edges: Array<{ node?: any } | null> 
   const res: UiTokenBalance[] = [];
   for (const e of edges) {
     const n = e?.node;
-    // Support both Subsquid (token) and Hasura (token_id) field shapes
-    const tokenData = n?.token || (n?.token_id ? { id: n.token_id, contractData: null } : null);
+    // Support both Subsquid (token.contractData) and Hasura (token_id + verified_contract.contract_data) field shapes
+    const hasuraContractData = n?.verified_contract?.contract_data ?? null;
+    const tokenData = n?.token || (n?.token_id ? { id: n.token_id, contractData: hasuraContractData } : null);
     if (!tokenData?.id) continue;
     // Filter out NFT tokens (ERC721/ERC1155) — they belong in NFTs tab, not Holdings
     const tokenType = String(n?.type ?? tokenData?.type ?? '').toUpperCase();
