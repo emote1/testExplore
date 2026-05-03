@@ -117,3 +117,19 @@ export function parseTokenMetadata(
     return { name: fallbackName, decimals: fallbackDecimals };
   }
 }
+
+/**
+ * Replaces generic LP-token names (e.g. "REEF-V2" or "Reefswap V2", which
+ * every ReefSwap V2 pair shares) with a concrete `LP <short-addr>` so users
+ * can tell pair tokens apart in lists.
+ */
+const LP_GENERIC_NAMES = new Set(['REEF-V2', 'REEFSWAP V2']);
+
+export function prettifyTokenName(name: string | null | undefined, tokenId: string | null | undefined): string {
+  const n = (name ?? '').trim();
+  if (!n) return n;
+  if (!LP_GENERIC_NAMES.has(n.toUpperCase())) return n;
+  const id = (tokenId ?? '').trim();
+  if (!/^0x[a-fA-F0-9]{40}$/.test(id)) return n;
+  return `LP ${id.slice(0, 7)}…${id.slice(-4)}`;
+}
