@@ -1,13 +1,35 @@
 import { useEffect, useState, useRef } from 'react';
-import { reefSwapClient } from '@/reef-swap-client';
-import { POOL_EVENTS_COUNT_DOCUMENT } from '@/data/reef-swap';
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { useApolloClient, type ApolloClient, type NormalizedCacheObject } from '@apollo/client';
+import { parse } from 'graphql';
 import { useAddressResolver } from './use-address-resolver';
-import type { ApolloClient, NormalizedCacheObject } from '@apollo/client';
 
-// Module-level cache to avoid refetching for same address
 const swapCountCache = new Map<string, number>();
 
+interface SwapCountResp {
+  count: { aggregate: { count: number } };
+}
+
+const SWAP_COUNT_QUERY = parse(`
+  query SwapCountForAddress($evm: String!) {
+    count: transfer_aggregate(
+      where: {
+        reefswap_action: { _eq: "Swap" }
+        type: { _eq: "ERC20" }
+        _or: [
+          { from_evm_address: { _eq: $evm } }
+          { to_evm_address: { _eq: $evm } }
+        ]
+      }
+      distinct_on: extrinsic_id
+    ) {
+      aggregate { count }
+    }
+  }
+`);
+
 export function useSwapCountPrefetch(address: string | null, enabled: boolean = true): number | null {
+  const apollo = useApolloClient() as ApolloClient<NormalizedCacheObject>;
   const { resolveEvmAddress } = useAddressResolver();
   const [count, setCount] = useState<number | null>(null);
   const fetchedRef = useRef<string | null>(null);
@@ -17,48 +39,40 @@ export function useSwapCountPrefetch(address: string | null, enabled: boolean = 
       setCount(null);
       return;
     }
-
     let cancelled = false;
-
     (async () => {
       try {
         const evmAddress = await resolveEvmAddress(address);
         if (!evmAddress || cancelled) return;
+        const key = evmAddress.toLowerCase();
 
-        // Check cache first
-        const cached = swapCountCache.get(evmAddress.toLowerCase());
+        const cached = swapCountCache.get(key);
         if (typeof cached === 'number') {
           if (!cancelled) setCount(cached);
           return;
         }
 
-        // Avoid duplicate fetches for same address
-        if (fetchedRef.current === evmAddress.toLowerCase()) return;
-        fetchedRef.current = evmAddress.toLowerCase();
+        if (fetchedRef.current === key) return;
+        fetchedRef.current = key;
 
-        const client = reefSwapClient as ApolloClient<NormalizedCacheObject>;
-        const { data } = await client.query({
-          query: POOL_EVENTS_COUNT_DOCUMENT,
-          variables: { addr: evmAddress },
+        const { data } = await apollo.query<SwapCountResp>({
+          query: SWAP_COUNT_QUERY as TypedDocumentNode<SwapCountResp, { evm: string }>,
+          variables: { evm: key },
           fetchPolicy: 'cache-first',
         });
-
-        const total = data?.poolEventsConnection?.totalCount ?? 0;
-        swapCountCache.set(evmAddress.toLowerCase(), total);
+        const total = data?.count?.aggregate?.count ?? 0;
+        swapCountCache.set(key, total);
         if (!cancelled) setCount(total);
       } catch (e) {
-        // Silently fail - this is just prefetch
         console.debug('[swap-prefetch] failed', e);
       }
     })();
-
     return () => { cancelled = true; };
-  }, [address, enabled, resolveEvmAddress]);
+  }, [address, enabled, apollo, resolveEvmAddress]);
 
   return count;
 }
 
-// Clear cache (useful for testing)
 export function clearSwapCountCache(): void {
   swapCountCache.clear();
 }
