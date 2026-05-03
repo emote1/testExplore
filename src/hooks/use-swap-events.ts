@@ -3,7 +3,7 @@ import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { type ApolloClient, type NormalizedCacheObject, useApolloClient } from '@apollo/client';
 import { parse } from 'graphql';
 import type { UiTransfer } from '@/data/transfer-mapper';
-import { parseTokenMetadata, safeBigInt } from '@/utils/token-helpers';
+import { parseTokenMetadata, prettifyTokenName, safeBigInt } from '@/utils/token-helpers';
 import { useAddressResolver } from './use-address-resolver';
 import { isValidEvmAddressFormat } from '@/utils/address-helpers';
 
@@ -101,8 +101,10 @@ function legsToSwap(extrinsicId: string, legs: SwapLegRow[], userEvm: string): U
   if (!sold || !bought) return null;
   if (sold.token_id.toLowerCase() === bought.token_id.toLowerCase()) return null;
 
-  const soldMeta = parseTokenMetadata(sold.verified_contract?.contract_data, 'TOKEN');
-  const boughtMeta = parseTokenMetadata(bought.verified_contract?.contract_data, 'TOKEN');
+  const soldMetaRaw = parseTokenMetadata(sold.verified_contract?.contract_data, 'TOKEN');
+  const boughtMetaRaw = parseTokenMetadata(bought.verified_contract?.contract_data, 'TOKEN');
+  const soldMeta = { ...soldMetaRaw, name: prettifyTokenName(soldMetaRaw.name, sold.token_id) };
+  const boughtMeta = { ...boughtMetaRaw, name: prettifyTokenName(boughtMetaRaw.name, bought.token_id) };
 
   const blockHeight = Number(sold.block_height ?? bought.block_height);
   const extrinsicIndex = Number(sold.extrinsic_index ?? bought.extrinsic_index);

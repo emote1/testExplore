@@ -1,6 +1,6 @@
 import { isValidEvmAddressFormat } from '@/utils/address-helpers';
 import { getNumber, getString } from '@/utils/object';
-import { parseTokenMetadata, safeBigInt } from '@/utils/token-helpers';
+import { parseTokenMetadata, prettifyTokenName, safeBigInt } from '@/utils/token-helpers';
 // Use minimal shapes instead of tight GraphQL-generated types so both
 // paginated and polling queries can reuse the mapper without type friction.
 
@@ -188,8 +188,9 @@ function parseTokenData(transfer: Transfer): { name: string; decimals: number } 
   const meta = parseTokenMetadata(contractDataRaw, transfer.token.name);
   const metaName = String(meta.name || '').trim();
   const metaLower = metaName.toLowerCase();
+  const cleanedName = (!metaName || metaLower === 'unknown' || metaLower === 'token') ? fallbackTokenLabel : metaName;
   const result = {
-    name: (!metaName || metaLower === 'unknown' || metaLower === 'token') ? fallbackTokenLabel : metaName,
+    name: prettifyTokenName(cleanedName, tokenId),
     decimals: meta.decimals,
   };
   

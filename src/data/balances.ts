@@ -1,4 +1,4 @@
-import { parseTokenMetadata } from '@/utils/token-helpers';
+import { parseTokenMetadata, prettifyTokenName } from '@/utils/token-helpers';
 import { graphql } from '@/gql';
 import { parse } from 'graphql';
 import { isHasuraExplorerMode } from '@/utils/transfer-query';
@@ -122,7 +122,8 @@ export function mapTokenHoldersToUiBalances(edges: Array<{ node?: any } | null> 
     }
     
     const bal = String(n.balance ?? '0');
-    res.push({ token: { id: tokenId, name: meta.name, decimals: meta.decimals, image: meta.image }, balance: bal });
+    const displayName = prettifyTokenName(meta.name, tokenId);
+    res.push({ token: { id: tokenId, name: displayName, decimals: meta.decimals, image: meta.image }, balance: bal });
   }
   return res;
 }
