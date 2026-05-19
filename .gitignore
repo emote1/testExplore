@@ -36,6 +36,9 @@ icp-onchain/target/
 .env
 .env.e2e
 
+# Claude Code local settings (may contain machine-specific paths and stale secrets)
+.claude/settings.local.json
+
 # Playwright artifacts
 playwright-report/
 blob-report/
