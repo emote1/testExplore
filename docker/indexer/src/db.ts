@@ -464,23 +464,25 @@ export async function insertBlockBatch(block: BlockData) {
       );
     }
 
-    // 9. Insert contract calls
-    for (const cc of block.contractCalls) {
-      await client.query(
-        `INSERT INTO contract_call (id, block_height, extrinsic_id, from_id, to_id, value, gas_limit, gas_used, input, success, error_message, timestamp)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-         ON CONFLICT (id) DO NOTHING`,
-        [cc.id, cc.blockHeight, cc.extrinsicId, cc.fromId, cc.toId, cc.value, cc.gasLimit, cc.gasUsed, cc.input, cc.success, cc.errorMessage, cc.timestamp]
-      );
-    }
-
-    // 10. Insert extrinsics
+    // 9. Insert extrinsics BEFORE contract calls — contract_call.extrinsic_id
+    // has a FK to extrinsic.id, and FK checks are immediate: the old order
+    // aborted the whole block transaction for any block with an evm.call.
     for (const ext of block.extrinsics) {
       await client.query(
         `INSERT INTO extrinsic (id, block_height, block_hash, extrinsic_index, hash, signer_id, method, section, args, signature, nonce, tip, fee, success, error_message, timestamp)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
          ON CONFLICT (id) DO NOTHING`,
         [ext.id, ext.blockHeight, ext.blockHash, ext.extrinsicIndex, ext.hash, ext.signerId, ext.method, ext.section, ext.args ? JSON.stringify(ext.args) : null, ext.signature, ext.nonce, ext.tip, ext.fee, ext.success, ext.errorMessage, ext.timestamp]
+      );
+    }
+
+    // 10. Insert contract calls (their extrinsic rows now exist)
+    for (const cc of block.contractCalls) {
+      await client.query(
+        `INSERT INTO contract_call (id, block_height, extrinsic_id, from_id, to_id, value, gas_limit, gas_used, input, success, error_message, timestamp)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+         ON CONFLICT (id) DO NOTHING`,
+        [cc.id, cc.blockHeight, cc.extrinsicId, cc.fromId, cc.toId, cc.value, cc.gasLimit, cc.gasUsed, cc.input, cc.success, cc.errorMessage, cc.timestamp]
       );
     }
 
