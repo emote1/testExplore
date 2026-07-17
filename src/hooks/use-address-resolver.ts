@@ -1,5 +1,5 @@
-import { useCallback } from 'react';
-import { useLazyQuery } from '@apollo/client';
+import { useCallback, useState } from 'react';
+import { useApolloClient } from '@apollo/client';
 import { GET_ACCOUNT_BY_EVM_QUERY, GET_ACCOUNT_BY_NATIVE_QUERY } from '../data/addresses';
 import { getAddressType, isValidAddress } from '../utils/address-helpers';
 import type { GetAccountByEvmQuery, GetAccountByNativeQuery } from '@/gql/graphql';
@@ -24,8 +24,12 @@ const accountCache = createLruCache<string, ResolvedAccount>({ max: 512, ttlMs: 
 const pendingRequests = new Map<string, Promise<ResolvedAccount>>();
 
 export function useAddressResolver() {
-  const [getAccountByEvm, { loading: isResolvingEvm }] = useLazyQuery<GetAccountByEvmQuery>(GET_ACCOUNT_BY_EVM_QUERY);
-  const [getAccountByNative, { loading: isResolvingNative }] = useLazyQuery<GetAccountByNativeQuery>(GET_ACCOUNT_BY_NATIVE_QUERY);
+  // Imperative client.query instead of useLazyQuery: the lazy-query executor
+  // can re-issue the same request on re-render (observed as a duplicate
+  // GetAccountByNative on wallet entry); client.query fires exactly once and
+  // still reads/writes Apollo's normalized cache.
+  const client = useApolloClient();
+  const [inFlightCount, setInFlightCount] = useState(0);
 
   /**
    * Resolves both nativeId and evmAddress in ONE query.
@@ -53,7 +57,11 @@ export function useAddressResolver() {
       try {
         if (addressType === 'evm') {
           const evmAddress = normalizedEvm ?? address;
-          const { data } = await getAccountByEvm({ variables: { evmAddress } });
+          const { data } = await client.query<GetAccountByEvmQuery>({
+            query: GET_ACCOUNT_BY_EVM_QUERY,
+            variables: { evmAddress },
+            fetchPolicy: 'cache-first',
+          });
           const account = data?.accounts?.[0];
           const result: ResolvedAccount = {
             nativeId: account?.id || null,
@@ -65,7 +73,11 @@ export function useAddressResolver() {
           if (result.nativeId) accountCache.set(result.nativeId, result);
           return result;
         } else if (addressType === 'substrate') {
-          const { data } = await getAccountByNative({ variables: { nativeAddress: address } });
+          const { data } = await client.query<GetAccountByNativeQuery>({
+            query: GET_ACCOUNT_BY_NATIVE_QUERY,
+            variables: { nativeAddress: address },
+            fetchPolicy: 'cache-first',
+          });
           const account = data?.accounts?.[0];
           const evmAddress = account?.evmAddress ? String(account.evmAddress).toLowerCase() : null;
           const result: ResolvedAccount = {
@@ -85,14 +97,16 @@ export function useAddressResolver() {
 
     // Store pending request
     pendingRequests.set(cacheKey, fetchPromise);
+    setInFlightCount((n) => n + 1);
 
     // Clean up after completion
     fetchPromise.finally(() => {
       pendingRequests.delete(cacheKey);
+      setInFlightCount((n) => n - 1);
     });
 
     return fetchPromise;
-  }, [getAccountByEvm, getAccountByNative]);
+  }, [client]);
 
   /**
    * Resolves an address to native id (uses unified cache)
@@ -132,7 +146,7 @@ export function useAddressResolver() {
     return getAddressType(address);
   }, []);
 
-  const isResolving = isResolvingEvm || isResolvingNative;
+  const isResolving = inFlightCount > 0;
 
   return {
     resolveAddress,

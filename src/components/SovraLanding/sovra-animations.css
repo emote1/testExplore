@@ -1,0 +1,165 @@
+/*
+ * Keyframes used by the SOVRA landing components.
+ * Import this once in SovraLanding.tsx via `import './sovra-animations.css';`
+ *
+ * If your project's root CSS already defines a `liveDot` or `coralGlow` keyframe,
+ * either remove the duplicate here or rename references inside the components.
+ */
+
+@keyframes liveDot {
+  0%, 100% { opacity: 1;    transform: scale(1);   }
+  50%      { opacity: 0.35; transform: scale(1.6); }
+}
+
+@keyframes seaweedBar {
+  0%, 100% { transform: scaleY(1);    }
+  50%      { transform: scaleY(0.94); }
+}
+
+@keyframes barFadeIn {
+  from { opacity: 0; transform: translateY(8px) scaleY(0.3); }
+  to   { opacity: 1; transform: translateY(0)   scaleY(1);   }
+}
+
+@keyframes coralGlow {
+  0%, 100% { opacity: 0.82; }
+  50%      { opacity: 1;    }
+}
+
+@keyframes lockShake {
+  0%   { transform: rotate(0deg);    }
+  10%  { transform: rotate(-4.5deg); }
+  20%  { transform: rotate(3.5deg);  }
+  30%  { transform: rotate(-3deg);   }
+  40%  { transform: rotate(2.5deg);  }
+  50%  { transform: rotate(-1.8deg); }
+  60%  { transform: rotate(1.2deg);  }
+  75%  { transform: rotate(-0.5deg); }
+  100% { transform: rotate(0deg);    }
+}
+
+@keyframes coralSway {
+  0%   { transform: rotate(0deg);  }
+  25%  { transform: rotate(1deg);  }
+  50%  { transform: rotate(0deg);  }
+  75%  { transform: rotate(-1deg); }
+  100% { transform: rotate(0deg);  }
+}
+
+.coral-sway {
+  animation-name: coralSway;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+  transform-origin: bottom center;
+  will-change: transform;
+}
+
+/* Continuous gentle breathing for the live blocks sparkline so it never feels frozen */
+@keyframes sparkBreathe {
+  0%, 100% { transform: scale(1, 1);       }
+  25%      { transform: scale(1.015, 1.10); }
+  50%      { transform: scale(1, 0.94);    }
+  75%      { transform: scale(0.985, 1.06); }
+}
+
+.spark-breathe {
+  animation: sparkBreathe 5.5s ease-in-out infinite;
+  transform-origin: center;
+  will-change: transform;
+}
+
+/* Horizontal shimmer for the Active Wallets sparkline — light beam through water */
+@keyframes sparkShimmer {
+  0%   { background-position: -40% 0; }
+  100% { background-position: 140% 0; }
+}
+
+.spark-shimmer {
+  animation: sparkShimmer 6.5s ease-in-out infinite;
+  will-change: background-position;
+}
+
+/* Inline expansion that appears directly under a metric card on mobile,
+ * where cards are stacked in a single column. */
+@keyframes metricExpandIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+
+.metric-expand-inline {
+  grid-column: 1 / -1;
+  animation: metricExpandIn 0.32s cubic-bezier(.2, .7, .3, 1);
+}
+
+/* Validators table — responsive grid shared by sticky header + rows.
+ * Desktop: rank · name · staked · commission · apy
+ * Mobile (≤520px): rank and commission collapse so the validator name
+ * gets the full remaining width instead of being truncated. */
+.validator-grid {
+  display: grid;
+  grid-template-columns: 28px 1fr 70px 50px 50px;
+  gap: 12px;
+  align-items: center;
+}
+
+@media (max-width: 520px) {
+  .staked-expansion-pad {
+    padding: 18px 14px 14px !important;
+  }
+  .validator-grid {
+    grid-template-columns: 1fr 60px 48px;
+    gap: 10px;
+  }
+  .vg-rank,
+  .vg-comm {
+    display: none !important;
+  }
+}
+
+/* Pulsing endpoint dot — recent data point glows softly */
+@keyframes sparkEndpointPulse {
+  0%, 100% { transform: scale(1);   opacity: 0.9; }
+  50%      { transform: scale(1.6); opacity: 0.4; }
+}
+
+.spark-endpoint-pulse {
+  animation: sparkEndpointPulse 2.4s ease-in-out infinite;
+  transform-origin: center;
+  transform-box: fill-box;
+  will-change: transform, opacity;
+}
+
+/* ── Mooring anchor (wallet connect entry point, bottom center) ── */
+
+/* gentle bob, like something resting on the seabed */
+@keyframes svlAnchorBob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-4px); }
+}
+.svl-anchor-bob { animation: svlAnchorBob 3.6s ease-in-out infinite; }
+
+/* connecting: the anchor holds its breath */
+@keyframes svlAnchorPulse {
+  0%, 100% { opacity: 0.85; }
+  50%      { opacity: 0.35; }
+}
+.svl-anchor-pulse { animation: svlAnchorPulse 1.1s ease-in-out infinite; }
+
+/* ripple rings spreading from the anchor right before the dive */
+@keyframes svlMoorRing {
+  0%   { transform: translate(-50%, -50%) scale(0.25); opacity: 0.85; }
+  100% { transform: translate(-50%, -50%) scale(9);    opacity: 0;    }
+}
+.svl-moor-ring {
+  position: absolute; left: 50%; top: 50%;
+  width: 44px; height: 44px; border-radius: 50%;
+  pointer-events: none;
+  animation: svlMoorRing 0.7s cubic-bezier(.2,.6,.3,1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .svl-anchor-bob, .svl-anchor-pulse, .svl-moor-ring {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

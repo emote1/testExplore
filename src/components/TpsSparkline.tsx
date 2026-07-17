@@ -14,6 +14,9 @@ interface TpsSparklineProps {
   ease?: 'linear' | 'cubic';
   yPadPx?: number;         // vertical padding in pixels for top/bottom
   pathAnimMs?: number;     // path morph duration
+  strokeWidth?: number;    // line thickness in viewBox units (default 0.5)
+  markerR?: number;        // marker dot radius in viewBox units (default 0.8)
+  smoothFactor?: number;   // per-frame blend factor 0..1; smaller = smoother/slower (default 0.12)
 }
 
 function rollingAverage(data: number[], window: number): number[] {
@@ -159,6 +162,9 @@ export const TpsSparkline = React.memo(function TpsSparkline({
   fixedXFrac = 0.5,
   yPadPx = 3,
   pathAnimMs = 2400,
+  strokeWidth = 0.5,
+  markerR = 0.8,
+  smoothFactor = 0.12,
 }: TpsSparklineProps) {
   const W = width, H = height, XPAD = xpad;
   const lastNonEmptyRef = React.useRef<number[]>([]);
@@ -277,8 +283,7 @@ export const TpsSparkline = React.memo(function TpsSparkline({
         } else {
           settledFrames = 0;
         }
-        // Exponential interpolation — converges within ~30 frames (~0.5s at 60fps)
-        const smoothFactor = 0.12;
+        // Exponential interpolation — smaller smoothFactor = smoother but laggier
         const blended = new Array(outLen);
         for (let i = 0; i < outLen; i++) {
           const diff = tgtArr[i] - fromArr[i];
@@ -364,7 +369,7 @@ export const TpsSparkline = React.memo(function TpsSparkline({
       resumeRef.current = null;
       document.removeEventListener('visibilitychange', onVis);
     };
-  }, [pathAnimMs, H, W, XPAD, displaySeries, emaAlpha, yPadPx]);
+  }, [pathAnimMs, H, W, XPAD, displaySeries, emaAlpha, yPadPx, smoothFactor]);
 
   // target y-domain based on incoming data to avoid per-frame domain changes
   const yTarget = React.useMemo(() => {
@@ -487,8 +492,8 @@ export const TpsSparkline = React.memo(function TpsSparkline({
       </g>
       {/* Always show area (even when flat) to avoid flicker */}
       <path ref={areaRef} d={areaPath} fill={areaUrl} stroke="none" mask={maskUrl} />
-      <path ref={pathTopRef} d={sparkPath} fill="none" stroke={strokeUrl} strokeWidth={0.5} strokeLinecap="round" strokeLinejoin="round" />
-      <circle ref={markerRef} cx={marker.x} cy={marker.y} r={0.8} fill={trendColor} stroke="#fff" strokeWidth={0.3} />
+      <path ref={pathTopRef} d={sparkPath} fill="none" stroke={strokeUrl} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+      <circle ref={markerRef} cx={marker.x} cy={marker.y} r={markerR} fill={trendColor} stroke="#fff" strokeWidth={Math.max(0.2, markerR * 0.35)} />
     </svg>
   );
 });

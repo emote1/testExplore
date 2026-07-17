@@ -114,6 +114,24 @@ export function useSquidHealth(opts: Options = {}): SquidHealth {
       }
     }
 
+    // Browser connectivity events: flip to 'down' the moment the network is
+    // lost (instead of waiting up to intervalMs for the next poll to fail),
+    // and re-poll immediately on reconnect (the poll verifies it's real).
+    function handleOffline() {
+      if (!alive) return;
+      outageActiveRef.current = true;
+      setOutageActive(true);
+    }
+    function handleOnline() {
+      if (!alive) return;
+      cooldownUntilRef.current = null;
+      if (timer) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
+      tick();
+    }
+
     async function tick() {
       if (!alive || document.hidden) return;
 
@@ -198,11 +216,16 @@ export function useSquidHealth(opts: Options = {}): SquidHealth {
     }
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('online', handleOnline);
+    if (!navigator.onLine) handleOffline(); // already offline on mount
     tick();
 
     return () => {
       alive = false;
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', handleOnline);
       if (timer) window.clearTimeout(timer);
     };
   }, [client, timedQuery, enabled, circuitTripErrors, circuitCooldownMs]);

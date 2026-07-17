@@ -270,7 +270,7 @@ export interface ValidatorStake {
   apy: number | null;
 }
 
-interface TotalStakedState {
+export interface TotalStakedState {
   loading: boolean;
   error?: Error;
   totalStakedRaw: bigint;

@@ -15,6 +15,23 @@ export default defineConfig(async ({ mode }) => {
   const evmRpcTarget = env.VITE_REEF_EVM_RPC_URL ?? 'https://rpc.reefscan.com';
 
   const plugins = [
+    // Dev-only crash guard: an abrupt client disconnect (browser killed
+    // mid-request, e.g. by Playwright) surfaces as 'read ECONNRESET' on a raw
+    // socket with no 'error' listener — the per-proxy handlers below never see
+    // it, and Node kills the dev server. Swallow exactly that; rethrow the rest.
+    {
+      name: 'dev-ignore-econnreset',
+      apply: 'serve' as const,
+      configureServer() {
+        process.on('uncaughtException', (err: NodeJS.ErrnoException) => {
+          if (err?.code === 'ECONNRESET') {
+            console.warn('[vite-dev] ignored ECONNRESET (client disconnected)');
+            return;
+          }
+          throw err;
+        });
+      },
+    },
     react(),
     VitePWA({
       registerType: 'autoUpdate',
@@ -67,6 +84,19 @@ export default defineConfig(async ({ mode }) => {
     }
   }
 
+  // An upstream connection reset ('read ECONNRESET') is emitted as an 'error'
+  // event on the proxy socket; with no listener Node crashes the whole dev
+  // server. Swallow + log instead.
+  interface DevProxyInstance {
+    on(event: 'error', cb: (err: { code?: string; message?: string }) => void): void;
+    on(event: 'proxyReq', cb: (proxyReq: { setHeader: (name: string, value: string) => void }) => void): void;
+  }
+  const swallowProxyErrors = (proxyInstance: DevProxyInstance) => {
+    proxyInstance.on('error', (err) => {
+      console.warn('[vite-proxy]', err?.code ?? err?.message ?? err);
+    });
+  };
+
   const proxy: Record<string, unknown> = {
     '/api/reef-evm-rpc': {
       target: evmRpcTarget,
@@ -74,6 +104,7 @@ export default defineConfig(async ({ mode }) => {
       secure: false,
       ws: false,
       rewrite: () => '/',
+      configure: swallowProxyErrors,
     },
   };
 
@@ -84,12 +115,8 @@ export default defineConfig(async ({ mode }) => {
       secure: false,
       ws: false,
       rewrite: () => proxyPath,
-      configure: (proxyInstance: {
-        on: (
-          event: 'proxyReq',
-          callback: (proxyReq: { setHeader: (name: string, value: string) => void }) => void
-        ) => void;
-      }) => {
+      configure: (proxyInstance: DevProxyInstance) => {
+        swallowProxyErrors(proxyInstance);
         if (!proxyAdminSecret) return;
         proxyInstance.on('proxyReq', (proxyReq) => {
           proxyReq.setHeader('x-hasura-admin-secret', proxyAdminSecret);
@@ -105,6 +132,7 @@ export default defineConfig(async ({ mode }) => {
       secure: false,
       ws: false,
       rewrite: () => stakingSummaryProxyPath,
+      configure: swallowProxyErrors,
     };
   }
 
