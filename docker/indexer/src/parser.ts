@@ -29,12 +29,12 @@ function padBlockNum(n: number): string {
   return String(n).padStart(10, '0');
 }
 
-function makeTransferId(blockHeight: number, blockHash: string, index: number): string {
+export function makeTransferId(blockHeight: number, blockHash: string, index: number): string {
   const shortHash = blockHash.slice(2, 7);
   return `${padBlockNum(blockHeight)}-${shortHash}-${String(index).padStart(3, '0')}`;
 }
 
-function isValidEvmAddress(value: string): boolean {
+export function isValidEvmAddress(value: string): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(value);
 }
 
@@ -557,8 +557,16 @@ export async function parseBlock(
   let transferIndex = 0;
   let stakingEventIndex = 0;
 
-  // Process all events looking for balance transfers and staking events
-  for (const record of eventRecords) {
+  // native address -> claimed EVM address seen in this block; merged into
+  // `accounts` after the loop so a later accounts.set(addr, null) for the same
+  // address can't wipe the binding within the block.
+  const evmClaims = new Map<string, string>();
+
+  // Process all events looking for balance transfers and staking events.
+  // eventIdx is the event's position within the block's event list — the same
+  // numbering Subsquid/Reefscan use, so it must be stored as event_index
+  // (Reefscan's /transfer/{block}/{extrinsic}/{event} route resolves by it).
+  for (const [eventIdx, record] of eventRecords.entries()) {
     const { event, phase } = record;
     const extrinsicIndex = phase.isApplyExtrinsic ? phase.asApplyExtrinsic.toNumber() : 0;
 
@@ -586,7 +594,7 @@ export async function parseBlock(
         extrinsicId: `${padBlockNum(blockHeight)}-${blockHash.slice(2, 7)}-${String(extrinsicIndex).padStart(3, '0')}`,
         extrinsicHash,
         extrinsicIndex,
-        eventIndex: transferIndex - 1,
+        eventIndex: eventIdx,
         fromId: fromAddr,
         toId: toAddr,
         tokenId: REEF_CONTRACT,
@@ -600,6 +608,19 @@ export async function parseBlock(
         success: true,
         timestamp,
       });
+    }
+
+    // EVM address binding: evmAccounts.ClaimAccount(AccountId, EvmAddress).
+    // Persists the native<->EVM link on account.evm_address so ERC20 rows
+    // (keyed by EVM address) can be attributed to the substrate account.
+    if (event.section === 'evmAccounts' && event.method === 'ClaimAccount') {
+      const [accountId, evmAddress] = event.data as unknown as [
+        { toString(): string },
+        { toString(): string },
+      ];
+      const native = accountId.toString();
+      const evm = (evmAddress?.toString() ?? '').toLowerCase();
+      if (native && isValidEvmAddress(evm)) evmClaims.set(native, evm);
     }
 
     // EVM Log events: ERC20 Transfer, ERC721 Transfer, ERC1155 TransferSingle
@@ -654,7 +675,7 @@ export async function parseBlock(
             extrinsicId: `${padBlockNum(blockHeight)}-${blockHash.slice(2, 7)}-${String(extrinsicIndex).padStart(3, '0')}`,
             extrinsicHash: null,
             extrinsicIndex,
-            eventIndex: transferIndex - 1,
+            eventIndex: eventIdx,
             fromId: fromEvm,
             toId: toEvm,
             tokenId: contractAddress,
@@ -728,7 +749,7 @@ export async function parseBlock(
             extrinsicId: `${padBlockNum(blockHeight)}-${blockHash.slice(2, 7)}-${String(extrinsicIndex).padStart(3, '0')}`,
             extrinsicHash: null,
             extrinsicIndex,
-            eventIndex: transferIndex - 1,
+            eventIndex: eventIdx,
             fromId: fromEvm,
             toId: toEvm,
             tokenId: contractAddress,
@@ -783,7 +804,7 @@ export async function parseBlock(
             extrinsicId: `${padBlockNum(blockHeight)}-${blockHash.slice(2, 7)}-${String(extrinsicIndex).padStart(3, '0')}`,
             extrinsicHash: null,
             extrinsicIndex,
-            eventIndex: transferIndex - 1,
+            eventIndex: eventIdx,
             fromId: fromEvm,
             toId: toEvm,
             tokenId: contractAddress,
@@ -904,6 +925,10 @@ export async function parseBlock(
   } catch {
     // staking.currentEra not available — skip
   }
+
+  // EVM claims win over plain touches of the same account in this block
+  // (db upsert COALESCEs, so null never overwrites an existing binding).
+  for (const [native, evm] of evmClaims) accounts.set(native, evm);
 
   // Detect swaps by analyzing transfers grouped by extrinsicId
   detectAndMarkSwaps(transfers);

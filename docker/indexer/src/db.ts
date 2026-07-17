@@ -1,4 +1,5 @@
 import { Pool } from 'pg';
+import type { AccountBalanceRow } from './balances.js';
 
 const pool = new Pool({
   host: process.env.PG_HOST ?? 'localhost',
@@ -47,6 +48,36 @@ export async function upsertAccount(id: string, evmAddress: string | null) {
      ON CONFLICT (id) DO UPDATE SET evm_address = COALESCE(EXCLUDED.evm_address, account.evm_address)`,
     [id, evmAddress]
   );
+}
+
+/**
+ * Write the current native balance breakdown (free/locked/available/reserved)
+ * onto existing `account` rows. UPDATE-only: the account row is upserted
+ * elsewhere (insertBlockBatch / pre-existing) — a missing id is a harmless no-op.
+ */
+export async function updateAccountBalances(rows: AccountBalanceRow[]) {
+  if (rows.length === 0) return;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (const b of rows) {
+      await client.query(
+        `UPDATE account
+           SET free_balance      = $2::numeric,
+               locked_balance    = $3::numeric,
+               available_balance = $4::numeric,
+               reserved_balance  = $5::numeric
+         WHERE id = $1`,
+        [b.id, b.free, b.locked, b.available, b.reserved]
+      );
+    }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 export async function upsertVerifiedContract(

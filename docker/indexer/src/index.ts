@@ -10,9 +10,12 @@ import {
   mergeContractIcon,
   getNftsWithoutMetadataUri,
   updateNftMetadataUri,
+  updateAccountBalances,
   close,
 } from './db.js';
 import { parseBlock, fetchContractIcon, downloadIcon, fetchNftTokenUri, fetchNftMetadataJson } from './parser.js';
+import { fetchBalances, isNativeAccount } from './balances.js';
+import { REEF_API_OPTIONS } from './reef-types.js';
 
 // ─── Configuration ──────────────────────────────────────────
 const RPC_URL = process.env.RPC_URL ?? 'wss://rpc.reefscan.info/ws';
@@ -22,20 +25,6 @@ const START_BLOCK = Number(process.env.START_BLOCK ?? 0); // 0 = auto-detect
 const BACKFILL = (process.env.BACKFILL ?? 'false').toLowerCase() === 'true';
 const BACKFILL_TARGET = Number(process.env.BACKFILL_TARGET ?? 1); // stop at this block
 
-const REEF_TYPE_OVERRIDES = {
-  EvmAddress: 'H160',
-  CurrencyId: 'u32',
-  CurrencyIdOf: 'u32',
-  AmountOf: 'i128',
-  AsOriginId: 'u32',
-  PalletBalanceOf: 'u128',
-  ScheduleTaskIndex: 'u32',
-  LockDuration: 'u64',
-  DispatchTime: 'u64',
-  CommitmentOf: 'H256',
-  CodeInfo: 'Bytes',
-  EvmAccountInfo: 'Bytes',
-} as const;
 
 // REEF native token — ensure it exists in verified_contract
 const REEF_CONTRACT = '0x0000000000000000000000000000000001000000';
@@ -151,7 +140,7 @@ async function backfillNftMetadata(provider: WsProvider): Promise<void> {
 async function main() {
   console.log('🔗 Connecting to Reef Chain RPC:', RPC_URL);
   const provider = new WsProvider(RPC_URL);
-  const api = await ApiPromise.create({ provider, types: REEF_TYPE_OVERRIDES });
+  const api = await ApiPromise.create({ provider, ...REEF_API_OPTIONS });
 
   const chain = await api.rpc.system.chain();
   const finalizedHead = await api.rpc.chain.getFinalizedHead();
@@ -306,6 +295,10 @@ async function processBatch(
   let transfers = 0, accounts = 0, contracts = 0;
   let staking = 0, validators = 0, nfts = 0;
 
+  // Native accounts touched in this batch — their balance breakdown is refreshed
+  // (forward only) from the live chain head after inserts. See refresh below.
+  const touchedNatives = new Set<string>();
+
   const skipExtrinsics = direction === -1; // backfill: no getBlock needed
 
   // Build ordered list of block numbers
@@ -341,6 +334,9 @@ async function processBatch(
           staking += result.value.stakingEvents.length;
           validators += result.value.eraValidators.length;
           nfts += result.value.nfts.length;
+          for (const addr of result.value.accounts.keys()) {
+            if (isNativeAccount(addr)) touchedNatives.add(addr);
+          }
         } catch (dbErr) {
           console.warn(`${direction === 1 ? '⚠️' : '⏪'} DB error block #${blockNum}: ${(dbErr as Error).message.split('\n')[0]}`);
         }
@@ -350,6 +346,20 @@ async function processBatch(
           await setLastIndexedBlock(blockNum, '0x0000000000000000000000000000000000000000000000000000000000000000');
         }
       }
+    }
+  }
+
+  // Refresh native balance breakdown (free/locked/available/reserved) for the
+  // accounts touched in this batch, reading the LIVE chain head (current balance).
+  // Forward only: backfill blocks are historical and the dedicated snapshot
+  // script (backfill-balances.ts) populates the full account set. Best-effort —
+  // a balance read failure must never break block indexing.
+  if (direction === 1 && touchedNatives.size > 0) {
+    try {
+      const balances = await fetchBalances(api, [...touchedNatives]);
+      await updateAccountBalances(balances);
+    } catch (err) {
+      console.warn(`⚠️ Balance refresh failed: ${(err as Error).message.split('\n')[0]}`);
     }
   }
 
