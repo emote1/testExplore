@@ -50,7 +50,12 @@ interface GraphReservesRow {
   reserved2?: string | number;
 }
 
+// The public reef-swap squid has been returning 404 for months; after the
+// first hard 404 stop hitting it for the rest of the session.
+let squidGone = false;
+
 async function graphFetch<T>(query: string, variables: Record<string, unknown>, signal?: AbortSignal): Promise<T | null> {
+  if (squidGone) return null;
   try {
     const res = await fetch(SQUID_URL, {
       method: 'POST',
@@ -58,6 +63,7 @@ async function graphFetch<T>(query: string, variables: Record<string, unknown>, 
       body: JSON.stringify({ query, variables }),
       signal,
     });
+    if (res.status === 404 || res.status === 410) { squidGone = true; return null; }
     if (!res.ok) return null;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const json = await res.json().catch(() => null) as any;

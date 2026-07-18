@@ -178,24 +178,11 @@ export default defineConfig(async ({ mode }) => {
             // GraphQL and Apollo
             'apollo-vendor': ['@apollo/client', 'graphql', 'graphql-ws'],
             // TanStack ecosystem
-            'tanstack-vendor': [
-              '@tanstack/react-query',
-              '@tanstack/react-table',
-              '@tanstack/react-virtual',
-            ],
+            'tanstack-vendor': ['@tanstack/react-query'],
             // Polkadot/Reef libraries
-            'polkadot-vendor': [
-              '@polkadot/util-crypto',
-              '@reef-chain/util-lib',
-            ],
+            'polkadot-vendor': ['@polkadot/util-crypto'],
             // UI libraries
-            'ui-vendor': [
-              'recharts',
-              'lucide-react',
-              'clsx',
-              'tailwind-merge',
-              'class-variance-authority',
-            ],
+            'ui-vendor': ['lucide-react'],
             // State management
             'state-vendor': ['zustand'],
           },
