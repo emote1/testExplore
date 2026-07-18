@@ -49,3 +49,6 @@ test-results/
 # Excluded folders
 Output/
 .playwright-mcp/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
