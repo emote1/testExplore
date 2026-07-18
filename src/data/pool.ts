@@ -80,6 +80,7 @@ export const POOL_TRANSFERS_QUERY = parse(`
       extrinsicHash: extrinsic_hash
       extrinsicIndex: extrinsic_index
       eventIndex: event_index
+      verifiedContract: verified_contract { name contract_data }
     }
   }
 `) as unknown as AnyDoc;
@@ -113,6 +114,7 @@ export const POOL_RECENT_TRANSFERS_QUERY = parse(`
       extrinsicHash: extrinsic_hash
       extrinsicIndex: extrinsic_index
       eventIndex: event_index
+      verifiedContract: verified_contract { name contract_data }
     }
   }
 `) as unknown as AnyDoc;

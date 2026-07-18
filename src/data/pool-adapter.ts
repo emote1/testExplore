@@ -8,6 +8,7 @@ import type {
 } from '@/components/SovraWaterfall/types';
 import { REEF_TOKEN_ADDRESS } from '@/utils/evm-call';
 import { isMrdId, isUsdcId } from '@/tokens/token-ids';
+import { parseTokenMetadata, prettifyTokenName } from '@/utils/token-helpers';
 
 const REEF_ID = REEF_TOKEN_ADDRESS.toLowerCase();
 
@@ -70,6 +71,18 @@ export interface RawTransferRow {
   extrinsicHash?: string | null;
   extrinsicIndex?: number | null;
   eventIndex?: number | null;
+  verifiedContract?: { name?: string | null; contract_data?: unknown } | null;
+}
+
+/** Display meta for a transfer row: prefer the row's verified_contract
+ *  metadata (real symbol + decimals), fall back to the known-id map. */
+export function tokenMetaForRow(row: RawTransferRow): { decimals: number; symbol: string } {
+  const base = tokenMeta(row.tokenId);
+  const vc = row.verifiedContract;
+  if (!vc) return base;
+  const parsed = parseTokenMetadata(vc.contract_data, vc.name ?? base.symbol, base.decimals);
+  const symbol = prettifyTokenName(parsed.name, row.tokenId) || base.symbol;
+  return { decimals: parsed.decimals, symbol };
 }
 
 export interface RawStakingRow {
@@ -145,7 +158,7 @@ export function buildCalendarIndex(rows: RawDailyRow[] | null | undefined): Cale
 export function transferRowToSovraTx(
   row: RawTransferRow, account: string | readonly string[], prices: PoolPrices, now: number,
 ): SovraTx {
-  const meta = tokenMeta(row.tokenId);
+  const meta = tokenMetaForRow(row);
   const amount = rawToNumber(row.amount, meta.decimals);
   const price = priceFor(row.tokenId, prices);
   const valueUsd = price != null ? amount * price : 0;
