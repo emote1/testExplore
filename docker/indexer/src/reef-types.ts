@@ -11,6 +11,11 @@
 // blocks 741684 / 1311605 / 9971077 / 15261713 / 16223997.
 
 export const REEF_TYPES = {
+  // Reef's runtime predates the [u8;4] module-error layout: ExtrinsicFailed
+  // carries DispatchError.Module{index:u8, error:u8}. Without this override the
+  // default (4-byte error) misaligns the whole system.events vector for any
+  // block containing a failed extrinsic.
+  DispatchErrorModule: { index: 'u8', error: 'u8' },
   CallOf: 'Call',
   DispatchTime: { _enum: { At: 'BlockNumber', After: 'BlockNumber' } },
   ScheduleTaskIndex: 'u32',
