@@ -154,14 +154,25 @@ async function main() {
   let failed: number[] = [];
   const started = Date.now();
 
+  // A dropped RPC websocket reconnects on its own; retry the block instead of
+  // failing the rest of the run (a mid-run drop once burned 12k blocks).
+  const parseWithRetry = async (h: number, attempts = 5) => {
+    for (let a = 1; ; a++) {
+      try {
+        const hash = await api.rpc.chain.getBlockHash(h);
+        return await parseBlock(api, provider, hash.toHex(), false, true);
+      } catch (e) {
+        const msg = (e as Error)?.message ?? '';
+        const transient = /WebSocket is not connected|disconnected from|connection closure|Abnormal closing/i.test(msg);
+        if (a >= attempts || !transient) throw e;
+        await new Promise((r) => setTimeout(r, 5000 * a));
+      }
+    }
+  };
+
   for (let i = 0; i < heights.length; i += CONC) {
     const chunk = heights.slice(i, i + CONC);
-    const results = await Promise.allSettled(
-      chunk.map(async (h) => {
-        const hash = await api.rpc.chain.getBlockHash(h);
-        return parseBlock(api, provider, hash.toHex(), false, true);
-      }),
-    );
+    const results = await Promise.allSettled(chunk.map((h) => parseWithRetry(h)));
 
     for (let j = 0; j < results.length; j++) {
       const h = chunk[j];
