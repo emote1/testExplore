@@ -11,6 +11,8 @@
 //   HEAL_FROM=700000 HEAL_TO=2200000   walk every block in the range
 //   HEAL_SQUID=true                    only heights where the public Subsquid
 //                                      has transfers in the range (much faster)
+//   HEAL_TYPES=ERC20,ERC721,ERC1155    with HEAL_SQUID: only blocks that have
+//                                      transfers of these types (EVM damage)
 //   HEAL_BLOCKS=1311605,1449234        explicit comma-separated list (testing)
 //   HEAL_DRY=true                      parse + report, write nothing
 //   HEAL_CONCURRENCY=8                 parallel block parses
@@ -39,6 +41,11 @@ const EXPLICIT = (process.env.HEAL_BLOCKS ?? '')
   .map((s) => Number(s.trim()))
   .filter((n) => Number.isFinite(n) && n > 0);
 const PROGRESS_FILE = process.env.HEAL_PROGRESS_FILE ?? 'heal-progress.log';
+// e.g. "ERC20,ERC721,ERC1155" — restricts the squid scan to those transfer types
+const TYPES = (process.env.HEAL_TYPES ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter((s) => /^[A-Za-z0-9]+$/.test(s));
 
 const ZERO_ADDR = '0x0000000000000000000000000000000000000000';
 
@@ -53,6 +60,7 @@ async function squidHeights(from: number, to: number): Promise<number[]> {
   let afterId = '';
   let fetched = 0;
   for (;;) {
+    const typeFilter = TYPES.length > 0 ? `, type_in: [${TYPES.join(', ')}]` : '';
     const res = await fetch(SQUID_URL, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -60,7 +68,7 @@ async function squidHeights(from: number, to: number): Promise<number[]> {
         // limit 200: the public squid rejects larger pages ("response might
         // exceed the size limit")
         query:
-          'query($f:Int!,$t:Int!,$a:String!){ transfers(where:{blockHeight_gte:$f, blockHeight_lte:$t, id_gt:$a}, orderBy: id_ASC, limit: 200){ id blockHeight } }',
+          `query($f:Int!,$t:Int!,$a:String!){ transfers(where:{blockHeight_gte:$f, blockHeight_lte:$t, id_gt:$a${typeFilter}}, orderBy: id_ASC, limit: 200){ id blockHeight } }`,
         variables: { f: from, t: to, a: afterId },
       }),
     });
